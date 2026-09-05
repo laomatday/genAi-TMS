@@ -20,9 +20,8 @@ import type {
   TrustedDeviceInfo,
 } from './types';
 
-interface ServiceError {
-  message?: string;
-}
+interface ServiceError { message?: string; }
+type DataRow = Record<string, unknown>;
 
 function fail(error: ServiceError | null, fallback: string): never {
   throw new Error(error?.message || fallback);
@@ -38,6 +37,18 @@ async function edgeFunctionError(error: unknown, fallback: string) {
     }
   }
   return new Error(error instanceof Error && error.message ? error.message : fallback);
+}
+
+async function workforceCommand(action: string, args: Record<string, unknown>) {
+  const { data, error } = await supabase.rpc('workforce_command', {
+    p_action: action,
+    p_args: args,
+  });
+  if (error) fail(error, 'Không thể hoàn tất thao tác Workforce.');
+  if (!data || typeof data !== 'object' || (data as DataRow).ok !== true) {
+    throw new Error(typeof (data as DataRow | null)?.message === 'string' ? String((data as DataRow).message) : 'Thao tác Workforce không thành công.');
+  }
+  return data as DataRow;
 }
 
 function isMissingWorkforceSchema(error: { code?: string; message?: string } | null) {
@@ -69,9 +80,7 @@ async function getWorkforceOperations(range: AttendanceRange): Promise<{
   ]);
   if (assignments.error || periods.error) {
     const error = assignments.error || periods.error;
-    if (isMissingWorkforceSchema(error)) {
-      return { shiftAssignments: [], attendancePeriods: [], available: false };
-    }
+    if (isMissingWorkforceSchema(error)) return { shiftAssignments: [], attendancePeriods: [], available: false };
     fail(error, 'Không tải được dữ liệu phân ca và kỳ công.');
   }
   return {
@@ -81,19 +90,10 @@ async function getWorkforceOperations(range: AttendanceRange): Promise<{
   };
 }
 
-async function refreshAttendanceExceptions(range: AttendanceRange) {
-  const { error } = await supabase.rpc('refresh_tms_exceptions_v2', {
-    p_from: range.from,
-    p_to: range.to,
-  });
-  if (error) fail(error, 'Không đồng bộ được ngoại lệ chấm công.');
-}
-
 async function getTimesheets(range: AttendanceRange): Promise<Timesheet[]> {
   const rows: Timesheet[] = [];
   let cursorDate = '';
   let cursorId = '';
-
   while (true) {
     let query = supabase
       .from('timesheets')
@@ -103,9 +103,7 @@ async function getTimesheets(range: AttendanceRange): Promise<Timesheet[]> {
       .order('work_date', { ascending: false })
       .order('id')
       .limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
-    if (cursorDate && cursorId) {
-      query = query.or(`work_date.lt.${cursorDate},and(work_date.eq.${cursorDate},id.gt.${cursorId})`);
-    }
+    if (cursorDate && cursorId) query = query.or(`work_date.lt.${cursorDate},and(work_date.eq.${cursorDate},id.gt.${cursorId})`);
     const { data, error } = await query;
     if (error) fail(error, 'Không tải được bảng công.');
     const page = (data || []) as Timesheet[];
@@ -115,7 +113,6 @@ async function getTimesheets(range: AttendanceRange): Promise<Timesheet[]> {
     cursorId = page[page.length - 1]?.id || '';
     if (!cursorDate || !cursorId) break;
   }
-
   return rows.sort((a, b) => b.work_date.localeCompare(a.work_date) || a.employee_id.localeCompare(b.employee_id));
 }
 
@@ -127,6 +124,7 @@ async function getPendingRequests(): Promise<AttendanceRequest[]> {
       .from('attendance_requests')
       .select('*')
       .eq('status', 'PENDING')
+      .in('request_type', ['EXPLANATION', 'CORRECTION'])
       .order('id')
       .limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
     if (cursor) query = query.gt('id', cursor);
@@ -148,8 +146,9 @@ async function getMonthlyRequests(range: AttendanceRange): Promise<AttendanceReq
     let query = supabase
       .from('attendance_requests')
       .select('*')
-      .gte('created_at', `${range.from}T00:00:00.000Z`)
-      .lte('created_at', `${range.to}T23:59:59.999Z`)
+      .in('request_type', ['EXPLANATION', 'CORRECTION'])
+      .lte('from_date', range.to)
+      .gte('to_date', range.from)
       .order('id')
       .limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
     if (cursor) query = query.gt('id', cursor);
@@ -179,11 +178,7 @@ async function getEmployees(): Promise<Employee[]> {
   const rows: Array<Record<string, unknown>> = [];
   let cursor = '';
   while (true) {
-    let query = supabase
-      .from('employees')
-      .select('*')
-      .order('employee_id')
-      .limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
+    let query = supabase.from('employees').select('*').order('employee_id').limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
     if (cursor) query = query.gt('employee_id', cursor);
     const { data, error } = await query;
     if (error) fail(error, 'Không tải được danh sách nhân viên.');
@@ -200,39 +195,19 @@ function attachWorkDates(requests: AttendanceRequest[], timesheets: Timesheet[])
   const dates = new Map(timesheets.map((timesheet) => [timesheet.id, timesheet.work_date]));
   return requests.map((request) => ({
     ...request,
-    work_date: request.work_date || dates.get(request.timesheet_id),
+    work_date: request.work_date || (request.timesheet_id ? dates.get(request.timesheet_id) : undefined) || request.from_date,
     origin: 'timesheet' as const,
   }));
 }
 
 export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
-  if (!isSupabaseConfigured) {
-    throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
-  }
-  await refreshAttendanceExceptions(range);
-  const [
-    employees,
-    locations,
-    policies,
-    stations,
-    devices,
-    shifts,
-    systemSettings,
-    holidays,
-    auditLogs,
-    timesheets,
-    pendingRequestsRaw,
-    monthlyRequestsRaw,
-    workforce,
-  ] = await Promise.all([
+  if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
+  const [employees, locations, policies, stations, devices, shifts, systemSettings, holidays, auditLogs, timesheets, pendingRequestsRaw, monthlyRequestsRaw, workforce] = await Promise.all([
     getEmployees(),
     supabase.from('locations').select('*').order('center_name'),
     supabase.from('attendance_policies').select('*').order('name'),
     supabase.from('qr_stations').select('*').order('updated_at', { ascending: false }),
-    supabase
-      .from('trusted_devices')
-      .select('device_id,employee_id,device_label,user_agent,status,activated_at,last_seen_at')
-      .order('activated_at', { ascending: false }),
+    supabase.from('trusted_devices').select('device_id,employee_id,device_label,user_agent,status,activated_at,last_seen_at,organization_id').order('activated_at', { ascending: false }),
     supabase.from('config_shifts').select('*').order('sort_order'),
     supabase.from('config_system').select('key,value,updated_at').order('key'),
     supabase.from('holidays').select('*').order('from_date', { ascending: false }),
@@ -242,14 +217,12 @@ export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
     getMonthlyRequests(range),
     getWorkforceOperations(range),
   ]);
-
   for (const result of [locations, policies, stations, devices, shifts, systemSettings, holidays, auditLogs]) {
     if (result.error) fail(result.error, 'Không tải được dữ liệu quản trị.');
   }
 
   const requests = attachWorkDates(pendingRequestsRaw, timesheets);
   const monthlyRequests = attachWorkDates(monthlyRequestsRaw, timesheets);
-
   return {
     employees,
     locations: (locations.data || []) as TmsLocation[],
@@ -271,36 +244,25 @@ export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
 
 export async function reviewAttendanceRequest(request: AttendanceRequest, status: 'APPROVED' | 'REJECTED', note = '') {
   if (!isSupabaseConfigured) return { id: request.id, status, note };
-  const { data, error } = await supabase.rpc('review_attendance_request_v2', {
-    p_id: request.id,
-    p_status: status,
-    p_note: note,
+  if (status === 'REJECTED' && note.trim().length < 5) throw new Error('Từ chối yêu cầu cần ghi chú ít nhất 5 ký tự.');
+  return workforceCommand('request.review', {
+    id: request.id,
+    revision: Number(request.revision || 0),
+    decision: status,
+    note: note.trim(),
   });
-  if (error) fail(error, 'Không xử lý được yêu cầu.');
-  return data;
 }
 
-export async function reviewAttendanceRequestsBulk(
-  requests: AttendanceRequest[],
-  status: 'APPROVED' | 'REJECTED',
-  note = '',
-) {
+export async function reviewAttendanceRequestsBulk(requests: AttendanceRequest[], status: 'APPROVED' | 'REJECTED', note = '') {
   if (!requests.length) return 0;
   if (!isSupabaseConfigured) return requests.length;
-  const canonicalRequests = requests.map((request) => ({ id: request.id, origin: 'timesheet' }));
-  const { data, error } = await supabase.rpc('review_attendance_requests_bulk_v1', {
-    p_requests: canonicalRequests,
-    p_status: status,
-    p_note: note,
+  if (status === 'REJECTED' && note.trim().length < 5) throw new Error('Từ chối hàng loạt cần ghi chú ít nhất 5 ký tự.');
+  const result = await workforceCommand('request.review_many', {
+    requests: requests.map((request) => ({ id: request.id, revision: Number(request.revision || 0) })),
+    decision: status,
+    note: note.trim(),
   });
-  if (!error) return Number(data || requests.length);
-
-  let processedCount = 0;
-  for (const request of requests) {
-    await reviewAttendanceRequest(request, status, note);
-    processedCount += 1;
-  }
-  return processedCount;
+  return Number(result.count || requests.length);
 }
 
 export async function saveShiftAssignments(assignments: Array<{
@@ -309,25 +271,58 @@ export async function saveShiftAssignments(assignments: Array<{
   shift_id: number;
   location_id?: string | null;
   note?: string;
+  revision?: number;
 }>) {
-  const { data, error } = await supabase.rpc('save_shift_assignments_v1', { p_assignments: assignments });
-  if (error) fail(error, 'Không lưu được lịch phân ca.');
-  return Number(data || 0);
+  if (!assignments.length) return 0;
+  const employeeIds = [...new Set(assignments.map((assignment) => assignment.employee_id))];
+  const dates = assignments.map((assignment) => assignment.work_date).sort();
+  const { data: existing, error } = await supabase
+    .from('shift_assignments')
+    .select('employee_id,work_date,revision,publication_status')
+    .in('employee_id', employeeIds)
+    .gte('work_date', dates[0] || '')
+    .lte('work_date', dates[dates.length - 1] || '');
+  if (error) fail(error, 'Không kiểm tra được phiên bản lịch hiện tại.');
+  const existingMap = new Map((existing || []).map((item) => [`${item.employee_id}:${item.work_date}`, item]));
+  const editingPublished = (existing || []).some((item) => item.publication_status === 'PUBLISHED');
+  const result = await workforceCommand('schedule.save', {
+    assignments: assignments.map((assignment) => {
+      const current = existingMap.get(`${assignment.employee_id}:${assignment.work_date}`);
+      return {
+        ...assignment,
+        revision: current?.revision ?? assignment.revision,
+      };
+    }),
+    override_reason: editingPublished ? 'Điều chỉnh lịch từ Control Center' : '',
+  });
+  return Number(result.count || assignments.length);
 }
 
-export async function deleteShiftAssignment(id: string, reason = '') {
-  const { error } = await supabase.rpc('delete_shift_assignment_v1', { p_id: id, p_reason: reason });
-  if (error) fail(error, 'Không xóa được lịch phân ca.');
+export async function publishShiftAssignments(range: AttendanceRange) {
+  const result = await workforceCommand('schedule.publish', { from: range.from, to: range.to });
+  return Number(result.count || 0);
+}
+
+export async function deleteShiftAssignment(id: string, _reason = '') {
+  const { data, error } = await supabase.from('shift_assignments').select('id,revision,publication_status').eq('id', id).maybeSingle();
+  if (error) fail(error, 'Không đọc được lịch phân ca.');
+  if (!data) throw new Error('Lịch phân ca không còn tồn tại.');
+  if (data.publication_status === 'PUBLISHED') throw new Error('Lịch đã công bố. Hãy điều chỉnh lịch thay vì xóa trực tiếp.');
+  await workforceCommand('schedule.delete', { id, revision: Number(data.revision || 0) });
+}
+
+export async function preparePayrollExport(range: AttendanceRange) {
+  return workforceCommand('payroll.export', { from: range.from, to: range.to });
 }
 
 export async function closeAttendancePeriod(range: AttendanceRange, note = '') {
-  const { data, error } = await supabase.rpc('close_attendance_period_v1', {
-    p_from: range.from,
-    p_to: range.to,
-    p_note: note,
+  if (note.trim().length < 5) throw new Error('Ghi chú đóng kỳ cần ít nhất 5 ký tự.');
+  const result = await workforceCommand('payroll.close', {
+    from: range.from,
+    to: range.to,
+    note: note.trim(),
   });
-  if (error) fail(error, 'Không đóng được kỳ công.');
-  return data as { locked_count?: number } | null;
+  return { locked_count: Number(result.count || 0) };
 }
 
 export async function saveAttendancePolicy(policy: AttendancePolicy) {
@@ -390,18 +385,14 @@ export interface EmployeeInput {
 }
 
 export async function saveEmployee(employee: EmployeeInput, mode: 'create' | 'update') {
-  const { data, error } = await supabase.functions.invoke('admin-users', {
-    body: { action: mode, employee },
-  });
+  const { data, error } = await supabase.functions.invoke('admin-users', { body: { action: mode, employee } });
   if (error) throw await edgeFunctionError(error, 'Không thể lưu tài khoản nhân viên.');
   if (!data?.ok) throw new Error(data?.error || 'Không thể lưu nhân viên.');
   return data;
 }
 
 export async function deleteEmployeeAccount(employeeId: string) {
-  const { data, error } = await supabase.functions.invoke('admin-users', {
-    body: { action: 'delete', employee: { employee_id: employeeId } },
-  });
+  const { data, error } = await supabase.functions.invoke('admin-users', { body: { action: 'delete', employee: { employee_id: employeeId } } });
   if (error) throw await edgeFunctionError(error, 'Không thể xóa tài khoản đăng nhập.');
   if (!data?.ok) throw new Error(data?.error || 'Không thể xóa tài khoản đăng nhập.');
   return data;
@@ -427,11 +418,7 @@ export async function saveShift(shift: ShiftRecord) {
 
 export async function saveSystemSettings(settings: SystemSetting[]) {
   const timestamp = new Date().toISOString();
-  const payload = settings.map((setting) => ({
-    key: setting.key,
-    value: setting.value,
-    updated_at: timestamp,
-  }));
+  const payload = settings.map((setting) => ({ key: setting.key, value: setting.value, updated_at: timestamp }));
   const { error } = await supabase.from('config_system').upsert(payload);
   if (error) fail(error, 'Không lưu được tham số hệ thống.');
 }
@@ -457,5 +444,5 @@ export async function saveQrStation(station: QrStationInfo) {
     p_center_id: station.center_id,
     p_active: station.active,
   });
-  if (error) fail(error, 'Không lưu được trạm Kiosk.');
+  if (error) fail(error, 'Không lưu được trạm QR.');
 }
