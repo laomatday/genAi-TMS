@@ -1,6 +1,7 @@
-import type { Employee } from '@/shared/types';
+import type { Employee, WorkforceRequestType } from '@/shared/types';
 
 export type TimesheetStatus =
+  | 'SCHEDULED'
   | 'OPEN'
   | 'COMPLETE'
   | 'AUTO_APPROVED'
@@ -8,13 +9,14 @@ export type TimesheetStatus =
   | 'PENDING_REVIEW'
   | 'APPROVED'
   | 'REJECTED'
-  | 'LOCKED';
+  | 'LOCKED'
+  | 'CANCELLED';
 
-type AttendanceRequestType = 'EXPLANATION' | 'CORRECTION';
-type AttendanceRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+type AttendanceRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
 export interface AttendancePolicy {
   id: string;
+  organization_id?: string;
   name: string;
   work_days: number[];
   expected_start: string;
@@ -36,6 +38,7 @@ export interface AttendancePolicy {
 
 export interface TmsLocation {
   center_id: string;
+  organization_id?: string;
   center_name: string;
   address?: string | null;
   city?: string | null;
@@ -47,6 +50,7 @@ export interface TmsLocation {
 
 export interface Timesheet {
   id: string;
+  organization_id?: string;
   employee_id: string;
   work_date: string;
   policy_id?: string | null;
@@ -61,6 +65,11 @@ export interface Timesheet {
   late_minutes: number;
   early_minutes: number;
   work_minutes: number;
+  paid_leave_minutes?: number;
+  break_started_at?: string | null;
+  break_minutes?: number;
+  revision?: number;
+  status_before_lock?: string | null;
   locked_at?: string | null;
   locked_by?: string | null;
   created_at?: string;
@@ -69,24 +78,33 @@ export interface Timesheet {
 
 export interface AttendanceRequest {
   id: string;
-  timesheet_id: string;
+  organization_id?: string;
+  timesheet_id?: string | null;
   employee_id: string;
-  request_type: AttendanceRequestType;
+  request_type: WorkforceRequestType;
   exception_code?: string | null;
+  from_date?: string;
+  to_date?: string;
   requested_checkin?: string | null;
   requested_checkout?: string | null;
   reason: string;
   status: AttendanceRequestStatus;
   manager_note?: string | null;
   approver_id?: string | null;
+  assigned_to?: string | null;
+  fallback_to?: string | null;
+  due_at?: string;
+  revision?: number;
+  workflow_data?: Record<string, unknown>;
   created_at: string;
   updated_at?: string;
   work_date?: string;
-  origin?: 'timesheet' | 'legacy';
+  origin?: 'timesheet';
 }
 
 export interface TrustedDeviceInfo {
   device_id: string;
+  organization_id?: string;
   employee_id?: string;
   device_label?: string | null;
   user_agent?: string | null;
@@ -97,6 +115,7 @@ export interface TrustedDeviceInfo {
 
 export interface QrStationInfo {
   id: string;
+  organization_id?: string;
   station_user_id: string;
   center_id: string;
   name: string;
@@ -118,11 +137,16 @@ export interface ShiftRecord {
 
 export interface ShiftAssignment {
   id: string;
+  organization_id?: string;
   employee_id: string;
   work_date: string;
   shift_id: number;
   location_id?: string | null;
   note: string;
+  publication_status?: 'DRAFT' | 'PUBLISHED';
+  revision?: number;
+  published_at?: string | null;
+  published_by?: string | null;
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -130,6 +154,7 @@ export interface ShiftAssignment {
 
 export interface AttendancePeriod {
   id: string;
+  organization_id?: string;
   period_start: string;
   period_end: string;
   status: 'CLOSED' | 'REOPENED';
