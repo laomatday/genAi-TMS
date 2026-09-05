@@ -38,7 +38,7 @@ const NavItem = ({ name, icon, label, activeTab, onChange }: {
       aria-current={isActive ? 'page' : undefined}
       title={label}
       onClick={() => onChange(name)}
-      className={`app-nav-item ${isActive ? 'app-nav-item-selected' : ''}`.trim()}
+      className={`app-nav-item flex flex-col items-center justify-center gap-0.5 ${isActive ? 'app-nav-item-selected' : ''}`.trim()}
     >
       <span className="app-nav-icon">
         {isActive && (
@@ -49,12 +49,10 @@ const NavItem = ({ name, icon, label, activeTab, onChange }: {
             transition={UI_MOTION.NAVIGATION_SPRING}
           />
         )}
-        <span className="material-symbols-rounded" aria-hidden="true">
-          {icon}
-        </span>
+        <span className="material-symbols-rounded" aria-hidden="true">{icon}</span>
       </span>
       <span
-        className={`max-w-[4.25rem] truncate text-[10px] font-semibold leading-none transition-colors ${
+        className={`max-w-[4.25rem] truncate text-[10px] font-semibold leading-none transition-colors lg:hidden ${
           isActive ? 'text-primary' : 'text-slate-500 dark:text-slate-400'
         }`}
         aria-hidden="true"
@@ -65,16 +63,14 @@ const NavItem = ({ name, icon, label, activeTab, onChange }: {
   );
 };
 
-const BottomNav: React.FC<Props> = ({ activeTab, onChange }) => {
-  return (
-    <div className="app-nav-container">
-      <nav aria-label="Điều hướng chính" className="app-nav-shell">
-        {NAV_ITEMS.map((item) => (
-          <NavItem key={item.name} name={item.name} icon={item.icon} label={item.label} activeTab={activeTab} onChange={onChange} />
-        ))}
-      </nav>
-    </div>
-  );
-};
+const BottomNav: React.FC<Props> = ({ activeTab, onChange }) => (
+  <div className="app-nav-container">
+    <nav aria-label="Điều hướng chính" className="app-nav-shell">
+      {NAV_ITEMS.map((item) => (
+        <NavItem key={item.name} name={item.name} icon={item.icon} label={item.label} activeTab={activeTab} onChange={onChange} />
+      ))}
+    </nav>
+  </div>
+);
 
 export default BottomNav;
