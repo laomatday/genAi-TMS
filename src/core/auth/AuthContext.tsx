@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { supabase, isSupabaseConfigured } from '@/core/supabase';
-import { STORAGE_KEYS } from '@/shared/constants';
 import { fetchMyProfile } from './authService';
 import { AuthContext, type AuthContextValue } from './auth-context';
 import type { Employee } from '@/shared/types';
@@ -19,20 +18,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
 
     const restore = async () => {
-      const demoUserJson = localStorage.getItem(STORAGE_KEYS.DEMO_USER);
-      if (demoUserJson) {
-        try {
-          const demoUser = JSON.parse(demoUserJson) as Employee;
-          if (active) {
-            setUser(demoUser);
-            setLoading(false);
-          }
-          return;
-        } catch {
-          localStorage.removeItem(STORAGE_KEYS.DEMO_USER);
-        }
-      }
-
       if (!isSupabaseConfigured) {
         if (active) {
           setUser(null);
@@ -66,10 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void restore();
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
-        if (!localStorage.getItem(STORAGE_KEYS.DEMO_USER)) {
-          setUser(null);
-          setLoading(false);
-        }
+        setUser(null);
+        setLoading(false);
       }
     });
 
@@ -99,20 +82,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       login: (u) => {
-        if (!isSupabaseConfigured || u?.uid?.startsWith('demo-')) {
-          localStorage.setItem(STORAGE_KEYS.DEMO_USER, JSON.stringify(u));
-        }
         setUser(u);
       },
       updateProfile: (profile) => setUser((current) => {
         const next = current ? { ...current, ...profile } : current;
-        if (next && (!isSupabaseConfigured || next.uid?.startsWith('demo-'))) {
-          localStorage.setItem(STORAGE_KEYS.DEMO_USER, JSON.stringify(next));
-        }
         return next;
       }),
       logout: async () => {
-        localStorage.removeItem(STORAGE_KEYS.DEMO_USER);
         if (isSupabaseConfigured) {
           try {
             await supabase.auth.signOut({ scope: 'local' });

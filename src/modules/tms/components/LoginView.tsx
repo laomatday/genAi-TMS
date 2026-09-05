@@ -3,7 +3,6 @@ import { doLogin } from '@/core/auth/authService';
 import { triggerHaptic } from '@/core/utils/helpers';
 import { Employee } from '@/shared/types';
 import { APP_INFO } from '@/shared/constants';
-import { isSupabaseConfigured } from '@/core/supabase';
 
 interface Props {
   onLoginSuccess: (user: Employee) => void;
@@ -39,13 +38,6 @@ const LoginView: React.FC<Props> = ({ onLoginSuccess }) => {
     await handleLoginWithCredentials(email, password);
   };
 
-  const handleQuickDemoLogin = async (role: 'admin' | 'staff') => {
-    const loginId = role === 'admin' ? 'admin' : 'nhanvien';
-    setEmail(loginId);
-    setPassword('demo1234');
-    await handleLoginWithCredentials(loginId, 'demo1234');
-  };
-
   return (
     <main className="w-full h-full page-bg flex flex-col justify-between px-6 py-8 relative overflow-hidden transition-colors duration-300">
       <div className="login-brand-orb absolute -top-28 -right-24 w-72 h-72 rounded-full opacity-10 pointer-events-none" />
@@ -62,18 +54,6 @@ const LoginView: React.FC<Props> = ({ onLoginSuccess }) => {
             Hệ thống chấm công định danh và quản lý thời gian
           </p>
         </section>
-
-        {!isSupabaseConfigured && (
-          <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 rounded-2xl text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
-            <span className="material-symbols-rounded text-base mt-0.5 shrink-0 text-amber-600 dark:text-amber-400">info</span>
-            <div>
-              <span className="font-semibold">Chế độ trải nghiệm (Demo)</span>
-              <p className="text-[11px] text-amber-700 dark:text-amber-400/90 mt-0.5">
-                Bạn có thể bấm vào các nút truy cập nhanh bên dưới để dùng thử ngay hoặc nhập tài khoản cá nhân.
-              </p>
-            </div>
-          </div>
-        )}
 
         <form
           className="space-y-4 bg-white/90 dark:bg-dark-surface/90 backdrop-blur-xl border border-slate-100 dark:border-dark-border rounded-3xl p-5 shadow-sm"
@@ -112,32 +92,6 @@ const LoginView: React.FC<Props> = ({ onLoginSuccess }) => {
             {loading ? <><span className="material-symbols-rounded animate-spin text-base">progress_activity</span>Đang đăng nhập</> : <>Đăng nhập<span className="material-symbols-rounded text-lg">arrow_forward</span></>}
           </button>
         </form>
-
-        <div className="mt-4 flex flex-col gap-2">
-          <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-dark-text-secondary before:flex-1 before:h-px before:bg-slate-200 dark:before:bg-dark-border after:flex-1 after:h-px after:bg-slate-200 dark:after:bg-dark-border">
-            <span>Dùng thử nhanh</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => void handleQuickDemoLogin('admin')}
-              disabled={loading}
-              className="py-2.5 px-3 bg-slate-100 dark:bg-dark-surface hover:bg-primary/10 hover:text-primary dark:hover:bg-primary/20 text-slate-700 dark:text-dark-text-primary rounded-xl text-xs font-semibold border border-slate-200 dark:border-dark-border transition-all flex items-center justify-center gap-1.5"
-            >
-              <span className="material-symbols-rounded text-base text-primary">admin_panel_settings</span>
-              <span>Portal Quản trị</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleQuickDemoLogin('staff')}
-              disabled={loading}
-              className="py-2.5 px-3 bg-slate-100 dark:bg-dark-surface hover:bg-primary/10 hover:text-primary dark:hover:bg-primary/20 text-slate-700 dark:text-dark-text-primary rounded-xl text-xs font-semibold border border-slate-200 dark:border-dark-border transition-all flex items-center justify-center gap-1.5"
-            >
-              <span className="material-symbols-rounded text-base text-emerald-500">badge</span>
-              <span>App Nhân viên</span>
-            </button>
-          </div>
-        </div>
       </div>
 
       <footer className="text-center pb-safe z-10 mt-4">

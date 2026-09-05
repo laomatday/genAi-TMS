@@ -37,7 +37,6 @@ export const STORAGE_KEYS = {
   CONTACTS_CACHE: 'genai_contacts_cache',
   SEEN_NOTIFICATIONS: 'genai_seen_noti_count',
   GUIDE_SEEN: 'genai_guide_seen_v2026',
-  DEMO_USER: 'genai_demo_user',
   DEVICE_ID: 'genai_tms_device_id_v2',
   DB_NAME: 'genai-tms-device',
   STORE_NAME: 'keys',

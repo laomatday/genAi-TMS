@@ -1,67 +1,10 @@
 import { supabase, isSupabaseConfigured } from '@/core/supabase';
-import { LOGIN_EMAIL_DOMAINS, STORAGE_KEYS, TMS_DEFAULTS } from '@/shared/constants';
+import { LOGIN_EMAIL_DOMAINS, TMS_DEFAULTS } from '@/shared/constants';
 import type { Employee } from '@/shared/types';
-
-export const isDemoModeAllowed = !isSupabaseConfigured || (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ENABLE_DEMO_MODE === 'true');
-
-export const DEMO_ADMIN: Employee = {
-  id: 'EMP_ADMIN_01',
-  employee_id: 'ADMIN01',
-  uid: 'demo-admin-uid',
-  auth_user_id: 'demo-admin-uid',
-  name: 'Nguyễn Quản Trị (Admin)',
-  email: 'admin@genai.ai.vn',
-  phone: '0901234567',
-  role: 'Admin',
-  center_id: 'HQ',
-  allowed_locations: ['HQ', 'BRANCH1', 'BRANCH2'],
-  managed_locations: ['HQ', 'BRANCH1', 'BRANCH2'],
-  annual_leave_balance: 12,
-  position: 'Giám đốc Vận hành / Quản trị viên',
-  department: 'Ban Giám Đốc',
-  status: 'Active',
-};
-
-export const DEMO_STAFF: Employee = {
-  id: 'EMP_STAFF_01',
-  employee_id: 'NV001',
-  uid: 'demo-staff-uid',
-  auth_user_id: 'demo-staff-uid',
-  name: 'Trần Thị Thu Trang',
-  email: 'trang.tran@genai.ai.vn',
-  phone: '0987654321',
-  role: 'Staff',
-  center_id: 'HQ',
-  allowed_locations: ['HQ'],
-  annual_leave_balance: 10,
-  position: 'Chuyên viên Nhân sự',
-  department: 'Khối Vận hành',
-  status: 'Active',
-};
-
-export const DEMO_KIOSK: Employee = {
-  id: 'EMP_KIOSK_01',
-  employee_id: 'KIOSK01',
-  uid: 'demo-kiosk-uid',
-  auth_user_id: 'demo-kiosk-uid',
-  name: 'Kiosk Điểm danh Trụ sở',
-  email: 'kiosk@genai.ai.vn',
-  role: 'Kiosk',
-  center_id: 'HQ',
-  status: 'Active',
-};
 
 export async function fetchMyProfile(): Promise<Employee> {
   if (!isSupabaseConfigured) {
-    const saved = localStorage.getItem(STORAGE_KEYS.DEMO_USER);
-    if (saved) {
-      try {
-        return JSON.parse(saved) as Employee;
-      } catch {
-        // ignore
-      }
-    }
-    throw new Error('Vui lòng đăng nhập.');
+    throw new Error('Chưa cấu hình kết nối Supabase. Vui lòng kiểm tra biến môi trường.');
   }
 
   const { data: authData, error: authError } = await supabase.auth.getUser();
@@ -86,26 +29,14 @@ export async function fetchMyProfile(): Promise<Employee> {
 }
 
 export async function doLogin(loginId: string, password: string) {
-  const cleanId = loginId.trim().toLowerCase();
-
-  // Demo account flow for sandbox or when Supabase is not configured
-  if (isDemoModeAllowed) {
-    if (!isSupabaseConfigured || cleanId === 'admin' || cleanId === 'admin@genai.ai.vn' || cleanId === 'demo') {
-      const user = cleanId.includes('kiosk') ? DEMO_KIOSK : cleanId.includes('staff') || cleanId.includes('nv') ? DEMO_STAFF : DEMO_ADMIN;
-      localStorage.setItem(STORAGE_KEYS.DEMO_USER, JSON.stringify(user));
-      return { success: true as const, data: user };
-    }
-
-    if (cleanId === 'nhanvien' || cleanId === 'staff' || cleanId === 'nv001') {
-      localStorage.setItem(STORAGE_KEYS.DEMO_USER, JSON.stringify(DEMO_STAFF));
-      return { success: true as const, data: DEMO_STAFF };
-    }
-
-    if (cleanId === 'kiosk') {
-      localStorage.setItem(STORAGE_KEYS.DEMO_USER, JSON.stringify(DEMO_KIOSK));
-      return { success: true as const, data: DEMO_KIOSK };
-    }
+  if (!isSupabaseConfigured) {
+    return {
+      success: false as const,
+      message: 'Hệ thống chưa kết nối cơ sở dữ liệu. Vui lòng cấu hình VITE_SUPABASE_URL và VITE_SUPABASE_PUBLISHABLE_KEY trên Vercel.',
+    };
   }
+
+  const cleanId = loginId.trim().toLowerCase();
 
   const candidates = cleanId.includes('@')
     ? [cleanId]
@@ -122,8 +53,6 @@ export async function doLogin(loginId: string, password: string) {
         return { success: false as const, message: 'Tài khoản đã bị vô hiệu hóa.' };
       }
 
-      // Trusted Device activation/verification is intentionally handled by DeviceGate
-      // after account authentication so first activation is explicit to the employee.
       return { success: true as const, data: profile };
     } catch (error) {
       lastError = error;
@@ -134,4 +63,3 @@ export async function doLogin(loginId: string, password: string) {
   console.error('Login failed:', lastError);
   return { success: false as const, message: 'Tài khoản hoặc mật khẩu không đúng.' };
 }
-
