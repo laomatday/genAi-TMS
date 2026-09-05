@@ -49,9 +49,17 @@ const NavItem = ({ name, icon, label, activeTab, onChange }: {
             transition={UI_MOTION.NAVIGATION_SPRING}
           />
         )}
-        <span className="material-symbols-rounded">
+        <span className="material-symbols-rounded" aria-hidden="true">
           {icon}
         </span>
+      </span>
+      <span
+        className={`max-w-[4.25rem] truncate text-[10px] font-semibold leading-none transition-colors ${
+          isActive ? 'text-primary' : 'text-slate-500 dark:text-slate-400'
+        }`}
+        aria-hidden="true"
+      >
+        {label}
       </span>
     </button>
   );
@@ -60,10 +68,7 @@ const NavItem = ({ name, icon, label, activeTab, onChange }: {
 const BottomNav: React.FC<Props> = ({ activeTab, onChange }) => {
   return (
     <div className="app-nav-container">
-      <nav
-        aria-label="Điều hướng chính"
-        className="app-nav-shell"
-      >
+      <nav aria-label="Điều hướng chính" className="app-nav-shell">
         {NAV_ITEMS.map((item) => (
           <NavItem key={item.name} name={item.name} icon={item.icon} label={item.label} activeTab={activeTab} onChange={onChange} />
         ))}
