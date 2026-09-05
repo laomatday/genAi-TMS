@@ -4,27 +4,45 @@ import { TMS_LIMITS } from '@/shared/constants';
 import type {
   AttendanceBootstrap,
   DynamicQrResult,
-  RecordAttendanceResult,
+  Employee,
+  WorkforceAttendanceResult,
+  WorkforceReceipt,
 } from '@/shared/types';
 
 function rpcError(error: { message: string } | null, data: unknown, operation: string) {
   if (error) throw new Error(error.message);
   if (!data || typeof data !== 'object') throw new Error(`${operation} không trả về dữ liệu hợp lệ.`);
-  if ('success' in data && (data as { success?: unknown }).success === false) {
-    const message = 'message' in data && typeof (data as { message?: unknown }).message === 'string'
-      ? (data as { message: string }).message
-      : `${operation} thất bại.`;
-    throw new Error(message);
-  }
+  const payload = data as WorkforceAttendanceResult;
+  if (payload.ok === false) throw new Error(payload.message || `${operation} thất bại.`);
+}
+
+function commandId() {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 export async function getAttendanceBootstrap(): Promise<AttendanceBootstrap> {
   if (!isSupabaseConfigured) {
     throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
   }
-  const { data, error } = await supabase.rpc('get_my_attendance');
-  rpcError(error, data, 'Tải dữ liệu chấm công');
-  return data as AttendanceBootstrap;
+  const { data, error } = await supabase.rpc('workforce_query', {
+    p_resource: 'bootstrap',
+    p_args: {},
+  });
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== 'object') throw new Error('Không tải được trạng thái chấm công.');
+  const payload = data as Record<string, unknown>;
+  const profile = payload.profile as Employee | undefined;
+  if (!profile?.employee_id) throw new Error('Không tìm thấy hồ sơ nhân viên.');
+  return {
+    profile: { ...profile, id: profile.employee_id, uid: profile.auth_user_id },
+    history: [],
+    serverTime: typeof payload.server_time === 'string' ? payload.server_time : new Date().toISOString(),
+  };
 }
 
 export async function recordQrAttendance(input: {
@@ -32,29 +50,56 @@ export async function recordQrAttendance(input: {
   lat: number;
   lng: number;
   accuracy: number;
-}) {
-  if (!isSupabaseConfigured) {
-    throw new Error('Chưa cấu hình Supabase.');
-  }
-  const { data, error } = await supabase.rpc('record_qr_attendance_v3', {
-    p_qr_payload: input.qrPayload,
-    p_lat: input.lat,
-    p_lng: input.lng,
-    p_accuracy: input.accuracy,
-    p_device_id: getCurrentDeviceId(),
+}): Promise<{ receipt: WorkforceReceipt; message: string }> {
+  if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase.');
+
+  const { data, error } = await supabase.rpc('workforce_command', {
+    p_action: 'attendance',
+    p_args: {
+      action: 'checkin',
+      command_id: commandId(),
+      device_id: getCurrentDeviceId(),
+      qr_payload: input.qrPayload,
+      lat: input.lat,
+      lng: input.lng,
+      accuracy: input.accuracy,
+    },
   });
   rpcError(error, data, 'Chấm công QR');
-  return data as RecordAttendanceResult;
+  const result = data as WorkforceAttendanceResult;
+  if (!result.receipt) throw new Error('Hệ thống chưa trả về biên nhận chấm công.');
+  return { receipt: result.receipt, message: result.message || 'Hệ thống đã ghi nhận Check-in.' };
+}
+
+export async function runAttendanceAction(
+  action: 'checkout' | 'pause' | 'resume',
+  input: { lat: number; lng: number; accuracy: number },
+): Promise<{ receipt: WorkforceReceipt; message: string }> {
+  if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase.');
+  const { data, error } = await supabase.rpc('workforce_command', {
+    p_action: 'attendance',
+    p_args: {
+      action,
+      command_id: commandId(),
+      device_id: getCurrentDeviceId(),
+      lat: input.lat,
+      lng: input.lng,
+      accuracy: input.accuracy,
+    },
+  });
+  rpcError(error, data, action === 'checkout' ? 'Check-out' : 'Cập nhật trạng thái ca');
+  const result = data as WorkforceAttendanceResult;
+  if (!result.receipt) throw new Error('Hệ thống chưa trả về biên nhận thao tác.');
+  return { receipt: result.receipt, message: result.message || 'Hệ thống đã ghi nhận.' };
 }
 
 export async function createAttendanceQr(centerId?: string) {
-  if (!isSupabaseConfigured) {
-    throw new Error('Chưa cấu hình Supabase.');
-  }
+  if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase.');
   const { data, error } = await supabase.rpc('create_attendance_qr', {
     p_center_id: centerId || null,
   });
-  rpcError(error, data, 'Tạo mã QR');
+  if (error) throw new Error(error.message);
+  if (!data || typeof data !== 'object') throw new Error('Tạo mã QR không trả về dữ liệu hợp lệ.');
   return data as DynamicQrResult;
 }
 
