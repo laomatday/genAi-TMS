@@ -76,10 +76,12 @@ export interface Timesheet {
   updated_at?: string;
 }
 
+// The Admin attendance queue only queries EXPLANATION/CORRECTION. Workforce V3
+// guarantees those request types have a canonical timesheet before submission.
 export interface AttendanceRequest {
   id: string;
   organization_id?: string;
-  timesheet_id?: string | null;
+  timesheet_id: string;
   employee_id: string;
   request_type: WorkforceRequestType;
   exception_code?: string | null;
