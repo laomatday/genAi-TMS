@@ -1,0 +1,29 @@
+diff --git a/src/modules/tms/components/AppShell.tsx b/src/modules/tms/components/AppShell.tsx
+--- a/src/modules/tms/components/AppShell.tsx
++++ b/src/modules/tms/components/AppShell.tsx
+@@ -78,10 +78,10 @@
+     triggerHaptic(type === 'success' ? 'success' : type === 'warning' ? 'warning' : 'error');
+     showToast({ title, body: msg, type });
+   }, [showToast]);
+   const notifyShiftEnd = useCallback((title: string, body: string) => handleShowAlert(title, body, 'warning'), [handleShowAlert]);
+-  const { data, loading, error, currentUser, isOnline, lastSyncedAt, refresh } = useDashboardData(user, onLogout, notifyShiftEnd);
++  const { data, loading, error, currentUser, isOnline, refresh } = useDashboardData(user, onLogout, notifyShiftEnd);
+   const [activeTab, setActiveTab] = useState<TabType>('home');
+   const [direction, setDirection] = useState<'left' | 'right'>('right');
+   const [lastActiveTab, setLastActiveTab] = useState<TabType>('home');
+   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+   const [showQRScanner, setShowQRScanner] = useState(false);
+@@ -339,11 +339,11 @@
+     {isAttendanceProcessing && isProcessOverlayVisible ? <div className="app-process-backdrop animate-fade-in"><div className="app-process-dialog animate-scale-in" role="status" aria-live="polite"><Spinner size="lg" /><h3>Đang xử lý…</h3><p>{checkInStatus || 'Vui lòng đợi trong giây lát'}</p><small>Không đóng ứng dụng cho đến khi có xác nhận.</small><button type="button" onClick={()=>setIsProcessOverlayVisible(false)}>Ẩn đi · vẫn chạy nền</button></div></div> : null}
+     {isAttendanceProcessing && !isProcessOverlayVisible ? <button type="button" onClick={()=>setIsProcessOverlayVisible(true)} className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] right-4 z-[90] inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-xl dark:bg-sky-600" aria-label="Mở trạng thái chấm công"><span className="size-3 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />Đang chấm công</button> : null}
+     {activeTab !== 'profile' && isHeaderVisible && <Header user={currentUser} activeTab={activeTab} notificationCount={badgeCount} onOpenProfile={()=>handleTabChange('profile')} onOpenNotifications={()=>activeTab==='notifications'?setActiveTab(lastActiveTab):handleTabChange('notifications')} onCreateRequest={()=>setShowCreateRequestModal(true)} onContactSearch={()=>setContactsSearchTrigger(v=>v+1)} canManage={canManage} onOpenManager={()=>handleTabChange('manager')} onOpenWorkspace={onOpenWorkspace} />}
+     <div className="employee-scroll" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={resetSwipe}><div className="employee-motion-stage"><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{x:direction==='right'?UI_MOTION.PAGE_OFFSET_PX:-UI_MOTION.PAGE_OFFSET_PX,opacity:0}} animate={{x:0,opacity:1}} exit={{x:direction==='right'?-UI_MOTION.PAGE_OFFSET_PX:UI_MOTION.PAGE_OFFSET_PX,opacity:0}} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
+-      {activeTab==='home'&&<TabHome data={data} loading={loading} isOnline={isOnline} lastSyncedAt={lastSyncedAt} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert}/>} 
++      {activeTab==='home'&&<TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert}/>} 
+       {activeTab==='history'&&<TabHistory data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date,reason)=>{setExplainWorkInitialData({date,reason});setShowExplainWorkModal(true);}} registerSwipeHandler={registerSwipeHandler}/>}
+-      {activeTab==='requests'&&<TabRequests data={data} user={currentUser} onRefresh={refresh} registerSwipeHandler={registerSwipeHandler} onCreate={()=>setShowCreateRequestModal(true)}/>} 
++      {activeTab==='requests'&&<TabRequests data={data} user={currentUser} onRefresh={refresh} registerSwipeHandler={registerSwipeHandler}/>} 
+       {activeTab==='calendar'&&<CalendarPage data={data} user={currentUser} onRefresh={refresh} currentDate={managerDate}/>}
+       {activeTab==='contacts'&&<TabContacts data={data} user={currentUser} resetTrigger={contactsResetTrigger} searchTrigger={contactsSearchTrigger} setIsHeaderVisible={setIsHeaderVisible} registerSwipeHandler={registerSwipeHandler} onNavigate={handleTabChange}/>}
+       {activeTab==='manager'&&<TabManager data={data} user={currentUser} onRefresh={refresh} onAlert={handleShowAlert}/>}
+       {activeTab==='profile'&&<TabProfile user={currentUser} locations={data.locations||[]} contacts={data.contacts||[]} onLogout={onLogout} onUpdate={(profile)=>{updateProfile(profile);void refresh();}} onClose={()=>{setDirection('left');setActiveTab(lastActiveTab);}} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={()=>handleTabChange('manager')}/>}

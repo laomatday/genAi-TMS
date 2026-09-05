@@ -1,0 +1,153 @@
+export type EmployeeRole = 'Staff' | 'Leader' | 'Manager' | 'Director' | 'Admin' | 'HR' | 'Kiosk';
+export type ReviewStatus = 'Pending' | 'Approved' | 'Rejected';
+
+export interface Employee {
+  id: string;
+  employee_id: string;
+  uid?: string;
+  auth_user_id?: string;
+  name: string;
+  email: string;
+  phone?: string | number;
+  role: EmployeeRole;
+  center_id: string;
+  attendance_policy_id?: string | null;
+  allowed_locations?: string[];
+  managed_locations?: string[];
+  direct_manager_id?: string | null;
+  annual_leave_balance?: number;
+  trusted_device_id?: string | null;
+  trusted_device_bound_at?: string | null;
+  position?: string;
+  department?: string;
+  avatar_url?: string;
+  face_ref_url?: string;
+  join_date?: string;
+  fcm_tokens?: string[];
+  status: 'Active' | 'Inactive';
+}
+
+export interface Attendance {
+  id: string;
+  date: string;
+  employee_id: string;
+  name: string;
+  center_id: string;
+  location_name?: string;
+  shift_name?: string;
+  shift_start?: string;
+  shift_end?: string;
+  time_in: string;
+  time_out: string;
+  checkin_type: 'QR_GPS' | 'GPS' | 'Manual' | 'Mobile' | 'Kiosk';
+  checkin_lat: number;
+  checkin_lng: number;
+  distance_meters: number;
+  location_accuracy_m?: number;
+  checkout_lat?: number;
+  checkout_lng?: number;
+  checkout_distance?: number;
+  checkout_accuracy_m?: number;
+  qr_station_id?: string;
+  device_id?: string;
+  selfie_url?: string;
+  late_minutes: number;
+  early_minutes: number;
+  work_hours: number;
+  status: 'Valid' | 'Late' | 'Invalid';
+  is_valid: 'Yes' | 'No';
+  note: string;
+  timestamp: number;
+  last_updated?: string;
+  break_start?: string;
+  total_break_mins?: number;
+}
+
+export interface LeaveRequest {
+  id: string;
+  request_id?: string;
+  employee_id: string;
+  name?: string;
+  created_at: string;
+  type: 'Nghỉ phép' | 'Nghỉ ốm' | 'Nghỉ không lương' | 'Công tác' | 'Làm việc tại nhà' | 'WFH' | string;
+  from_date: string;
+  to_date: string;
+  expiration_date?: string;
+  reason: string;
+  status: ReviewStatus;
+  note?: string;
+  manager_note?: string;
+  approver_id?: string | null;
+  updated_at?: string;
+}
+
+export interface Explanation {
+  id: string;
+  employee_id: string;
+  name?: string;
+  date: string;
+  attendance_date?: string;
+  reason: string;
+  status: ReviewStatus;
+  created_at: string;
+  manager_note?: string;
+  approver_id?: string | null;
+  updated_at?: string;
+}
+export interface LocationConfig {
+  id?: string;
+  center_id: string;
+  location_name: string;
+  center_name?: string;
+  address?: string;
+  city?: string;
+  latitude: number;
+  longitude: number;
+  radius_meters: number;
+  active?: boolean;
+}
+export type Location = Omit<LocationConfig, 'location_name' | 'center_name' | 'active'> & { center_name: string; location_name?: string; active: boolean };
+
+export interface ShiftConfig { name: string; start: string; end: string; break_point?: string; }
+
+export interface HolidayConfig { id?: number; name: string; from_date: string; to_date: string; paid?: boolean; active?: boolean; }
+
+export interface SystemConfig {
+  LATE_TOLERANCE: number;
+  MIN_HOURS_FULL: number;
+  MIN_HOURS_HALF: number;
+  LUNCH_START: string;
+  LUNCH_END: string;
+  OFF_DAYS: number[];
+  MAX_DISTANCE_METERS: number;
+  LOCK_DATE?: number;
+  MAX_EXPLANATIONS_PER_MONTH?: number;
+  QR_REFRESH_SECONDS?: number;
+  QR_VALIDITY_SECONDS?: number;
+}
+
+export interface DashboardData {
+  userProfile: Employee;
+  history: {
+    history: Attendance[];
+    summary: { workDays: number; lateMins: number; leaveDays: number; remainingLeave: number; standardDays: number; errorCount: number; };
+  };
+  notifications: {
+    approvals: LeaveRequest[];
+    explanationApprovals: Explanation[];
+    myRequests: LeaveRequest[];
+    myExplanations: Explanation[];
+  };
+  myRequests: LeaveRequest[];
+  myExplanations: Explanation[];
+  teamLeaves: LeaveRequest[];
+  locations: LocationConfig[];
+  contacts: Employee[];
+  holidays: HolidayConfig[];
+  shifts: ShiftConfig[];
+  systemConfig: SystemConfig;
+}
+
+export interface AttendanceBootstrap { profile: Employee; history: Attendance[]; serverTime: string; }
+export interface RecordAttendanceResult { action: 'checkin' | 'checkout'; message: string; attendance: Attendance; }
+export interface DynamicQrResult { payload: string; expiresAt: number; branchName: string; }

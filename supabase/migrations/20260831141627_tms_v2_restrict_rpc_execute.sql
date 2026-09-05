@@ -1,0 +1,14 @@
+revoke all on function public.get_my_tms_v2() from public, anon;
+revoke all on function public.sync_my_timesheet_v2() from public, anon;
+revoke all on function public.refresh_tms_exceptions_v2(date,date) from public, anon;
+revoke all on function public.record_qr_attendance_v2(text,double precision,double precision,double precision,text) from public, anon;
+revoke all on function public.submit_attendance_request_v2(uuid,text,text,timestamptz,timestamptz) from public, anon;
+revoke all on function public.review_attendance_request_v2(uuid,text,text) from public, anon;
+revoke all on function public.lock_timesheets_v2(date) from public, anon;
+grant execute on function public.get_my_tms_v2() to authenticated;
+grant execute on function public.sync_my_timesheet_v2() to authenticated;
+grant execute on function public.refresh_tms_exceptions_v2(date,date) to authenticated;
+grant execute on function public.record_qr_attendance_v2(text,double precision,double precision,double precision,text) to authenticated;
+grant execute on function public.submit_attendance_request_v2(uuid,text,text,timestamptz,timestamptz) to authenticated;
+grant execute on function public.review_attendance_request_v2(uuid,text,text) to authenticated;
+grant execute on function public.lock_timesheets_v2(date) to authenticated;

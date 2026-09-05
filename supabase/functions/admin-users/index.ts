@@ -1,0 +1,405 @@
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
+  "access-control-allow-methods": "POST, OPTIONS",
+};
+
+const roles = new Set(["Staff", "Leader", "Manager", "Director", "Admin", "HR", "Kiosk"]);
+const managementRoles = new Set(["Leader", "Manager", "Director", "Admin", "HR"]);
+const DEFAULT_ANNUAL_LEAVE_DAYS = 12;
+const MAX_ANNUAL_LEAVE_DAYS = 365;
+const MIN_PASSWORD_LENGTH = 12;
+const ACCOUNT_BAN_DURATION = "876000h";
+const employeeIdPattern = /^[A-Z0-9_-]{2,40}$/;
+const emailPattern = /^\S+@\S+\.\S+$/;
+
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "content-type": "application/json" },
+  });
+}
+
+function cleanText(value: unknown, max = 160) {
+  return String(value ?? "").trim().slice(0, max);
+}
+
+function cleanList(value: unknown, max = 50) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => cleanText(item, 60).toUpperCase())
+    .filter(Boolean)
+    .slice(0, max);
+}
+
+function failure(code: string, error: string, status = 400, context: Record<string, unknown> = {}) {
+  console.warn("[admin-users]", JSON.stringify({ code, ...context }));
+  return json({ ok: false, code, error }, status);
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+
+  const url = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const authorization = req.headers.get("authorization");
+  if (!url || !serviceRoleKey || !authorization?.startsWith("Bearer ")) {
+    return json({ ok: false, error: "Không đủ thông tin xác thực." }, 401);
+  }
+
+  const admin = createClient(url, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const jwt = authorization.slice("Bearer ".length);
+  const { data: authData, error: authError } = await admin.auth.getUser(jwt);
+  if (authError || !authData.user) return json({ ok: false, error: "Phiên đăng nhập không hợp lệ." }, 401);
+
+  const { data: operator, error: operatorError } = await admin
+    .from("employees")
+    .select("employee_id, role, status")
+    .eq("auth_user_id", authData.user.id)
+    .single();
+  if (operatorError || operator?.role !== "Admin" || operator?.status !== "Active") {
+    return json({ ok: false, error: "Chỉ Admin đang hoạt động được quản lý tài khoản." }, 403);
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ ok: false, error: "Dữ liệu gửi lên không hợp lệ." }, 400);
+  }
+
+  const action = body.action;
+  const input = (body.employee || {}) as Record<string, unknown>;
+  if (action !== "create" && action !== "update" && action !== "delete") {
+    return failure("INVALID_ACTION", "Thao tác không hợp lệ.");
+  }
+
+  const employeeId = cleanText(input.employee_id, 40).toUpperCase();
+  if (!employeeIdPattern.test(employeeId)) {
+    return failure("INVALID_EMPLOYEE_ID", "Mã nhân viên cần từ 2–40 ký tự, chỉ gồm chữ, số, gạch ngang hoặc gạch dưới.", 400, { action });
+  }
+
+  if (action === "delete") {
+    const { data: target, error: targetError } = await admin
+      .from("employees")
+      .select("employee_id, auth_user_id, role, status")
+      .eq("employee_id", employeeId)
+      .single();
+    if (targetError || !target) {
+      return failure("EMPLOYEE_NOT_FOUND", "Không tìm thấy nhân viên.", 404, { action, employeeId });
+    }
+    if (operator.employee_id === employeeId) {
+      return failure("SELF_DELETE_FORBIDDEN", "Không thể xóa tài khoản Admin đang đăng nhập.", 400, { action, employeeId });
+    }
+    if (target.role === "Admin" && target.status === "Active") {
+      const { count, error: countError } = await admin
+        .from("employees")
+        .select("employee_id", { count: "exact", head: true })
+        .eq("role", "Admin")
+        .eq("status", "Active");
+      if (countError) return failure("ADMIN_COUNT_FAILED", "Không kiểm tra được số tài khoản Admin.", 500, { action, employeeId });
+      if ((count || 0) <= 1) {
+        return failure("LAST_ADMIN_FORBIDDEN", "Không thể xóa Admin hoạt động cuối cùng.", 400, { action, employeeId });
+      }
+    }
+
+    const deletedAt = new Date().toISOString();
+    const { error: deactivateError } = await admin
+      .from("employees")
+      .update({ status: "Inactive", updated_at: deletedAt })
+      .eq("employee_id", employeeId);
+    if (deactivateError) {
+      return failure("EMPLOYEE_DEACTIVATE_FAILED", "Không thể vô hiệu hóa hồ sơ trước khi xóa tài khoản.", 500, { action, employeeId });
+    }
+
+    if (target.auth_user_id) {
+      const { error: banError } = await admin.auth.admin.updateUserById(target.auth_user_id, {
+        ban_duration: ACCOUNT_BAN_DURATION,
+      });
+      if (banError) {
+        return failure("AUTH_BLOCK_FAILED", "Không thể khóa tài khoản đăng nhập trước khi xóa.", 502, { action, employeeId });
+      }
+      const { error: deleteError } = await admin.auth.admin.deleteUser(target.auth_user_id);
+      if (deleteError) {
+        return failure("AUTH_DELETE_FAILED", deleteError.message || "Không thể xóa tài khoản đăng nhập.", 502, { action, employeeId });
+      }
+    }
+
+    await admin.from("trusted_devices").update({
+      status: "REVOKED",
+      revoked_at: deletedAt,
+      revoked_by: operator.employee_id,
+      revoke_reason: "Xóa tài khoản đăng nhập",
+    }).eq("employee_id", employeeId).eq("status", "ACTIVE");
+    await admin.from("trusted_device_grants").delete().eq("employee_id", employeeId);
+    await admin.from("trusted_device_challenges").delete().eq("employee_id", employeeId);
+
+    const { error: unlinkError } = await admin.from("employees").update({
+      auth_user_id: null,
+      status: "Inactive",
+      trusted_device_id: null,
+      trusted_device_bound_at: null,
+      updated_at: deletedAt,
+    }).eq("employee_id", employeeId);
+    if (unlinkError) {
+      return failure("EMPLOYEE_UNLINK_FAILED", "Tài khoản Auth đã xóa nhưng chưa thể cập nhật hồ sơ nhân viên.", 500, { action, employeeId });
+    }
+
+    const { error: auditError } = await admin.from("audit_logs").insert({
+      actor_employee_id: operator.employee_id,
+      target_employee_id: employeeId,
+      action: "EMPLOYEE_ACCOUNT_DELETED",
+      entity_type: "employee",
+      entity_id: employeeId,
+      reason: "Xóa tài khoản đăng nhập; bảo toàn hồ sơ và dữ liệu chấm công",
+      metadata: { previous_role: target.role, previous_status: target.status },
+    });
+    if (auditError) console.error("[admin-users]", JSON.stringify({ code: "DELETE_AUDIT_FAILED", action, employeeId }));
+    return json({ ok: true, employee_id: employeeId, profile_retained: true });
+  }
+
+  const name = cleanText(input.name, 160);
+  const email = cleanText(input.email, 255).toLowerCase();
+  const password = String(input.password || "");
+  const role = cleanText(input.role, 30);
+  const centerId = cleanText(input.center_id, 60).toUpperCase();
+  const status = input.status === "Inactive" ? "Inactive" : "Active";
+  const directManagerId = cleanText(input.direct_manager_id, 40).toUpperCase() || null;
+  const allowedLocations = cleanList(input.allowed_locations);
+  const managedLocations = cleanList(input.managed_locations);
+  const annualLeaveBalanceRaw = Number(input.annual_leave_balance ?? DEFAULT_ANNUAL_LEAVE_DAYS);
+  const annualLeaveBalance = Number.isFinite(annualLeaveBalanceRaw)
+    ? Math.min(MAX_ANNUAL_LEAVE_DAYS, Math.max(0, annualLeaveBalanceRaw))
+    : DEFAULT_ANNUAL_LEAVE_DAYS;
+  const attendancePolicyId = cleanText(input.attendance_policy_id, 80) || null;
+
+  if (!name) return failure("MISSING_NAME", "Vui lòng nhập họ tên nhân viên.", 400, { action, employeeId });
+  if (!emailPattern.test(email)) return failure("INVALID_EMAIL", "Email đăng nhập không đúng định dạng.", 400, { action, employeeId });
+  if (!roles.has(role)) return failure("INVALID_ROLE", "Vai trò nhân viên không hợp lệ.", 400, { action, employeeId });
+  if (!centerId) return failure("MISSING_CENTER", "Vui lòng chọn địa điểm chính.", 400, { action, employeeId });
+  if (directManagerId === employeeId) {
+    return json({ ok: false, error: "Nhân viên không thể là quản lý trực tiếp của chính mình." }, 400);
+  }
+  if (action === "create" && password.length < MIN_PASSWORD_LENGTH) {
+    return failure("PASSWORD_TOO_SHORT", `Mật khẩu tạm phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`, 400, { action, employeeId });
+  }
+  const locationIds = [...new Set([centerId, ...allowedLocations, ...managedLocations])];
+  const { data: validLocations, error: locationError } = await admin
+    .from("locations")
+    .select("center_id")
+    .in("center_id", locationIds);
+  if (locationError) return failure("LOCATION_CHECK_FAILED", "Không kiểm tra được danh sách địa điểm.", 500, { action, employeeId });
+  const validLocationIds = new Set((validLocations || []).map((location) => location.center_id));
+  const invalidLocationId = locationIds.find((locationId) => !validLocationIds.has(locationId));
+  if (invalidLocationId) {
+    return failure("INVALID_LOCATION", `Địa điểm ${invalidLocationId} không tồn tại.`, 400, { action, employeeId });
+  }
+
+  if (directManagerId) {
+    const { data: manager, error: managerError } = await admin
+      .from("employees")
+      .select("employee_id, role, status")
+      .eq("employee_id", directManagerId)
+      .maybeSingle();
+    if (managerError) return failure("MANAGER_CHECK_FAILED", "Không kiểm tra được quản lý trực tiếp.", 500, { action, employeeId });
+    if (!manager || manager.status !== "Active" || !managementRoles.has(manager.role)) {
+      return failure("INVALID_MANAGER", "Quản lý trực tiếp không tồn tại, đã khóa hoặc không có vai trò quản lý.", 400, { action, employeeId });
+    }
+  }
+
+  if (attendancePolicyId) {
+    const { data: activePolicy, error: policyError } = await admin
+      .from("attendance_policies")
+      .select("id")
+      .eq("id", attendancePolicyId)
+      .eq("active", true)
+      .maybeSingle();
+    if (policyError) return failure("POLICY_CHECK_FAILED", "Không kiểm tra được chính sách chấm công.", 500, { action, employeeId });
+    if (!activePolicy) return json({ ok: false, error: "Chính sách chấm công không hợp lệ." }, 400);
+  }
+
+  const { data: duplicateEmail, error: duplicateEmailError } = await admin
+    .from("employees")
+    .select("employee_id")
+    .eq("email", email)
+    .neq("employee_id", employeeId)
+    .maybeSingle();
+  if (duplicateEmailError) return failure("EMAIL_CHECK_FAILED", "Không kiểm tra được email đăng nhập.", 500, { action, employeeId });
+  if (duplicateEmail) return failure("EMAIL_ALREADY_USED", "Email đăng nhập đã được gán cho nhân viên khác.", 409, { action, employeeId });
+
+  const profile: Record<string, unknown> = {
+    employee_id: employeeId,
+    name,
+    email,
+    phone: cleanText(input.phone, 40) || null,
+    role,
+    center_id: centerId,
+    allowed_locations: allowedLocations,
+    managed_locations: managedLocations,
+    direct_manager_id: directManagerId,
+    annual_leave_balance: annualLeaveBalance,
+    attendance_policy_id: role === "Kiosk" ? null : attendancePolicyId,
+    position: cleanText(input.position, 120) || null,
+    department: cleanText(input.department, 120) || null,
+    status,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (action === "create") {
+    const { data: duplicateEmployee, error: duplicateEmployeeError } = await admin
+      .from("employees")
+      .select("employee_id")
+      .eq("employee_id", employeeId)
+      .maybeSingle();
+    if (duplicateEmployeeError) return failure("EMPLOYEE_CHECK_FAILED", "Không kiểm tra được mã nhân viên.", 500, { action, employeeId });
+    if (duplicateEmployee) return failure("EMPLOYEE_ALREADY_EXISTS", "Mã nhân viên đã tồn tại.", 409, { action, employeeId });
+
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { name },
+      app_metadata: { app_role: role },
+    });
+    if (createError || !created.user) {
+      const authMessage = createError?.code === "email_exists" || createError?.message?.toLowerCase().includes("already")
+        ? "Email đăng nhập đã tồn tại trong Supabase Auth."
+        : createError?.message || "Không tạo được tài khoản Auth.";
+      return failure("AUTH_CREATE_FAILED", authMessage, 400, { action, employeeId, authCode: createError?.code });
+    }
+
+    const { error: insertError } = await admin.from("employees").insert({
+      ...profile,
+      auth_user_id: created.user.id,
+    });
+    if (insertError) {
+      await admin.auth.admin.deleteUser(created.user.id);
+      return failure("EMPLOYEE_INSERT_FAILED", "Đã hoàn tác tài khoản Auth vì không lưu được hồ sơ nhân viên.", 400, { action, employeeId, databaseCode: insertError.code });
+    }
+    if (status === "Inactive") {
+      await admin.auth.admin.updateUserById(created.user.id, { ban_duration: ACCOUNT_BAN_DURATION });
+    }
+    await admin.from("audit_logs").insert({
+      actor_employee_id: operator.employee_id,
+      target_employee_id: employeeId,
+      action: "EMPLOYEE_CREATED",
+      entity_type: "employee",
+      entity_id: employeeId,
+      reason: "Tạo tài khoản quản trị",
+      metadata: { role, status, center_id: centerId },
+    });
+    return json({ ok: true, employee_id: employeeId });
+  }
+
+  const { data: existing, error: existingError } = await admin
+    .from("employees")
+    .select("employee_id, auth_user_id")
+    .eq("employee_id", employeeId)
+    .single();
+  if (existingError || !existing) return json({ ok: false, error: "Không tìm thấy nhân viên." }, 404);
+
+  if (operator.employee_id === employeeId && (role !== "Admin" || status !== "Active")) {
+    return json({ ok: false, error: "Không thể tự hạ quyền hoặc khóa tài khoản Admin đang đăng nhập." }, 400);
+  }
+
+  let createdAuthUserId: string | null = null;
+  if (existing.auth_user_id) {
+    const authUpdate: Record<string, unknown> = {
+      email,
+      email_confirm: true,
+      user_metadata: { name },
+      app_metadata: { app_role: role },
+      ban_duration: status === "Inactive" ? ACCOUNT_BAN_DURATION : "none",
+    };
+    if (password) {
+      if (password.length < MIN_PASSWORD_LENGTH) {
+        return failure("PASSWORD_TOO_SHORT", `Mật khẩu mới phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`, 400, { action, employeeId });
+      }
+      authUpdate.password = password;
+    }
+    const { error: updateAuthError } = await admin.auth.admin.updateUserById(existing.auth_user_id, authUpdate);
+    if (updateAuthError) return failure("AUTH_UPDATE_FAILED", updateAuthError.message, 400, { action, employeeId, authCode: updateAuthError.code });
+  } else if (password) {
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      return failure("PASSWORD_TOO_SHORT", `Mật khẩu tạm phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`, 400, { action, employeeId });
+    }
+    const { data: created, error: createError } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { name },
+      app_metadata: { app_role: role },
+    });
+    if (createError || !created.user) {
+      const authMessage = createError?.code === "email_exists" || createError?.message?.toLowerCase().includes("already")
+        ? "Email đăng nhập đã tồn tại trong Supabase Auth."
+        : createError?.message || "Không tạo được tài khoản Auth.";
+      return failure("AUTH_CREATE_FAILED", authMessage, 400, { action, employeeId, authCode: createError?.code });
+    }
+    existing.auth_user_id = created.user.id;
+    createdAuthUserId = created.user.id;
+    if (status === "Inactive") {
+      await admin.auth.admin.updateUserById(created.user.id, { ban_duration: ACCOUNT_BAN_DURATION });
+    }
+  } else if (status === "Active") {
+    return failure("PASSWORD_REQUIRED_FOR_REACTIVATION", `Hồ sơ này chưa có tài khoản đăng nhập. Hãy đặt mật khẩu tạm từ ${MIN_PASSWORD_LENGTH} ký tự để kích hoạt lại.`, 400, { action, employeeId });
+  }
+
+  if (input.reset_trusted_device === true) {
+    const resetReason = cleanText(input.reset_device_reason, 500);
+    if (resetReason.length < 3) {
+      return json({ ok: false, error: "Vui lòng nhập lý do đặt lại thiết bị." }, 400);
+    }
+    const now = new Date().toISOString();
+    const { data: oldDevices } = await admin
+      .from("trusted_devices")
+      .select("device_id,device_label,activated_at")
+      .eq("employee_id", employeeId)
+      .eq("status", "ACTIVE");
+    await admin.from("trusted_devices").update({
+      status: "REVOKED",
+      revoked_at: now,
+      revoked_by: operator.employee_id,
+      revoke_reason: resetReason,
+    }).eq("employee_id", employeeId).eq("status", "ACTIVE");
+    await admin.from("trusted_device_grants").delete().eq("employee_id", employeeId);
+    await admin.from("trusted_device_challenges").delete().eq("employee_id", employeeId);
+    profile.trusted_device_id = null;
+    profile.trusted_device_bound_at = null;
+    await admin.from("audit_logs").insert({
+      actor_employee_id: operator.employee_id,
+      target_employee_id: employeeId,
+      action: "TRUSTED_DEVICE_RESET",
+      entity_type: "trusted_device",
+      reason: resetReason,
+      metadata: { old_devices: oldDevices || [] },
+    });
+  }
+
+  const { error: updateError } = await admin
+    .from("employees")
+    .update({ ...profile, auth_user_id: existing.auth_user_id })
+    .eq("employee_id", employeeId);
+  if (updateError) {
+    if (createdAuthUserId) await admin.auth.admin.deleteUser(createdAuthUserId);
+    return failure("EMPLOYEE_UPDATE_FAILED", "Không cập nhật được hồ sơ nhân viên.", 400, { action, employeeId, databaseCode: updateError.code });
+  }
+
+  await admin.from("audit_logs").insert({
+    actor_employee_id: operator.employee_id,
+    target_employee_id: employeeId,
+    action: "EMPLOYEE_UPDATED",
+    entity_type: "employee",
+    entity_id: employeeId,
+    reason: status === "Inactive" ? "Vô hiệu hóa tài khoản" : "Cập nhật hồ sơ tài khoản",
+    metadata: { role, status, center_id: centerId },
+  });
+
+  return json({ ok: true, employee_id: employeeId });
+});

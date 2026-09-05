@@ -1,0 +1,13 @@
+node_modules
+dist
+functions/lib
+.env
+.env.*
+# Chỉ commit cấu hình VITE_ công khai dùng cho client; không thêm secret server-side vào .env.
+!.env
+!.env.example
+!.env.production
+*.log
+tmp
+supabase/.temp/
+*.zip

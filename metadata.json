@@ -1,0 +1,11 @@
+{
+  "name": "genAi TMS",
+  "description": "genAi TMS - Quản lý chấm công và thời gian làm việc nhân viên (Time Management System)",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

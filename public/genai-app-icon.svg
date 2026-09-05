@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="genAi">
+  <rect width="512" height="512" fill="#ffffff" />
+  <image
+    x="85.333333"
+    y="85.333333"
+    width="341.333333"
+    height="341.333333"
+    preserveAspectRatio="xMidYMid meet"
+    href="genai-symbol.svg"
+  />
+</svg>
