@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from '@/core/supabase';
+import { getCurrentDeviceId } from '@/core/deviceBinding';
 import { TMS_LIMITS } from '@/shared/constants';
 import type {
   AttendanceBootstrap,
@@ -9,6 +10,12 @@ import type {
 function rpcError(error: { message: string } | null, data: unknown, operation: string) {
   if (error) throw new Error(error.message);
   if (!data || typeof data !== 'object') throw new Error(`${operation} không trả về dữ liệu hợp lệ.`);
+  if ('success' in data && (data as { success?: unknown }).success === false) {
+    const message = 'message' in data && typeof (data as { message?: unknown }).message === 'string'
+      ? (data as { message: string }).message
+      : `${operation} thất bại.`;
+    throw new Error(message);
+  }
 }
 
 export async function getAttendanceBootstrap(): Promise<AttendanceBootstrap> {
@@ -29,11 +36,12 @@ export async function recordQrAttendance(input: {
   if (!isSupabaseConfigured) {
     throw new Error('Chưa cấu hình Supabase.');
   }
-  const { data, error } = await supabase.rpc('record_qr_attendance', {
+  const { data, error } = await supabase.rpc('record_qr_attendance_v3', {
     p_qr_payload: input.qrPayload,
     p_lat: input.lat,
     p_lng: input.lng,
     p_accuracy: input.accuracy,
+    p_device_id: getCurrentDeviceId(),
   });
   rpcError(error, data, 'Chấm công QR');
   return data as RecordAttendanceResult;
