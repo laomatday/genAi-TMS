@@ -261,7 +261,7 @@ begin
   if capabilities ? 'team.read' then
     request_team := public.workforce_query('requests', jsonb_build_object(
       'from', request_from, 'to', request_to, 'scope', 'team',
-      'status', 'PENDING', 'page', 1, 'size', 100
+      'status', 'all', 'page', 1, 'size', 100
     ));
   end if;
 
