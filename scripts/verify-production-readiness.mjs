@@ -26,9 +26,11 @@ const sourceFiles = (await walk(join(root, 'src')))
 const forbiddenRuntimePatterns = [
   { pattern: /\.rpc\(['"]record_qr_attendance['"]/, message: 'legacy record_qr_attendance RPC call' },
   { pattern: /\.rpc\(['"]record_qr_attendance_v2['"]/, message: 'legacy record_qr_attendance_v2 RPC call' },
-  { pattern: /\.rpc\(['"]checkout_attendance_gps['"]/, message: 'legacy checkout_attendance_gps RPC call' },
-  { pattern: /\.rpc\(['"]toggle_attendance_pause['"]/, message: 'legacy toggle_attendance_pause RPC call' },
-  { pattern: /\.rpc\(['"]submit_attendance_explanation['"]/, message: 'legacy attendance explanation RPC call' },
+  { pattern: /\.rpc\(['"]record_qr_attendance_v3['"]/, message: 'duplicate custom V3 attendance RPC instead of Workforce command API' },
+  { pattern: /\.rpc\(['"]checkout_attendance_gps(?:_v3)?['"]/, message: 'legacy/custom checkout RPC call' },
+  { pattern: /\.rpc\(['"]toggle_attendance_pause(?:_v3)?['"]/, message: 'legacy/custom pause RPC call' },
+  { pattern: /\.rpc\(['"]submit_attendance_explanation(?:_v3)?['"]/, message: 'legacy/custom attendance explanation RPC call' },
+  { pattern: /\.rpc\(['"]get_my_(?:attendance|dashboard_v3|tms_v2)['"]/, message: 'legacy/custom dashboard RPC call' },
   { pattern: /\.from\(['"]attendance_explanations['"]/, message: 'direct runtime dependency on legacy attendance_explanations table' },
   { pattern: /\.from\(['"]attendance['"]\)\s*\.update/s, message: 'direct runtime mutation of legacy attendance table' },
   { pattern: /\.eq\(['"]date['"]\s*,\s*request\.work_date/, message: 'invalid legacy attendance date-column update' },
@@ -38,9 +40,7 @@ const forbiddenRuntimePatterns = [
 for (const file of sourceFiles) {
   const content = await readFile(file, 'utf8');
   for (const rule of forbiddenRuntimePatterns) {
-    if (rule.pattern.test(content)) {
-      fail(`${relative(root, file)} contains ${rule.message}`);
-    }
+    if (rule.pattern.test(content)) fail(`${relative(root, file)} contains ${rule.message}`);
   }
 }
 
@@ -52,10 +52,12 @@ for (const line of gitignore.split(/\r?\n/).map((value) => value.trim())) {
 }
 
 const requiredFiles = [
-  'supabase/migrations/20260906013000_production_readiness_v3.sql',
-  'supabase/migrations/20260906013100_canonical_request_actions.sql',
-  'supabase/migrations/20260906013200_canonical_exception_refresh.sql',
-  'supabase/migrations/20260906013500_cutover_backfill_legacy_attendance.sql',
+  'supabase/migrations/20260905032637_deploy_workforce_v3_verified_release.sql',
+  'supabase/migrations/20260905032823_fix_workforce_v3_query_dates_and_aliases.sql',
+  'supabase/migrations/20260905033401_harden_workforce_v3_published_schedule_and_review.sql',
+  'supabase/migrations/20260905043052_workforce_experience_notification_delivery.sql',
+  'supabase/migrations/20260905043727_workforce_enable_scheduled_maintenance.sql',
+  'supabase/migrations/20260906070000_tms_workforce_v3_hardening.sql',
 ];
 for (const file of requiredFiles) {
   try {
@@ -66,16 +68,34 @@ for (const file of requiredFiles) {
 }
 
 const attendanceService = await readFile(join(root, 'src/modules/tms/services/attendance.ts'), 'utf8');
-if (!attendanceService.includes("rpc('record_qr_attendance_v3'")) {
-  fail('QR attendance is not routed through record_qr_attendance_v3');
+if (!attendanceService.includes("rpc('workforce_command'")) {
+  fail('attendance is not routed through workforce_command');
 }
-if (!attendanceService.includes('p_device_id: getCurrentDeviceId()')) {
-  fail('QR attendance does not send the verified logical device id');
+if (!attendanceService.includes("p_action: 'attendance'")) {
+  fail('attendance does not use the Workforce attendance action');
+}
+if (!attendanceService.includes('device_id: getCurrentDeviceId()')) {
+  fail('attendance does not send the verified logical device id');
+}
+if (!attendanceService.includes('command_id: commandId()')) {
+  fail('attendance does not send an idempotency command id');
 }
 
 const employeeService = await readFile(join(root, 'src/modules/tms/services/employee.ts'), 'utf8');
-if (!employeeService.includes("rpc('get_my_dashboard_v3'")) {
-  fail('employee dashboard is not using the canonical one-call V3 RPC');
+if (!employeeService.includes("rpc('tms_dashboard_bundle_v1'")) {
+  fail('employee dashboard is not using the one-roundtrip Workforce V3 bundle');
+}
+if (!employeeService.includes("p_action: 'request.submit'")) {
+  fail('employee requests are not routed through Workforce V3');
+}
+
+const hardeningMigration = await readFile(join(root, 'supabase/migrations/20260906070000_tms_workforce_v3_hardening.sql'), 'utf8');
+for (const requiredClause of [
+  't.organization_id = a.organization_id',
+  'revoke all on function public.record_qr_attendance(',
+  'create or replace function public.tms_dashboard_bundle_v1',
+]) {
+  if (!hardeningMigration.includes(requiredClause)) fail(`hardening migration missing: ${requiredClause}`);
 }
 
 if (failures.length) {
