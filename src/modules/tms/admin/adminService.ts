@@ -122,7 +122,6 @@ async function getTimesheets(range: AttendanceRange): Promise<Timesheet[]> {
 async function getPendingRequests(): Promise<AttendanceRequest[]> {
   const rows: AttendanceRequest[] = [];
   let cursor = '';
-
   while (true) {
     let query = supabase
       .from('attendance_requests')
@@ -139,16 +138,12 @@ async function getPendingRequests(): Promise<AttendanceRequest[]> {
     cursor = page[page.length - 1]?.id || '';
     if (!cursor) break;
   }
-
-  return rows
-    .map((request) => ({ ...request, origin: 'timesheet' as const }))
-    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
 async function getMonthlyRequests(range: AttendanceRange): Promise<AttendanceRequest[]> {
   const rows: AttendanceRequest[] = [];
   let cursor = '';
-
   while (true) {
     let query = supabase
       .from('attendance_requests')
@@ -159,87 +154,14 @@ async function getMonthlyRequests(range: AttendanceRange): Promise<AttendanceReq
       .limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
     if (cursor) query = query.gt('id', cursor);
     const { data, error } = await query;
-    if (error) {
-      console.warn('Không tải được danh sách đơn trong tháng:', error);
-      break;
-    }
+    if (error) fail(error, 'Không tải được yêu cầu trong kỳ.');
     const page = (data || []) as AttendanceRequest[];
     rows.push(...page);
     if (page.length < TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE) break;
     cursor = page[page.length - 1]?.id || '';
     if (!cursor) break;
   }
-
-  return rows
-    .map((request) => ({ ...request, origin: 'timesheet' as const }))
-    .sort((a, b) => b.created_at.localeCompare(a.created_at));
-}
-
-interface LegacyExplanation {
-  id: string;
-  employee_id: string;
-  attendance_date: string;
-  reason: string;
-  status?: string;
-  created_at: string;
-  updated_at?: string;
-}
-
-async function getMonthlyLegacyExplanations(range: AttendanceRange): Promise<LegacyExplanation[]> {
-  const rows: LegacyExplanation[] = [];
-  let cursor = '';
-
-  while (true) {
-    let query = supabase
-      .from('attendance_explanations')
-      .select('id,employee_id,attendance_date,reason,status,created_at,updated_at')
-      .gte('attendance_date', range.from)
-      .lte('attendance_date', range.to)
-      .order('id')
-      .limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
-    if (cursor) query = query.gt('id', cursor);
-    const { data, error } = await query;
-    if (error) {
-      console.warn('Không tải được giải trình cũ trong tháng:', error);
-      break;
-    }
-    const page = (data || []) as LegacyExplanation[];
-    rows.push(...page);
-    if (page.length < TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE) break;
-    cursor = page[page.length - 1]?.id || '';
-    if (!cursor) break;
-  }
-
-  return rows;
-}
-
-async function getPendingLegacyExplanations(): Promise<LegacyExplanation[]> {
-  const rows: LegacyExplanation[] = [];
-  let cursorCreatedAt = '';
-  let cursorId = '';
-
-  while (true) {
-    let query = supabase
-      .from('attendance_explanations')
-      .select('id,employee_id,attendance_date,reason,created_at,updated_at')
-      .eq('status', 'Pending')
-      .order('created_at', { ascending: false })
-      .order('id')
-      .limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
-    if (cursorCreatedAt && cursorId) {
-      query = query.or(`created_at.lt.${cursorCreatedAt},and(created_at.eq.${cursorCreatedAt},id.gt.${cursorId})`);
-    }
-    const { data, error } = await query;
-    if (error) fail(error, 'Không tải được giải trình đang chờ duyệt.');
-    const page = (data || []) as LegacyExplanation[];
-    rows.push(...page);
-    if (page.length < TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE) break;
-    cursorCreatedAt = page[page.length - 1]?.created_at || '';
-    cursorId = page[page.length - 1]?.id || '';
-    if (!cursorCreatedAt || !cursorId) break;
-  }
-
-  return rows;
+  return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
 function mapEmployees(rows: Array<Record<string, unknown>>): Employee[] {
@@ -256,7 +178,6 @@ function mapEmployees(rows: Array<Record<string, unknown>>): Employee[] {
 async function getEmployees(): Promise<Employee[]> {
   const rows: Array<Record<string, unknown>> = [];
   let cursor = '';
-
   while (true) {
     let query = supabase
       .from('employees')
@@ -272,8 +193,16 @@ async function getEmployees(): Promise<Employee[]> {
     cursor = String(page[page.length - 1]?.employee_id || '');
     if (!cursor) break;
   }
-
   return mapEmployees(rows).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+}
+
+function attachWorkDates(requests: AttendanceRequest[], timesheets: Timesheet[]) {
+  const dates = new Map(timesheets.map((timesheet) => [timesheet.id, timesheet.work_date]));
+  return requests.map((request) => ({
+    ...request,
+    work_date: request.work_date || dates.get(request.timesheet_id),
+    origin: 'timesheet' as const,
+  }));
 }
 
 export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
@@ -292,10 +221,8 @@ export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
     holidays,
     auditLogs,
     timesheets,
-    requests,
-    legacyExplanations,
+    pendingRequestsRaw,
     monthlyRequestsRaw,
-    monthlyLegacyRaw,
     workforce,
   ] = await Promise.all([
     getEmployees(),
@@ -312,9 +239,7 @@ export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
     supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(TMS_LIMITS.ADMIN_AUDIT_QUERY_LIMIT),
     getTimesheets(range),
     getPendingRequests(),
-    getPendingLegacyExplanations(),
     getMonthlyRequests(range),
-    getMonthlyLegacyExplanations(range),
     getWorkforceOperations(range),
   ]);
 
@@ -322,52 +247,16 @@ export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
     if (result.error) fail(result.error, 'Không tải được dữ liệu quản trị.');
   }
 
-  const timesheetIds = new Map(timesheets.map((timesheet) => [`${timesheet.employee_id}:${timesheet.work_date}`, timesheet.id]));
-  const legacyRequests: AttendanceRequest[] = legacyExplanations.map((request) => ({
-    id: request.id,
-    timesheet_id: timesheetIds.get(`${request.employee_id}:${request.attendance_date}`) || '',
-    employee_id: request.employee_id,
-    request_type: 'EXPLANATION',
-    reason: request.reason,
-    status: 'PENDING',
-    created_at: request.created_at,
-    updated_at: request.updated_at,
-    work_date: request.attendance_date,
-    origin: 'legacy',
-  }));
-
-  const mapMonthlyLegacyToRequest = (item: LegacyExplanation): AttendanceRequest => {
-    let normStatus: 'PENDING' | 'APPROVED' | 'REJECTED' = 'PENDING';
-    const s = item.status?.toUpperCase();
-    if (s === 'APPROVED') normStatus = 'APPROVED';
-    else if (s === 'REJECTED') normStatus = 'REJECTED';
-
-    return {
-      id: item.id,
-      timesheet_id: timesheetIds.get(`${item.employee_id}:${item.attendance_date}`) || '',
-      employee_id: item.employee_id,
-      request_type: 'EXPLANATION',
-      reason: item.reason,
-      status: normStatus,
-      created_at: item.created_at,
-      updated_at: item.updated_at,
-      work_date: item.attendance_date,
-      origin: 'legacy',
-    };
-  };
-
-  const monthlyCombined = [
-    ...monthlyRequestsRaw,
-    ...monthlyLegacyRaw.map(mapMonthlyLegacyToRequest),
-  ].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const requests = attachWorkDates(pendingRequestsRaw, timesheets);
+  const monthlyRequests = attachWorkDates(monthlyRequestsRaw, timesheets);
 
   return {
     employees,
     locations: (locations.data || []) as TmsLocation[],
     policies: (policies.data || []) as AttendancePolicy[],
     timesheets,
-    requests: [...requests, ...legacyRequests].sort((a, b) => b.created_at.localeCompare(a.created_at)),
-    monthlyRequests: monthlyCombined,
+    requests,
+    monthlyRequests,
     stations: (stations.data || []) as QrStationInfo[],
     devices: (devices.data || []) as TrustedDeviceInfo[],
     shifts: (shifts.data || []) as ShiftRecord[],
@@ -381,55 +270,13 @@ export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
 }
 
 export async function reviewAttendanceRequest(request: AttendanceRequest, status: 'APPROVED' | 'REJECTED', note = '') {
-  if (!isSupabaseConfigured) {
-    return { id: request.id, status, note };
-  }
-  if (request.origin === 'legacy') {
-    const { error } = await supabase.rpc('review_attendance_explanation', {
-      p_id: request.id,
-      p_status: status === 'APPROVED' ? 'Approved' : 'Rejected',
-      p_note: note,
-    });
-    if (error) fail(error, 'Không xử lý được giải trình.');
-    if (status === 'APPROVED' && request.employee_id && request.work_date) {
-      try {
-        await supabase
-          .from('attendance')
-          .update({ status: 'Valid', is_valid: 'Yes' })
-          .eq('employee_id', request.employee_id)
-          .eq('date', request.work_date);
-      } catch {
-        // Suppress if direct update is restricted by RLS
-      }
-      try {
-        await supabase
-          .from('timesheets')
-          .update({ status: 'VALID' })
-          .eq('employee_id', request.employee_id)
-          .eq('work_date', request.work_date);
-      } catch {
-        // Suppress if timesheet row does not exist
-      }
-    }
-    return;
-  }
+  if (!isSupabaseConfigured) return { id: request.id, status, note };
   const { data, error } = await supabase.rpc('review_attendance_request_v2', {
     p_id: request.id,
     p_status: status,
     p_note: note,
   });
   if (error) fail(error, 'Không xử lý được yêu cầu.');
-  if (status === 'APPROVED' && request.employee_id && request.work_date) {
-    try {
-      await supabase
-        .from('attendance')
-        .update({ status: 'Valid', is_valid: 'Yes' })
-        .eq('employee_id', request.employee_id)
-        .eq('date', request.work_date);
-    } catch {
-      // Suppress
-    }
-  }
   return data;
 }
 
@@ -439,24 +286,19 @@ export async function reviewAttendanceRequestsBulk(
   note = '',
 ) {
   if (!requests.length) return 0;
-  if (!isSupabaseConfigured) {
-    return requests.length;
-  }
-  try {
-    const { data, error } = await supabase.rpc('review_attendance_requests_bulk_v1', {
-      p_requests: requests.map((request) => ({ id: request.id, origin: request.origin || 'timesheet' })),
-      p_status: status,
-      p_note: note,
-    });
-    if (!error) return Number(data || requests.length);
-  } catch {
-    // Fallback to sequential review if bulk RPC is unavailable
-  }
+  if (!isSupabaseConfigured) return requests.length;
+  const canonicalRequests = requests.map((request) => ({ id: request.id, origin: 'timesheet' }));
+  const { data, error } = await supabase.rpc('review_attendance_requests_bulk_v1', {
+    p_requests: canonicalRequests,
+    p_status: status,
+    p_note: note,
+  });
+  if (!error) return Number(data || requests.length);
 
   let processedCount = 0;
   for (const request of requests) {
     await reviewAttendanceRequest(request, status, note);
-    processedCount++;
+    processedCount += 1;
   }
   return processedCount;
 }
