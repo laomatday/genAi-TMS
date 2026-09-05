@@ -28,6 +28,7 @@ export const ADMIN_NAV: ReadonlyArray<{ id: AdminSection; icon: string; label: s
 ];
 
 export const ATTENDANCE_STATUS_LABELS: Record<TimesheetStatus, string> = {
+  SCHEDULED: 'Đã xếp lịch',
   OPEN: 'Đang làm',
   COMPLETE: 'Hoàn tất',
   AUTO_APPROVED: 'Tự động duyệt',
@@ -36,6 +37,7 @@ export const ATTENDANCE_STATUS_LABELS: Record<TimesheetStatus, string> = {
   APPROVED: 'Đã duyệt',
   REJECTED: 'Bị từ chối',
   LOCKED: 'Đã khóa',
+  CANCELLED: 'Đã hủy',
 };
 
 export const EXCEPTION_LABELS: Record<string, string> = {
