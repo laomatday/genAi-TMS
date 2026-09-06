@@ -1,8 +1,8 @@
-import React, { Suspense, lazy, useCallback, useEffect, useState, useRef, useMemo } from 'react';
-import type { Employee, Explanation, LeaveRequest } from '@/shared/types';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Employee } from '@/shared/types';
 import { doCheckOut } from '@/modules/tms/services/employee';
 import { recordQrAttendance } from '@/modules/tms/services/attendance';
-import { triggerHaptic, playAudioChime, calculateDistance, getCurrentTimeStr, toISODateString } from '@/core/utils/helpers';
+import { triggerHaptic, playAudioChime, toISODateString } from '@/core/utils/helpers';
 import { useDashboardData } from '@/modules/tms/hooks/useDashboardData';
 import { useToast } from '@/shared/contexts/useToast';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,7 +11,7 @@ import BottomNav, { EMPLOYEE_NAV_TABS, type RegisterSwipeHandler, type SwipeDire
 import Header from './Header';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import Spinner from '@/shared/components/common/Spinner';
-import { MANAGEMENT_ROLES, SCOPED_MANAGEMENT_ROLES, STORAGE_KEYS, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
+import { MANAGEMENT_ROLES, STORAGE_KEYS, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
 import { useAuth } from '@/core/auth/useAuth';
 import { ATTENDANCE_ACTIVITY_EVENT } from '@/shared/components/common/AppStatusBanner';
 
@@ -53,15 +53,20 @@ function attendanceErrorMessage(error: unknown) {
 }
 
 function receiptTime(value?: string) {
-  if (!value) return getCurrentTimeStr();
-  const match = value.match(/\b(\d{1,2}:\d{2})\b/);
-  return match?.[1] || value;
+  if (!value) return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
 function blocksGlobalSwipe(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   if (target.closest('input, textarea, select, button, a, [role="button"]')) return true;
-
   let element: HTMLElement | null = target;
   while (element && element !== document.body) {
     const overflowX = window.getComputedStyle(element).overflowX;
@@ -76,11 +81,8 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   const { showToast } = useToast();
   const handleShowAlert = useCallback((title: string, msg: string, type: 'success' | 'error' | 'warning' | 'info' = 'success') => {
     triggerHaptic(type === 'success' ? 'success' : type === 'warning' ? 'warning' : 'error');
-    if (type === 'success') {
-      playAudioChime('success');
-    } else if (type === 'error' || type === 'warning') {
-      playAudioChime('error');
-    }
+    if (type === 'success') playAudioChime('success');
+    else if (type === 'error' || type === 'warning') playAudioChime('error');
     showToast({ title, body: msg, type });
   }, [showToast]);
   const notifyShiftEnd = useCallback((title: string, body: string) => handleShowAlert(title, body, 'warning'), [handleShowAlert]);
@@ -97,22 +99,23 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   const [showImageCropper, setShowImageCropper] = useState(false);
   const [showCreateRequestModal, setShowCreateRequestModal] = useState(false);
   const [showExplainWorkModal, setShowExplainWorkModal] = useState(false);
-  const [explainWorkInitialData, setExplainWorkInitialData] = useState<{ date: string, reason: string } | null>(null);
+  const [explainWorkInitialData, setExplainWorkInitialData] = useState<{ date: string; reason: string } | null>(null);
   const [contactsResetTrigger, setContactsResetTrigger] = useState(0);
   const [contactsSearchTrigger, setContactsSearchTrigger] = useState(0);
-  const [seenNotiCount, setSeenNotiCount] = useState(() => { try { return parseInt(localStorage.getItem(STORAGE_KEYS.SEEN_NOTIFICATIONS) || '0', 10); } catch { return 0; } });
+  const [seenNotiCount, setSeenNotiCount] = useState(() => {
+    try { return parseInt(localStorage.getItem(STORAGE_KEYS.SEEN_NOTIFICATIONS) || '0', 10); } catch { return 0; }
+  });
   const managerDate = new Date();
-  const touchStart = useRef<{ x: number, y: number, allowGlobalNavigation: boolean } | null>(null);
-  const touchEnd = useRef<{ x: number, y: number } | null>(null);
+  const touchStart = useRef<{ x: number; y: number; allowGlobalNavigation: boolean } | null>(null);
+  const touchEnd = useRef<{ x: number; y: number } | null>(null);
   const swipeHandlerRef = useRef<SwipeHandler | null>(null);
   const attendanceLockRef = useRef(false);
+
   const registerSwipeHandler: RegisterSwipeHandler = useCallback((handler) => {
     swipeHandlerRef.current = handler;
-    return () => {
-      if (swipeHandlerRef.current === handler) swipeHandlerRef.current = null;
-    };
+    return () => { if (swipeHandlerRef.current === handler) swipeHandlerRef.current = null; };
   }, []);
-  const canManage = useMemo(() => !!(currentUser?.role && MANAGEMENT_ROLES.includes(currentUser.role)), [currentUser]);
+  const canManage = useMemo(() => Boolean(currentUser?.role && MANAGEMENT_ROLES.includes(currentUser.role)), [currentUser]);
 
   useEffect(() => {
     const active = isAttendanceProcessing || showQRScanner || showCheckoutConfirm;
@@ -124,26 +127,20 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
 
   const { rawNotiCount, badgeCount } = useMemo(() => {
     if (!data) return { rawNotiCount: 0, badgeCount: 0 };
-    const { notifications, contacts } = data;
-    const managedLocationsSet = new Set(currentUser.managed_locations || []);
-    let visibleApprovals = 0;
-    if (currentUser.role === 'Admin' || currentUser.role === 'HR') visibleApprovals = notifications.approvals.length + notifications.explanationApprovals.length;
-    else if (SCOPED_MANAGEMENT_ROLES.includes(currentUser.role)) {
-      const filterByUserScope = (approval: LeaveRequest | Explanation) => {
-        const emp = contacts.find(c => c.employee_id === approval.employee_id);
-        if (!emp) return false;
-        return String(emp.direct_manager_id) === String(currentUser.employee_id) || (!!emp.center_id && managedLocationsSet.has(emp.center_id));
-      };
-      visibleApprovals = notifications.approvals.filter(filterByUserScope).length + notifications.explanationApprovals.filter(filterByUserScope).length;
-    }
-    const personal = notifications.myRequests.filter(r => r.status !== 'Pending').length + notifications.myExplanations.filter(r => r.status !== 'Pending').length;
+    // Workforce V3 already returns reviewer requests scoped by capability and tenant.
+    // Do not re-create authorization in the browser from contact metadata.
+    const visibleApprovals = canManage
+      ? data.notifications.approvals.length + data.notifications.explanationApprovals.length
+      : 0;
+    const personal = data.notifications.myRequests.filter((request) => request.status !== 'Pending').length
+      + data.notifications.myExplanations.filter((request) => request.status !== 'Pending').length;
     const rawCount = visibleApprovals + personal;
     return { rawNotiCount: rawCount, badgeCount: Math.max(0, rawCount - seenNotiCount) };
-  }, [data, currentUser, seenNotiCount]);
+  }, [canManage, data, seenNotiCount]);
 
   const handleTabChange = (tab: TabType) => {
     triggerHaptic('light');
-    if (activeTab === tab && tab === 'contacts') { setContactsResetTrigger(v => v + 1); return; }
+    if (activeTab === tab && tab === 'contacts') { setContactsResetTrigger((value) => value + 1); return; }
     if (activeTab !== tab) {
       swipeHandlerRef.current = null;
       setIsHeaderVisible(true);
@@ -156,7 +153,10 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
       setActiveTab(tab);
       if (activeTab === 'contacts') setContactsSearchTrigger(0);
     }
-    if (tab === 'notifications') { setSeenNotiCount(rawNotiCount); localStorage.setItem(STORAGE_KEYS.SEEN_NOTIFICATIONS, String(rawNotiCount)); }
+    if (tab === 'notifications') {
+      setSeenNotiCount(rawNotiCount);
+      localStorage.setItem(STORAGE_KEYS.SEEN_NOTIFICATIONS, String(rawNotiCount));
+    }
     if (showCreateRequestModal) setShowCreateRequestModal(false);
     if (showExplainWorkModal) setShowExplainWorkModal(false);
   };
@@ -185,32 +185,23 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   };
 
   const validateAttendancePosition = (position: GeolocationPosition) => {
-    const { accuracy, latitude, longitude } = position.coords;
+    const { accuracy } = position.coords;
     if (!Number.isFinite(accuracy) || accuracy <= 0 || accuracy > TMS_LIMITS.MAX_GPS_ACCURACY_METERS) {
       throw new Error(`Tín hiệu GPS chưa đủ chính xác (±${Math.round(accuracy)}m). Hãy ra nơi thoáng và thử lại.`);
     }
-
-    const location = data?.locations?.find(item => item.center_id === currentUser.center_id);
-    if (location) {
-      const distance = calculateDistance(latitude, longitude, Number(location.latitude), Number(location.longitude));
-      const maxDistance = Number(location.radius_meters || data?.systemConfig?.MAX_DISTANCE_METERS || TMS_LIMITS.DEFAULT_GEOFENCE_METERS);
-      if (distance > maxDistance) {
-        throw new Error(`Bạn đang cách văn phòng ${Math.round(distance)}m, ngoài phạm vi cho phép ${maxDistance}m.`);
-      }
-    }
-    return location;
+    // Geofence, assigned location and allowed-location decisions are server-only.
+    // This avoids rejecting staff who are legitimately assigned to another branch.
   };
 
   const handleQRScan = async (qrString: string) => {
     setShowQRScanner(false);
     if (!beginAttendanceTransaction('Đang kiểm tra GPS và kết nối…')) return;
-
     try {
       const position = await requestCurrentPosition();
-      const location = validateAttendancePosition(position);
+      validateAttendancePosition(position);
       if (!navigator.onLine) throw new Error('Kết nối đã bị gián đoạn. Chưa có dữ liệu chấm công nào được gửi.');
 
-      setCheckInStatus(`GPS ±${Math.round(position.coords.accuracy)}m · Đang gửi yêu cầu bảo mật…`);
+      setCheckInStatus(`GPS ±${Math.round(position.coords.accuracy)}m · Đang xác thực QR, thiết bị và ca làm…`);
       const result = await recordQrAttendance({
         qrPayload: qrString,
         lat: position.coords.latitude,
@@ -218,11 +209,9 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
         accuracy: position.coords.accuracy,
       });
       await refresh();
-
-      const actionLabel = result.action === 'checkin' ? 'Check-in' : 'Check-out';
-      const recordedAt = receiptTime(result.action === 'checkin' ? result.attendance.time_in : result.attendance.time_out);
-      const recordedLocation = result.attendance.location_name || location?.location_name || location?.center_name || currentUser.center_id;
-      handleShowAlert(`${actionLabel} thành công`, `${recordedAt} · ${recordedLocation}. ${result.message || 'Hệ thống đã ghi nhận.'}`, 'success');
+      const recordedAt = receiptTime(result.receipt.occurred_at);
+      const recordedLocation = result.receipt.location_name || currentUser.center_id;
+      handleShowAlert('Check-in thành công', `${recordedAt} · ${recordedLocation}. ${result.message}`, 'success');
     } catch (caughtError) {
       handleShowAlert('Chấm công thất bại', attendanceErrorMessage(caughtError), 'error');
     } finally {
@@ -234,13 +223,12 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     triggerHaptic('medium');
     setShowCheckoutConfirm(false);
     if (!beginAttendanceTransaction('Đang kiểm tra GPS và kết nối…')) return;
-
     try {
       const position = await requestCurrentPosition();
-      const location = validateAttendancePosition(position);
+      validateAttendancePosition(position);
       if (!navigator.onLine) throw new Error('Kết nối đã bị gián đoạn. Check-out chưa được gửi.');
 
-      setCheckInStatus(`GPS ±${Math.round(position.coords.accuracy)}m · Đang gửi Check-out…`);
+      setCheckInStatus(`GPS ±${Math.round(position.coords.accuracy)}m · Đang xác thực ca đang mở…`);
       const result = await doCheckOut({
         lat: position.coords.latitude,
         lng: position.coords.longitude,
@@ -248,9 +236,9 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
       });
       if (!result.success) throw new Error(result.message);
       await refresh();
-
-      const recordedLocation = location?.location_name || location?.center_name || currentUser.center_id;
-      handleShowAlert('Check-out thành công', `${getCurrentTimeStr()} · ${recordedLocation}. ${result.message}`, 'success');
+      const recordedAt = receiptTime(result.receipt?.occurred_at);
+      const recordedLocation = result.receipt?.location_name || currentUser.center_id;
+      handleShowAlert('Check-out thành công', `${recordedAt} · ${recordedLocation}. ${result.message}`, 'success');
     } catch (caughtError) {
       handleShowAlert('Check-out thất bại', attendanceErrorMessage(caughtError), 'error');
     } finally {
@@ -258,24 +246,17 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     }
   };
 
-  const resetSwipe = () => {
-    touchStart.current = null;
-    touchEnd.current = null;
-  };
-  const onTouchStart = (e: React.TouchEvent) => {
-    if (e.targetTouches.length !== 1) { resetSwipe(); return; }
-    const touch = e.targetTouches[0];
+  const resetSwipe = () => { touchStart.current = null; touchEnd.current = null; };
+  const onTouchStart = (event: React.TouchEvent) => {
+    if (event.targetTouches.length !== 1) { resetSwipe(); return; }
+    const touch = event.targetTouches[0];
     if (!touch) { resetSwipe(); return; }
-    const point = {
-      x: touch.clientX,
-      y: touch.clientY,
-      allowGlobalNavigation: !blocksGlobalSwipe(e.target),
-    };
+    const point = { x: touch.clientX, y: touch.clientY, allowGlobalNavigation: !blocksGlobalSwipe(event.target) };
     touchStart.current = point;
     touchEnd.current = { x: point.x, y: point.y };
   };
-  const onTouchMove = (e: React.TouchEvent) => {
-    const touch = e.targetTouches[0];
+  const onTouchMove = (event: React.TouchEvent) => {
+    const touch = event.targetTouches[0];
     if (touch) touchEnd.current = { x: touch.clientX, y: touch.clientY };
   };
   const onTouchEnd = () => {
@@ -283,7 +264,8 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     const end = touchEnd.current;
     resetSwipe();
     if (!start || !end) return;
-    const dX = start.x - end.x, dY = start.y - end.y;
+    const dX = start.x - end.x;
+    const dY = start.y - end.y;
     if (Math.abs(dX) > Math.abs(dY) && Math.abs(dX) > TMS_LIMITS.SWIPE_NAVIGATION_PX) {
       const swipeDirection: SwipeDirection = dX > 0 ? 'left' : 'right';
       if (swipeHandlerRef.current?.(swipeDirection)) return;
@@ -298,50 +280,51 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
 
   const explainableItems = useMemo(() => {
     if (!data) return [];
-    const today = new Date(); today.setHours(0,0,0,0);
-    const list: { date: string, explainReason: string }[] = [];
-    const loop = new Date(); loop.setDate(loop.getDate() - TMS_LIMITS.EXPLANATION_LOOKBACK_DAYS);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayString = toISODateString(today);
+    const list: { date: string; explainReason: string }[] = [];
+    const loop = new Date();
+    loop.setDate(loop.getDate() - TMS_LIMITS.EXPLANATION_LOOKBACK_DAYS);
     const holidays = Array.isArray(data.holidays) ? data.holidays : [];
-    const isHoliday = (dStr: string) => holidays.some(h => (h.active !== false) && dStr >= h.from_date && dStr <= h.to_date);
+    const isHoliday = (date: string) => holidays.some((holiday) => holiday.active !== false && date >= holiday.from_date && date <= holiday.to_date);
 
     while (loop <= today) {
-      const dateStr = toISODateString(loop);
-      const rows = data.history.history.filter(h => h.date === dateStr);
+      const dateString = toISODateString(loop);
+      const rows = data.history.history.filter((row) => row.date === dateString);
       const reasons: string[] = [];
       if (rows.length) {
-        if (rows.some(r => !r.time_out) && dateStr !== toISODateString(today)) reasons.push('Quên Check-out');
-        const late = rows.reduce((s,r)=>s+Number(r.late_minutes||0),0);
+        const hasActualCheckin = rows.some((row) => Boolean(row.time_in));
+        if (hasActualCheckin && rows.some((row) => !row.time_out) && dateString !== todayString) reasons.push('Quên Check-out');
+        if (!hasActualCheckin && dateString !== todayString && rows.some((row) => row.status === 'Invalid' || row.note.includes('MISSING_CHECKIN'))) reasons.push('Vắng');
+        const late = rows.reduce((sum, row) => sum + Number(row.late_minutes || 0), 0);
         if (late) reasons.push(`Trễ ${late} phút`);
-        const early = rows.reduce((s,r)=>s+Number(r.early_minutes||0),0);
+        const early = rows.reduce((sum, row) => sum + Number(row.early_minutes || 0), 0);
         if (early) reasons.push(`Về sớm ${early} phút`);
       } else {
-        const off = Array.isArray(data.systemConfig?.OFF_DAYS) ? data.systemConfig.OFF_DAYS : [0,6];
-        if (!off.includes(loop.getDay()) && !isHoliday(dateStr)) {
-          reasons.push('Vắng');
-        }
+        const offDays = Array.isArray(data.systemConfig?.OFF_DAYS) ? data.systemConfig.OFF_DAYS : [0, 6];
+        if (dateString !== todayString && !offDays.includes(loop.getDay()) && !isHoliday(dateString)) reasons.push('Vắng');
       }
-      const explained = data.myExplanations.some(r => r.date === dateStr && r.status !== 'Rejected');
-      const requested = data.myRequests.some(r => {
-        const current = new Date(dateStr+'T00:00:00');
-        return current >= new Date(r.from_date+'T00:00:00') && current <= new Date(r.to_date+'T00:00:00') && r.status === 'Approved';
-      });
-      if (reasons.length && !explained && !requested) list.push({ date: dateStr, explainReason: reasons.join(', ') });
-      loop.setDate(loop.getDate()+1);
+      const explained = data.myExplanations.some((request) => request.date === dateString && request.status !== 'Rejected');
+      const requested = data.myRequests.some((request) => dateString >= request.from_date && dateString <= request.to_date && request.status === 'Approved');
+      if (reasons.length && !explained && !requested) list.push({ date: dateString, explainReason: reasons.join(', ') });
+      loop.setDate(loop.getDate() + 1);
     }
 
     const lockDate = data.systemConfig?.LOCK_DATE ?? TMS_LIMITS.LOCK_DATE;
-    const y = today.getFullYear(), m = today.getMonth();
-    // Allow previous month if current day is within lockDate deadline (e.g. day 1 to 5)
-    const start = today.getDate() <= lockDate ? new Date(y, m - 1, 1) : new Date(y, m, 1);
-    const end = new Date(y, m + 1, lockDate); end.setHours(23, 59, 59, 999);
-    return list.filter(i => { const d = new Date(i.date + 'T00:00:00'); return d >= start && d <= end; });
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    const start = today.getDate() <= lockDate ? new Date(year, month - 1, 1) : new Date(year, month, 1);
+    const end = new Date(year, month + 1, lockDate);
+    end.setHours(23, 59, 59, 999);
+    return list.filter((item) => {
+      const date = new Date(`${item.date}T00:00:00`);
+      return date >= start && date <= end;
+    });
   }, [data]);
 
   const openQrScanner = () => {
-    if (attendanceLockRef.current) {
-      setIsProcessOverlayVisible(true);
-      return;
-    }
+    if (attendanceLockRef.current) { setIsProcessOverlayVisible(true); return; }
     if (!navigator.onLine || !isOnline) {
       handleShowAlert('Không có kết nối', 'Hãy kết nối mạng trước khi quét mã chấm công.', 'error');
       return;
@@ -350,10 +333,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   };
 
   const openCheckoutConfirm = () => {
-    if (attendanceLockRef.current) {
-      setIsProcessOverlayVisible(true);
-      return;
-    }
+    if (attendanceLockRef.current) { setIsProcessOverlayVisible(true); return; }
     if (!navigator.onLine || !isOnline) {
       handleShowAlert('Không có kết nối', 'Check-out cần kết nối mạng để nhận xác nhận từ hệ thống.', 'error');
       return;
@@ -365,23 +345,24 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   if (!data) return <div className="h-full w-full page-bg flex items-center justify-center p-6"><div className="empty-state-card"><span className="material-symbols-rounded empty-state-icon" aria-hidden="true">cloud_off</span><h2>Không tải được dữ liệu</h2><p>{error || 'Vui lòng kiểm tra kết nối rồi thử lại.'}</p><button type="button" className="btn btn-primary btn-md" onClick={() => void refresh(true)}>Thử lại</button></div></div>;
 
   return <div className="employee-shell" aria-busy={isAttendanceProcessing}>
-    {isAttendanceProcessing && isProcessOverlayVisible ? <div className="app-process-backdrop animate-fade-in"><div className="app-process-dialog animate-scale-in" role="status" aria-live="polite"><Spinner size="lg" /><h3>Đang xử lý…</h3><p>{checkInStatus || 'Vui lòng đợi trong giây lát'}</p><small>Không đóng ứng dụng cho đến khi có xác nhận.</small><button type="button" onClick={()=>setIsProcessOverlayVisible(false)}>Ẩn đi · vẫn chạy nền</button></div></div> : null}
-    {isAttendanceProcessing && !isProcessOverlayVisible ? <button type="button" onClick={()=>setIsProcessOverlayVisible(true)} className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] right-4 z-[90] inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-xl dark:bg-sky-600" aria-label="Mở trạng thái chấm công"><span className="size-3 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />Đang chấm công</button> : null}
-    {activeTab !== 'profile' && isHeaderVisible && <Header user={currentUser} activeTab={activeTab} notificationCount={badgeCount} onOpenProfile={()=>handleTabChange('profile')} onOpenNotifications={()=>activeTab==='notifications'?setActiveTab(lastActiveTab):handleTabChange('notifications')} onCreateRequest={()=>setShowCreateRequestModal(true)} onContactSearch={()=>setContactsSearchTrigger(v=>v+1)} canManage={canManage} onOpenManager={()=>handleTabChange('manager')} onOpenWorkspace={onOpenWorkspace} />}
-    <div className="employee-scroll" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={resetSwipe}><div className="employee-motion-stage"><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{x:direction==='right'?UI_MOTION.PAGE_OFFSET_PX:-UI_MOTION.PAGE_OFFSET_PX,opacity:0}} animate={{x:0,opacity:1}} exit={{x:direction==='right'?-UI_MOTION.PAGE_OFFSET_PX:UI_MOTION.PAGE_OFFSET_PX,opacity:0}} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
-      {activeTab==='home'&&<TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date,reason)=>{setExplainWorkInitialData({date,reason});setShowExplainWorkModal(true);}} explainableItems={explainableItems}/>} 
-      {activeTab==='history'&&<TabHistory data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date,reason)=>{setExplainWorkInitialData({date,reason});setShowExplainWorkModal(true);}} registerSwipeHandler={registerSwipeHandler}/>}
-      {activeTab==='requests'&&<TabRequests data={data} user={currentUser} onRefresh={refresh} registerSwipeHandler={registerSwipeHandler}/>} 
-      {activeTab==='calendar'&&<CalendarPage data={data} user={currentUser} onRefresh={refresh} currentDate={managerDate}/>}
-      {activeTab==='contacts'&&<TabContacts data={data} user={currentUser} resetTrigger={contactsResetTrigger} searchTrigger={contactsSearchTrigger} setIsHeaderVisible={setIsHeaderVisible} registerSwipeHandler={registerSwipeHandler} onNavigate={handleTabChange}/>}
-      {activeTab==='manager'&&<TabManager data={data} user={currentUser} onRefresh={refresh} onAlert={handleShowAlert}/>}
-      {activeTab==='profile'&&<TabProfile user={currentUser} locations={data.locations||[]} contacts={data.contacts||[]} onLogout={onLogout} onUpdate={(profile)=>{updateProfile(profile);void refresh();}} onClose={()=>{setDirection('left');setActiveTab(lastActiveTab);}} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={()=>handleTabChange('manager')}/>}
-      {activeTab==='notifications'&&<NotificationsModal data={data} user={currentUser} onSwitchTab={handleTabChange} onRefresh={refresh}/>}
+    {isAttendanceProcessing && isProcessOverlayVisible ? <div className="app-process-backdrop animate-fade-in"><div className="app-process-dialog animate-scale-in" role="status" aria-live="polite"><Spinner size="lg" /><h3>Đang xử lý…</h3><p>{checkInStatus || 'Vui lòng đợi trong giây lát'}</p><small>Không đóng ứng dụng cho đến khi có xác nhận.</small><button type="button" onClick={() => setIsProcessOverlayVisible(false)}>Ẩn đi · vẫn chạy nền</button></div></div> : null}
+    {isAttendanceProcessing && !isProcessOverlayVisible ? <button type="button" onClick={() => setIsProcessOverlayVisible(true)} className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] right-4 z-[90] inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-xs font-bold text-white shadow-xl dark:bg-sky-600" aria-label="Mở trạng thái chấm công"><span className="size-3 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />Đang chấm công</button> : null}
+    {activeTab !== 'profile' && isHeaderVisible && <Header user={currentUser} activeTab={activeTab} notificationCount={badgeCount} onOpenProfile={() => handleTabChange('profile')} onOpenNotifications={() => activeTab === 'notifications' ? setActiveTab(lastActiveTab) : handleTabChange('notifications')} onCreateRequest={() => setShowCreateRequestModal(true)} onContactSearch={() => setContactsSearchTrigger((value) => value + 1)} canManage={canManage} onOpenManager={() => handleTabChange('manager')} onOpenWorkspace={onOpenWorkspace} />}
+    <div className="employee-scroll" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={resetSwipe}><div className="employee-motion-stage"><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_PX : -UI_MOTION.PAGE_OFFSET_PX, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: direction === 'right' ? -UI_MOTION.PAGE_OFFSET_PX : UI_MOTION.PAGE_OFFSET_PX, opacity: 0 }} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
+      {activeTab === 'home' && <TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} explainableItems={explainableItems} />}
+      {activeTab === 'history' && <TabHistory data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} registerSwipeHandler={registerSwipeHandler} />}
+      {activeTab === 'requests' && <TabRequests data={data} user={currentUser} onRefresh={refresh} registerSwipeHandler={registerSwipeHandler} />}
+      {activeTab === 'calendar' && <CalendarPage data={data} user={currentUser} onRefresh={refresh} currentDate={managerDate} />}
+      {activeTab === 'contacts' && <TabContacts data={data} user={currentUser} resetTrigger={contactsResetTrigger} searchTrigger={contactsSearchTrigger} setIsHeaderVisible={setIsHeaderVisible} registerSwipeHandler={registerSwipeHandler} onNavigate={handleTabChange} />}
+      {activeTab === 'manager' && <TabManager data={data} user={currentUser} onRefresh={refresh} onAlert={handleShowAlert} />}
+      {activeTab === 'profile' && <TabProfile user={currentUser} locations={data.locations || []} contacts={data.contacts || []} onLogout={onLogout} onUpdate={(profile) => { updateProfile(profile); void refresh(); }} onClose={() => { setDirection('left'); setActiveTab(lastActiveTab); }} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={() => handleTabChange('manager')} />}
+      {activeTab === 'notifications' && <NotificationsModal data={data} user={currentUser} onSwitchTab={handleTabChange} onRefresh={refresh} />}
     </Suspense></motion.div></AnimatePresence></div></div>
-    <Suspense fallback={null}>{showCreateRequestModal&&<ModalCreateRequest user={currentUser} isOpen onClose={()=>setShowCreateRequestModal(false)} onSuccess={refresh} onAlert={handleShowAlert} onNavigate={handleTabChange} data={data}/>} {showExplainWorkModal&&<ModalExplainWork isOpen onClose={()=>setShowExplainWorkModal(false)} onSuccess={refresh} onAlert={handleShowAlert} initialData={explainWorkInitialData||undefined} explainableItems={explainableItems} onNavigate={handleTabChange} data={data}/>}</Suspense>
-    {!showCheckoutConfirm&&!showImageCropper&&<><div className="employee-nav-fade"/><BottomNav activeTab={activeTab} onChange={handleTabChange}/></>}
-    <Suspense fallback={null}>{showQRScanner&&<ModalQRScanner onClose={()=>setShowQRScanner(false)} onScan={handleQRScan} onError={msg=>handleShowAlert('Lỗi thiết bị',msg,'error')}/>}</Suspense>
-    <ConfirmDialog isOpen={showCheckoutConfirm} title="Kết thúc ca làm việc?" message="Hệ thống sẽ ghi nhận giờ ra (Check-out)." confirmLabel="Xác nhận" onConfirm={processCheckOut} onCancel={()=>setShowCheckoutConfirm(false)} type="danger"/>
+    <Suspense fallback={null}>{showCreateRequestModal && <ModalCreateRequest user={currentUser} isOpen onClose={() => setShowCreateRequestModal(false)} onSuccess={refresh} onAlert={handleShowAlert} onNavigate={handleTabChange} data={data} />} {showExplainWorkModal && <ModalExplainWork isOpen onClose={() => setShowExplainWorkModal(false)} onSuccess={refresh} onAlert={handleShowAlert} initialData={explainWorkInitialData || undefined} explainableItems={explainableItems} onNavigate={handleTabChange} data={data} />}</Suspense>
+    {!showCheckoutConfirm && !showImageCropper && <><div className="employee-nav-fade" /><BottomNav activeTab={activeTab} onChange={handleTabChange} /></>}
+    <Suspense fallback={null}>{showQRScanner && <ModalQRScanner onClose={() => setShowQRScanner(false)} onScan={handleQRScan} onError={(message) => handleShowAlert('Lỗi thiết bị', message, 'error')} />}</Suspense>
+    <ConfirmDialog isOpen={showCheckoutConfirm} title="Kết thúc ca làm việc?" message="Hệ thống sẽ ghi nhận giờ ra (Check-out)." confirmLabel="Xác nhận" onConfirm={processCheckOut} onCancel={() => setShowCheckoutConfirm(false)} type="danger" />
   </div>;
 };
+
 export default AppShell;

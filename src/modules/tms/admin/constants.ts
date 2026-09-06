@@ -28,6 +28,7 @@ export const ADMIN_NAV: ReadonlyArray<{ id: AdminSection; icon: string; label: s
 ];
 
 export const ATTENDANCE_STATUS_LABELS: Record<TimesheetStatus, string> = {
+  SCHEDULED: 'Đã xếp lịch',
   OPEN: 'Đang làm',
   COMPLETE: 'Hoàn tất',
   AUTO_APPROVED: 'Tự động duyệt',
@@ -36,6 +37,7 @@ export const ATTENDANCE_STATUS_LABELS: Record<TimesheetStatus, string> = {
   APPROVED: 'Đã duyệt',
   REJECTED: 'Bị từ chối',
   LOCKED: 'Đã khóa',
+  CANCELLED: 'Đã hủy',
 };
 
 export const EXCEPTION_LABELS: Record<string, string> = {
@@ -133,14 +135,19 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemConfig = {
 
 export function getAdminCapabilities(role: EmployeeRole): AdminCapability {
   const isAdmin = role === 'Admin';
-  const isAttendanceOperator = isAdmin || role === 'HR' || role === 'Director';
+  const isHr = role === 'HR';
+  const isDirector = role === 'Director';
+  const canOperateAttendance = isAdmin || isHr || isDirector;
   return {
     manageAccounts: isAdmin,
-    manageSchedules: isAttendanceOperator,
-    manageSettings: isAttendanceOperator,
-    reviewAttendance: isAttendanceOperator,
-    lockAttendance: isAttendanceOperator,
+    manageSchedules: canOperateAttendance,
+    // Workforce V3 grants settings.manage only to Admin. Keeping the UI aligned
+    // avoids showing controls that HR/Director cannot persist through RLS.
+    manageSettings: isAdmin,
+    reviewAttendance: canOperateAttendance,
+    // attendance.lock_period is granted to Admin and HR, not Director.
+    lockAttendance: isAdmin || isHr,
     manageKiosks: isAdmin,
-    viewAudit: isAttendanceOperator,
+    viewAudit: canOperateAttendance,
   };
 }

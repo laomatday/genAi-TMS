@@ -60,12 +60,13 @@ Deno.serve(async (req: Request) => {
 
   const { data: operator, error: operatorError } = await admin
     .from("employees")
-    .select("employee_id, role, status")
+    .select("employee_id,role,status,organization_id")
     .eq("auth_user_id", authData.user.id)
     .single();
-  if (operatorError || operator?.role !== "Admin" || operator?.status !== "Active") {
+  if (operatorError || operator?.role !== "Admin" || operator?.status !== "Active" || !operator.organization_id) {
     return json({ ok: false, error: "Chỉ Admin đang hoạt động được quản lý tài khoản." }, 403);
   }
+  const organizationId = operator.organization_id;
 
   let body: Record<string, unknown>;
   try {
@@ -88,11 +89,12 @@ Deno.serve(async (req: Request) => {
   if (action === "delete") {
     const { data: target, error: targetError } = await admin
       .from("employees")
-      .select("employee_id, auth_user_id, role, status")
+      .select("employee_id,auth_user_id,role,status,organization_id")
       .eq("employee_id", employeeId)
+      .eq("organization_id", organizationId)
       .single();
     if (targetError || !target) {
-      return failure("EMPLOYEE_NOT_FOUND", "Không tìm thấy nhân viên.", 404, { action, employeeId });
+      return failure("EMPLOYEE_NOT_FOUND", "Không tìm thấy nhân viên trong tổ chức hiện tại.", 404, { action, employeeId });
     }
     if (operator.employee_id === employeeId) {
       return failure("SELF_DELETE_FORBIDDEN", "Không thể xóa tài khoản Admin đang đăng nhập.", 400, { action, employeeId });
@@ -101,11 +103,12 @@ Deno.serve(async (req: Request) => {
       const { count, error: countError } = await admin
         .from("employees")
         .select("employee_id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
         .eq("role", "Admin")
         .eq("status", "Active");
       if (countError) return failure("ADMIN_COUNT_FAILED", "Không kiểm tra được số tài khoản Admin.", 500, { action, employeeId });
       if ((count || 0) <= 1) {
-        return failure("LAST_ADMIN_FORBIDDEN", "Không thể xóa Admin hoạt động cuối cùng.", 400, { action, employeeId });
+        return failure("LAST_ADMIN_FORBIDDEN", "Không thể xóa Admin hoạt động cuối cùng của tổ chức.", 400, { action, employeeId });
       }
     }
 
@@ -113,7 +116,8 @@ Deno.serve(async (req: Request) => {
     const { error: deactivateError } = await admin
       .from("employees")
       .update({ status: "Inactive", updated_at: deletedAt })
-      .eq("employee_id", employeeId);
+      .eq("employee_id", employeeId)
+      .eq("organization_id", organizationId);
     if (deactivateError) {
       return failure("EMPLOYEE_DEACTIVATE_FAILED", "Không thể vô hiệu hóa hồ sơ trước khi xóa tài khoản.", 500, { action, employeeId });
     }
@@ -136,7 +140,7 @@ Deno.serve(async (req: Request) => {
       revoked_at: deletedAt,
       revoked_by: operator.employee_id,
       revoke_reason: "Xóa tài khoản đăng nhập",
-    }).eq("employee_id", employeeId).eq("status", "ACTIVE");
+    }).eq("employee_id", employeeId).eq("organization_id", organizationId).eq("status", "ACTIVE");
     await admin.from("trusted_device_grants").delete().eq("employee_id", employeeId);
     await admin.from("trusted_device_challenges").delete().eq("employee_id", employeeId);
 
@@ -146,7 +150,7 @@ Deno.serve(async (req: Request) => {
       trusted_device_id: null,
       trusted_device_bound_at: null,
       updated_at: deletedAt,
-    }).eq("employee_id", employeeId);
+    }).eq("employee_id", employeeId).eq("organization_id", organizationId);
     if (unlinkError) {
       return failure("EMPLOYEE_UNLINK_FAILED", "Tài khoản Auth đã xóa nhưng chưa thể cập nhật hồ sơ nhân viên.", 500, { action, employeeId });
     }
@@ -158,7 +162,7 @@ Deno.serve(async (req: Request) => {
       entity_type: "employee",
       entity_id: employeeId,
       reason: "Xóa tài khoản đăng nhập; bảo toàn hồ sơ và dữ liệu chấm công",
-      metadata: { previous_role: target.role, previous_status: target.status },
+      metadata: { previous_role: target.role, previous_status: target.status, organization_id: organizationId },
     });
     if (auditError) console.error("[admin-users]", JSON.stringify({ code: "DELETE_AUDIT_FAILED", action, employeeId }));
     return json({ ok: true, employee_id: employeeId, profile_retained: true });
@@ -189,23 +193,26 @@ Deno.serve(async (req: Request) => {
   if (action === "create" && password.length < MIN_PASSWORD_LENGTH) {
     return failure("PASSWORD_TOO_SHORT", `Mật khẩu tạm phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`, 400, { action, employeeId });
   }
+
   const locationIds = [...new Set([centerId, ...allowedLocations, ...managedLocations])];
   const { data: validLocations, error: locationError } = await admin
     .from("locations")
     .select("center_id")
+    .eq("organization_id", organizationId)
     .in("center_id", locationIds);
   if (locationError) return failure("LOCATION_CHECK_FAILED", "Không kiểm tra được danh sách địa điểm.", 500, { action, employeeId });
   const validLocationIds = new Set((validLocations || []).map((location) => location.center_id));
   const invalidLocationId = locationIds.find((locationId) => !validLocationIds.has(locationId));
   if (invalidLocationId) {
-    return failure("INVALID_LOCATION", `Địa điểm ${invalidLocationId} không tồn tại.`, 400, { action, employeeId });
+    return failure("INVALID_LOCATION", `Địa điểm ${invalidLocationId} không tồn tại trong tổ chức.`, 400, { action, employeeId });
   }
 
   if (directManagerId) {
     const { data: manager, error: managerError } = await admin
       .from("employees")
-      .select("employee_id, role, status")
+      .select("employee_id,role,status")
       .eq("employee_id", directManagerId)
+      .eq("organization_id", organizationId)
       .maybeSingle();
     if (managerError) return failure("MANAGER_CHECK_FAILED", "Không kiểm tra được quản lý trực tiếp.", 500, { action, employeeId });
     if (!manager || manager.status !== "Active" || !managementRoles.has(manager.role)) {
@@ -218,12 +225,14 @@ Deno.serve(async (req: Request) => {
       .from("attendance_policies")
       .select("id")
       .eq("id", attendancePolicyId)
+      .eq("organization_id", organizationId)
       .eq("active", true)
       .maybeSingle();
     if (policyError) return failure("POLICY_CHECK_FAILED", "Không kiểm tra được chính sách chấm công.", 500, { action, employeeId });
     if (!activePolicy) return json({ ok: false, error: "Chính sách chấm công không hợp lệ." }, 400);
   }
 
+  // Auth emails are globally unique in one Supabase project, so keep this check global.
   const { data: duplicateEmail, error: duplicateEmailError } = await admin
     .from("employees")
     .select("employee_id")
@@ -235,6 +244,7 @@ Deno.serve(async (req: Request) => {
 
   const profile: Record<string, unknown> = {
     employee_id: employeeId,
+    organization_id: organizationId,
     name,
     email,
     phone: cleanText(input.phone, 40) || null,
@@ -265,7 +275,7 @@ Deno.serve(async (req: Request) => {
       password,
       email_confirm: true,
       user_metadata: { name },
-      app_metadata: { app_role: role },
+      app_metadata: { app_role: role, organization_id: organizationId },
     });
     if (createError || !created.user) {
       const authMessage = createError?.code === "email_exists" || createError?.message?.toLowerCase().includes("already")
@@ -292,17 +302,18 @@ Deno.serve(async (req: Request) => {
       entity_type: "employee",
       entity_id: employeeId,
       reason: "Tạo tài khoản quản trị",
-      metadata: { role, status, center_id: centerId },
+      metadata: { role, status, center_id: centerId, organization_id: organizationId },
     });
     return json({ ok: true, employee_id: employeeId });
   }
 
   const { data: existing, error: existingError } = await admin
     .from("employees")
-    .select("employee_id, auth_user_id")
+    .select("employee_id,auth_user_id,organization_id")
     .eq("employee_id", employeeId)
+    .eq("organization_id", organizationId)
     .single();
-  if (existingError || !existing) return json({ ok: false, error: "Không tìm thấy nhân viên." }, 404);
+  if (existingError || !existing) return json({ ok: false, error: "Không tìm thấy nhân viên trong tổ chức hiện tại." }, 404);
 
   if (operator.employee_id === employeeId && (role !== "Admin" || status !== "Active")) {
     return json({ ok: false, error: "Không thể tự hạ quyền hoặc khóa tài khoản Admin đang đăng nhập." }, 400);
@@ -314,7 +325,7 @@ Deno.serve(async (req: Request) => {
       email,
       email_confirm: true,
       user_metadata: { name },
-      app_metadata: { app_role: role },
+      app_metadata: { app_role: role, organization_id: organizationId },
       ban_duration: status === "Inactive" ? ACCOUNT_BAN_DURATION : "none",
     };
     if (password) {
@@ -334,7 +345,7 @@ Deno.serve(async (req: Request) => {
       password,
       email_confirm: true,
       user_metadata: { name },
-      app_metadata: { app_role: role },
+      app_metadata: { app_role: role, organization_id: organizationId },
     });
     if (createError || !created.user) {
       const authMessage = createError?.code === "email_exists" || createError?.message?.toLowerCase().includes("already")
@@ -361,13 +372,14 @@ Deno.serve(async (req: Request) => {
       .from("trusted_devices")
       .select("device_id,device_label,activated_at")
       .eq("employee_id", employeeId)
+      .eq("organization_id", organizationId)
       .eq("status", "ACTIVE");
     await admin.from("trusted_devices").update({
       status: "REVOKED",
       revoked_at: now,
       revoked_by: operator.employee_id,
       revoke_reason: resetReason,
-    }).eq("employee_id", employeeId).eq("status", "ACTIVE");
+    }).eq("employee_id", employeeId).eq("organization_id", organizationId).eq("status", "ACTIVE");
     await admin.from("trusted_device_grants").delete().eq("employee_id", employeeId);
     await admin.from("trusted_device_challenges").delete().eq("employee_id", employeeId);
     profile.trusted_device_id = null;
@@ -378,14 +390,15 @@ Deno.serve(async (req: Request) => {
       action: "TRUSTED_DEVICE_RESET",
       entity_type: "trusted_device",
       reason: resetReason,
-      metadata: { old_devices: oldDevices || [] },
+      metadata: { old_devices: oldDevices || [], organization_id: organizationId },
     });
   }
 
   const { error: updateError } = await admin
     .from("employees")
     .update({ ...profile, auth_user_id: existing.auth_user_id })
-    .eq("employee_id", employeeId);
+    .eq("employee_id", employeeId)
+    .eq("organization_id", organizationId);
   if (updateError) {
     if (createdAuthUserId) await admin.auth.admin.deleteUser(createdAuthUserId);
     return failure("EMPLOYEE_UPDATE_FAILED", "Không cập nhật được hồ sơ nhân viên.", 400, { action, employeeId, databaseCode: updateError.code });
@@ -398,7 +411,7 @@ Deno.serve(async (req: Request) => {
     entity_type: "employee",
     entity_id: employeeId,
     reason: status === "Inactive" ? "Vô hiệu hóa tài khoản" : "Cập nhật hồ sơ tài khoản",
-    metadata: { role, status, center_id: centerId },
+    metadata: { role, status, center_id: centerId, organization_id: organizationId },
   });
 
   return json({ ok: true, employee_id: employeeId });

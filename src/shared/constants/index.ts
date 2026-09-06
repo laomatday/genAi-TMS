@@ -84,7 +84,7 @@ export const UI_MOTION = {
 } as const;
 
 export const TMS_LIMITS = {
-  DEFAULT_GEOFENCE_METERS: 200,
+  DEFAULT_GEOFENCE_METERS: 200 as number,
   GOOD_GPS_ACCURACY_METERS: 50,
   MAX_GPS_ACCURACY_METERS: 150,
   GPS_TIMEOUT_MS: 12_000,
@@ -178,4 +178,4 @@ export const TMS_DEFAULTS = {
   STANDARD_WORK_DAYS_PER_MONTH: 26,
 } as const;
 
-export const LOGIN_EMAIL_DOMAINS = ['genai.ai.vn'] as const;
+export const LOGIN_EMAIL_DOMAINS: readonly string[] = [ENV_DOMAIN];

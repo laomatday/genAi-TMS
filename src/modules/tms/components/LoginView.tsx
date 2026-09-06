@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { doLogin } from '@/core/auth/authService';
 import { triggerHaptic } from '@/core/utils/helpers';
-import { Employee } from '@/shared/types';
+import type { Employee } from '@/shared/types';
 import { APP_INFO } from '@/shared/constants';
 
 interface Props {
@@ -9,93 +9,125 @@ interface Props {
 }
 
 const LoginView: React.FC<Props> = ({ onLoginSuccess }) => {
-  const [email, setEmail] = useState('');
+  const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleLoginWithCredentials = async (loginId: string, pass: string) => {
-    setError('');
-    setLoading(true);
-    const res = await doLogin(loginId, pass);
-    setLoading(false);
-
-    if (res.success && res.data) {
-      triggerHaptic('success');
-      onLoginSuccess(res.data);
-    } else {
-      triggerHaptic('error');
-      setError(res.message || 'Đăng nhập thất bại. Kiểm tra lại thông tin và thử lại.');
-    }
-  };
-
   const handleLogin = async () => {
-    if (!email || !password) {
+    if (!account.trim() || !password) {
       setError('Vui lòng nhập tài khoản và mật khẩu.');
       return;
     }
-    await handleLoginWithCredentials(email, password);
+
+    setError('');
+    setLoading(true);
+    const result = await doLogin(account, password);
+    setLoading(false);
+
+    if (result.success && result.data) {
+      triggerHaptic('success');
+      onLoginSuccess(result.data);
+      return;
+    }
+
+    triggerHaptic('error');
+    setError(result.message || 'Đăng nhập thất bại. Kiểm tra lại thông tin và thử lại.');
   };
 
   return (
-    <main className="w-full h-full page-bg flex flex-col justify-between px-6 py-8 relative overflow-hidden transition-colors duration-300">
-      <div className="login-brand-orb absolute -top-28 -right-24 w-72 h-72 rounded-full opacity-10 pointer-events-none" />
-      <div className="absolute -bottom-36 -left-28 w-80 h-80 rounded-full bg-primary/5 dark:bg-primary/10 pointer-events-none" />
+    <main className="page-bg relative flex h-full w-full flex-col justify-between overflow-hidden px-6 py-8 transition-colors duration-300">
+      <div className="login-brand-orb pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full opacity-10" />
+      <div className="pointer-events-none absolute -bottom-36 -left-28 h-80 w-80 rounded-full bg-primary/5 dark:bg-primary/10" />
 
-      <div className="flex-1 flex flex-col justify-center max-w-sm mx-auto w-full z-10 animate-slide-up">
+      <div className="z-10 mx-auto flex w-full max-w-sm flex-1 flex-col justify-center animate-slide-up">
         <section className="mb-8 text-center">
-          <div className="w-24 h-24 mx-auto mb-4 rounded-3xl bg-white dark:bg-dark-surface border border-slate-100 dark:border-dark-border shadow-sm flex items-center justify-center p-3">
-            <img src={APP_INFO.LOGO_URL} className="w-full h-full object-contain" alt={APP_INFO.BRAND} />
+          <div className="mx-auto mb-4 flex h-24 w-24 items-center justify-center rounded-3xl border border-slate-100 bg-white p-3 shadow-sm dark:border-dark-border dark:bg-dark-surface">
+            <img src={APP_INFO.LOGO_URL} className="h-full w-full object-contain" alt={APP_INFO.BRAND} />
           </div>
-          <p className="text-xs font-bold text-primary mb-1">{APP_INFO.BRAND}</p>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-dark-text-primary tracking-tight">{APP_INFO.NAME}</h1>
-          <p className="text-slate-500 dark:text-dark-text-secondary mt-1.5 text-xs leading-relaxed">
-            Hệ thống chấm công định danh và quản lý thời gian
+          <p className="mb-1 text-sm font-bold text-primary">{APP_INFO.BRAND}</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-dark-text-primary">{APP_INFO.PRODUCT_NAME}</h1>
+          <p className="mt-2 text-sm leading-relaxed text-slate-500 dark:text-dark-text-secondary">
+            Chấm công bằng QR, vị trí và thiết bị làm việc đã xác thực.
           </p>
         </section>
 
         <form
-          className="space-y-4 bg-white/90 dark:bg-dark-surface/90 backdrop-blur-xl border border-slate-100 dark:border-dark-border rounded-3xl p-5 shadow-sm"
-          onSubmit={(e) => {
-            e.preventDefault();
+          className="space-y-4 rounded-3xl border border-slate-100 bg-white/90 p-5 shadow-sm backdrop-blur-xl dark:border-dark-border dark:bg-dark-surface/90"
+          onSubmit={(event) => {
+            event.preventDefault();
             void handleLogin();
           }}
         >
-          {error && (
-            <div role="alert" className="flex items-start gap-3 bg-secondary-red/10 p-3 rounded-xl border border-secondary-red/20 animate-scale-in">
-              <span className="material-symbols-rounded text-secondary-red text-lg mt-0.5">error</span>
-              <span className="text-secondary-red text-xs font-semibold leading-relaxed">{error}</span>
+          {error ? (
+            <div role="alert" className="flex items-start gap-3 rounded-xl border border-secondary-red/20 bg-secondary-red/10 p-3 animate-scale-in">
+              <span className="material-symbols-rounded mt-0.5 text-lg text-secondary-red" aria-hidden="true">error</span>
+              <span className="text-sm font-semibold leading-relaxed text-secondary-red">{error}</span>
             </div>
-          )}
+          ) : null}
 
           <div className="space-y-1.5">
-            <label htmlFor="login-account" className="block text-xs font-semibold text-slate-600 dark:text-dark-text-secondary">Tài khoản</label>
-            <div className="relative group">
-              <span className="material-symbols-rounded absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-lg">person</span>
-              <input id="login-account" type="text" value={email} inputMode="email" enterKeyHint="next" autoComplete="username" onChange={(e) => setEmail(e.target.value)} className="input-field pl-11 pr-4 text-sm" placeholder="Mã nhân viên hoặc email" />
+            <label htmlFor="login-account" className="block text-sm font-semibold text-slate-600 dark:text-dark-text-secondary">Tài khoản</label>
+            <div className="group relative">
+              <span className="material-symbols-rounded absolute left-4 top-1/2 -translate-y-1/2 text-lg text-slate-400 transition-colors group-focus-within:text-primary" aria-hidden="true">person</span>
+              <input
+                id="login-account"
+                type="text"
+                value={account}
+                inputMode="email"
+                enterKeyHint="next"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                onChange={(event) => setAccount(event.target.value)}
+                className="input-field pl-11 pr-4 text-base"
+                placeholder="Mã nhân viên hoặc email"
+              />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label htmlFor="login-password" className="block text-xs font-semibold text-slate-600 dark:text-dark-text-secondary">Mật khẩu</label>
-            <div className="relative group">
-              <span className="material-symbols-rounded absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors text-lg">lock</span>
-              <input id="login-password" type={showPassword ? 'text' : 'password'} value={password} enterKeyHint="go" autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} className="input-field pl-11 pr-12 text-sm" placeholder="Nhập mật khẩu" />
-              <button type="button" aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} onClick={() => setShowPassword((value) => !value)} className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg flex items-center justify-center text-slate-400 hover:text-primary">
-                <span className="material-symbols-rounded text-lg">{showPassword ? 'visibility_off' : 'visibility'}</span>
+            <label htmlFor="login-password" className="block text-sm font-semibold text-slate-600 dark:text-dark-text-secondary">Mật khẩu</label>
+            <div className="group relative">
+              <span className="material-symbols-rounded absolute left-4 top-1/2 -translate-y-1/2 text-lg text-slate-400 transition-colors group-focus-within:text-primary" aria-hidden="true">lock</span>
+              <input
+                id="login-password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                enterKeyHint="go"
+                autoComplete="current-password"
+                onChange={(event) => setPassword(event.target.value)}
+                className="input-field pl-11 pr-12 text-base"
+                placeholder="Nhập mật khẩu"
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                onClick={() => setShowPassword((value) => !value)}
+                className="absolute right-1.5 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:text-primary"
+              >
+                <span className="material-symbols-rounded text-lg" aria-hidden="true">{showPassword ? 'visibility_off' : 'visibility'}</span>
               </button>
             </div>
           </div>
 
-          <button type="submit" disabled={loading} className="w-full h-11 bg-primary text-white rounded-xl font-bold text-sm hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm">
-            {loading ? <><span className="material-symbols-rounded animate-spin text-base">progress_activity</span>Đang đăng nhập</> : <>Đăng nhập<span className="material-symbols-rounded text-lg">arrow_forward</span></>}
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary text-base font-bold text-white shadow-sm transition-all hover:bg-primary/90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? (
+              <><span className="material-symbols-rounded animate-spin text-base" aria-hidden="true">progress_activity</span>Đang đăng nhập</>
+            ) : (
+              <>Đăng nhập<span className="material-symbols-rounded text-lg" aria-hidden="true">arrow_forward</span></>
+            )}
           </button>
         </form>
       </div>
 
-      <footer className="text-center pb-safe z-10 mt-4">
-        <p className="text-[11px] text-slate-400 dark:text-dark-text-secondary">Powered by <span className="font-bold text-primary">{APP_INFO.BRAND}</span> · {new Date().getFullYear()}</p>
+      <footer className="z-10 mt-4 pb-safe text-center">
+        <p className="text-xs text-slate-400 dark:text-dark-text-secondary">{APP_INFO.PRODUCT_NAME} · {new Date().getFullYear()}</p>
       </footer>
     </main>
   );

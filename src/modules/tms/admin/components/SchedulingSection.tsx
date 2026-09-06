@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import { toISODateString } from '@/core/utils/helpers';
-import { deleteShiftAssignment, saveShiftAssignments } from '../adminService';
+import { deleteShiftAssignment, publishShiftAssignments, saveShiftAssignments } from '../adminService';
 import { exportShiftAssignmentsExcel, parseShiftAssignmentsExcel } from '../adminExcel';
 import type { AdminActionRunner, AdminData, ShiftAssignment } from '../types';
 import { AdminSelect, EmptyState, PanelTitle, SearchField, SpreadsheetActions } from './AdminCommon';
@@ -68,6 +68,10 @@ export default function SchedulingSection({
     [data.shiftAssignments],
   );
   const shifts = useMemo(() => new Map(data.shifts.map((shift) => [shift.id, shift])), [data.shifts]);
+  const draftCountThisWeek = useMemo(
+    () => data.shiftAssignments.filter((assignment) => weekDays.includes(assignment.work_date) && assignment.publication_status !== 'PUBLISHED').length,
+    [data.shiftAssignments, weekDays],
+  );
 
   useEffect(() => {
     const displayedMonth = addDays(weekStart, 3).slice(0, 7);
@@ -107,11 +111,19 @@ export default function SchedulingSection({
         shift_id: selectedShift,
         location_id: locationId || null,
         note,
+        revision: assignments.get(`${employeeId}:${workDate}`)?.revision,
       }))),
-      `Đã phân ca cho ${selectedIds.length} nhân viên.`,
+      `Đã lưu nháp lịch cho ${selectedIds.length} nhân viên. Cần công bố để lịch có hiệu lực chấm công.`,
     );
     setSelectedIds([]);
     setNote('');
+  };
+
+  const publishWeek = async () => {
+    await onRun(
+      () => publishShiftAssignments({ from: weekStart, to: addDays(weekStart, 6) }),
+      `Đã công bố lịch tuần ${weekStart} – ${addDays(weekStart, 6)}.`,
+    );
   };
 
   const remove = async () => {
@@ -119,8 +131,8 @@ export default function SchedulingSection({
     const target = deleteTarget;
     setDeleteTarget(null);
     await onRun(
-      () => deleteShiftAssignment(target.id, 'Xóa từ lịch phân ca'),
-      'Đã xóa lịch phân ca.',
+      () => deleteShiftAssignment(target.id, 'Xóa lịch nháp từ Control Center'),
+      'Đã xóa lịch nháp.',
     );
   };
 
@@ -128,17 +140,13 @@ export default function SchedulingSection({
     await onRun(async () => {
       const imported = await parseShiftAssignmentsExcel(file, data, month);
       await saveShiftAssignments(imported);
-    }, `Đã nhập lịch phân ca tháng ${month} từ Excel.`);
+    }, `Đã nhập lịch tháng ${month} vào trạng thái nháp. Kiểm tra rồi công bố theo tuần.`);
   };
 
   if (!data.features.workforceOperations) {
     return (
       <section className="admin-panel">
-        <EmptyState
-          icon="calendar_clock"
-          title="Module phân ca đang chờ kích hoạt"
-          description="Áp dụng migration workforce_operations lên Supabase để bắt đầu lập lịch và đóng kỳ công."
-        />
+        <EmptyState icon="calendar_clock" title="Module phân ca đang chờ kích hoạt" description="Áp dụng Workforce V3 lên Supabase để bắt đầu lập lịch và đóng kỳ công." />
       </section>
     );
   }
@@ -152,7 +160,7 @@ export default function SchedulingSection({
           <div className="admin-field"><span>Ca làm</span><AdminSelect value={shiftId} onChange={setShiftId} label="Ca làm" placeholder="Chọn ca" options={data.shifts.filter((shift) => shift.active).map((shift) => ({ value: String(shift.id), label: shift.name, description: `${displayTime(shift.start_time)}–${displayTime(shift.end_time)}` }))} /></div>
           <div className="admin-field"><span>Địa điểm</span><AdminSelect value={locationId} onChange={setLocationId} label="Địa điểm" options={[{ value: '', label: 'Theo hồ sơ nhân viên' }, ...data.locations.filter((location) => location.active).map((location) => ({ value: location.center_id, label: location.center_name }))]} /></div>
           <label className="schedule-note"><span>Ghi chú</span><input maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Không bắt buộc" /></label>
-          <button type="button" className="admin-primary-button" disabled={busy || !selectedIds.length || !shiftId || !workDate} onClick={() => void save()}><span className="material-symbols-rounded">event_available</span>Phân ca ({selectedIds.length})</button>
+          <button type="button" className="admin-primary-button" disabled={busy || !selectedIds.length || !shiftId || !workDate} onClick={() => void save()}><span className="material-symbols-rounded">edit_calendar</span>Lưu nháp ({selectedIds.length})</button>
         </div>
       </section>
 
@@ -162,6 +170,7 @@ export default function SchedulingSection({
           title="Lịch làm việc tuần"
           action={(
             <div className="schedule-week-actions">
+              <button type="button" className="admin-primary-button" disabled={busy || draftCountThisWeek === 0} onClick={() => void publishWeek()} title={draftCountThisWeek ? `Công bố ${draftCountThisWeek} lịch nháp trong tuần` : 'Tuần này không có lịch nháp'}><span className="material-symbols-rounded">publish</span>Công bố tuần {draftCountThisWeek ? `(${draftCountThisWeek})` : ''}</button>
               <SpreadsheetActions disabled={busy} onExport={() => { void onRun(() => exportShiftAssignmentsExcel(data, month), `Đã xuất lịch phân ca tháng ${month} ra Excel.`, { refresh: false }); }} onImport={importAssignments} />
               <button type="button" className="admin-icon-button" onClick={() => setWeek(addDays(weekStart, -7))} aria-label="Tuần trước"><span className="material-symbols-rounded">chevron_left</span></button>
               <button type="button" className="admin-secondary-button" onClick={() => setWeek(mondayOf(today))}>Tuần này</button>
@@ -191,6 +200,7 @@ export default function SchedulingSection({
                 {weekDays.map((day) => {
                   const assignment = assignments.get(`${employee.employee_id}:${day}`);
                   const shift = assignment ? shifts.get(assignment.shift_id) : undefined;
+                  const published = assignment?.publication_status === 'PUBLISHED';
                   return (
                     <div className={`schedule-cell ${day === today ? 'today' : ''} ${assignment ? 'assigned' : ''}`} key={day}>
                       <button type="button" className="schedule-cell-button" onClick={() => {
@@ -198,9 +208,9 @@ export default function SchedulingSection({
                         if (assignment) selectAssignment(assignment);
                         else setSelectedIds([employee.employee_id]);
                       }}>
-                        {shift ? <><strong>{shift.name}</strong><small>{displayTime(shift.start_time)}–{displayTime(shift.end_time)}</small></> : <span>+ Gán ca</span>}
+                        {shift ? <><strong>{shift.name}</strong><small>{displayTime(shift.start_time)}–{displayTime(shift.end_time)}</small><small>{published ? 'Đã công bố' : 'Nháp'}</small></> : <span>+ Gán ca</span>}
                       </button>
-                      {assignment && day >= today ? <button type="button" className="schedule-remove" onClick={() => setDeleteTarget(assignment)} aria-label={`Xóa ca của ${employee.name} ngày ${day}`}><span className="material-symbols-rounded">close</span></button> : null}
+                      {assignment && !published && day >= today ? <button type="button" className="schedule-remove" onClick={() => setDeleteTarget(assignment)} aria-label={`Xóa lịch nháp của ${employee.name} ngày ${day}`}><span className="material-symbols-rounded">close</span></button> : null}
                     </div>
                   );
                 })}
@@ -213,9 +223,9 @@ export default function SchedulingSection({
 
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
-        title="Xóa lịch phân ca?"
-        message="Timesheet chưa phát sinh sẽ trở về giờ làm theo chính sách mặc định."
-        confirmLabel="Xóa lịch"
+        title="Xóa lịch nháp?"
+        message="Chỉ lịch chưa công bố mới được xóa. Lịch đã công bố phải được điều chỉnh có kiểm soát."
+        confirmLabel="Xóa lịch nháp"
         onConfirm={() => void remove()}
         onCancel={() => setDeleteTarget(null)}
         isLoading={busy}

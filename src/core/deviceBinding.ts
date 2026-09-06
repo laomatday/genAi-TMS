@@ -74,6 +74,10 @@ function getLogicalDeviceId() {
   return id;
 }
 
+export function getCurrentDeviceId() {
+  return getLogicalDeviceId();
+}
+
 export function getDeviceLabel() {
   const ua = navigator.userAgent;
   const platform = /Android/i.test(ua) ? 'Android' : /iPhone|iPad|iPod/i.test(ua) ? 'iPhone/iPad' : /Windows/i.test(ua) ? 'Windows' : /Macintosh|Mac OS/i.test(ua) ? 'macOS' : /Linux/i.test(ua) ? 'Linux' : 'Thiết bị';
@@ -97,7 +101,10 @@ export async function getDeviceBindingStatus() {
 export async function activateTrustedDevice() {
   if (!window.crypto?.subtle) throw new Error('Thiết bị không hỗ trợ WebCrypto.');
   const deviceId = getLogicalDeviceId();
-  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  // For asymmetric WebCrypto keys, the private key honors extractable=false while
+  // the public key remains exportable. The private signing key therefore cannot be
+  // exported from IndexedDB by application code after creation.
+  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
   const publicKey = await crypto.subtle.exportKey('jwk', pair.publicKey);
   await writePrivateKey(pair.privateKey);
   const result = await invokeDevice({

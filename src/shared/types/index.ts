@@ -1,11 +1,22 @@
 export type EmployeeRole = 'Staff' | 'Leader' | 'Manager' | 'Director' | 'Admin' | 'HR' | 'Kiosk';
 export type ReviewStatus = 'Pending' | 'Approved' | 'Rejected';
+export type WorkforceRequestType =
+  | 'EXPLANATION'
+  | 'CORRECTION'
+  | 'ANNUAL_LEAVE'
+  | 'SICK_LEAVE'
+  | 'UNPAID_LEAVE'
+  | 'BUSINESS_TRIP'
+  | 'REMOTE_WORK'
+  | 'SHIFT_SWAP'
+  | 'OVERTIME';
 
 export interface Employee {
   id: string;
   employee_id: string;
   uid?: string;
   auth_user_id?: string;
+  organization_id?: string;
   name: string;
   email: string;
   phone?: string | number;
@@ -23,6 +34,8 @@ export interface Employee {
   avatar_url?: string;
   face_ref_url?: string;
   join_date?: string;
+  employment_start_date?: string | null;
+  employment_end_date?: string | null;
   fcm_tokens?: string[];
   status: 'Active' | 'Inactive';
 }
@@ -70,6 +83,7 @@ export interface LeaveRequest {
   name?: string;
   created_at: string;
   type: 'Nghỉ phép' | 'Nghỉ ốm' | 'Nghỉ không lương' | 'Công tác' | 'Làm việc tại nhà' | 'WFH' | string;
+  request_type?: WorkforceRequestType;
   from_date: string;
   to_date: string;
   expiration_date?: string;
@@ -78,6 +92,11 @@ export interface LeaveRequest {
   note?: string;
   manager_note?: string;
   approver_id?: string | null;
+  assigned_to?: string | null;
+  fallback_to?: string | null;
+  due_at?: string;
+  revision?: number;
+  workflow_data?: Record<string, unknown>;
   updated_at?: string;
 }
 
@@ -89,11 +108,16 @@ export interface Explanation {
   attendance_date?: string;
   reason: string;
   status: ReviewStatus;
-  created_at: string;
+  request_type?: 'EXPLANATION' | 'CORRECTION';
+  requested_checkin?: string | null;
+  requested_checkout?: string | null;
   manager_note?: string;
   approver_id?: string | null;
+  revision?: number;
   updated_at?: string;
+  created_at: string;
 }
+
 export interface LocationConfig {
   id?: string;
   center_id: string;
@@ -149,5 +173,25 @@ export interface DashboardData {
 }
 
 export interface AttendanceBootstrap { profile: Employee; history: Attendance[]; serverTime: string; }
-export interface RecordAttendanceResult { action: 'checkin' | 'checkout'; message: string; attendance: Attendance; }
+
+export interface WorkforceReceipt {
+  id: string;
+  event_id?: string;
+  action: 'checkin' | 'checkout' | 'pause' | 'resume';
+  occurred_at: string;
+  work_date: string;
+  location_name?: string;
+  gps_accuracy_m?: number;
+  device_verified?: boolean;
+  timesheet_id?: string;
+  status?: string;
+}
+
+export interface WorkforceAttendanceResult {
+  ok: boolean;
+  code?: string;
+  message?: string;
+  receipt?: WorkforceReceipt;
+}
+
 export interface DynamicQrResult { payload: string; expiresAt: number; branchName: string; }
