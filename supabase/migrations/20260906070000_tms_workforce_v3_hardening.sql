@@ -1,9 +1,7 @@
 -- genAi TMS hardening on top of the deployed Workforce V3 release.
--- P0: tenant-safe management scope and remove legacy attendance write surfaces.
--- P2: add a one-roundtrip employee dashboard bundle and covering indexes.
+-- P0: tenant-safe management scope, privileged RPC isolation and legacy surface retirement.
+-- P2: one-roundtrip employee dashboard bundle and covering indexes.
 -- Existing Workforce V3 remains the single source of truth.
-
-begin;
 
 -- Tenant-safe management helper. employee_id is globally unique today, but the
 -- organization predicate is required defense-in-depth for a multi-tenant future.
@@ -108,9 +106,9 @@ create index if not exists trusted_devices_org_employee_idx
 create index if not exists attendance_periods_org_status_period_idx
   on public.attendance_periods(organization_id, status, period_start, period_end);
 
--- Organization-aware QR station creation. The short-lived QR token remains
--- hashed in attendance_qr_sessions; Workforce V3 validates the station tenant.
-create or replace function public.create_attendance_qr(p_center_id text default null)
+-- Privileged implementations live outside the exposed API schema. Public
+-- wrappers remain SECURITY INVOKER and preserve the current frontend RPC names.
+create or replace function tms_private.create_attendance_qr_v1(p_center_id text default null)
 returns jsonb
 language plpgsql
 security definer
@@ -149,6 +147,14 @@ begin
     and organization_id = actor.organization_id
     and active;
   if not found then raise exception 'Chi nhánh chưa cấu hình vị trí hoặc ngoài tổ chức.'; end if;
+
+  if exists (
+    select 1 from public.qr_stations station
+    where station.station_user_id = (select auth.uid())
+      and station.organization_id <> actor.organization_id
+  ) then
+    raise exception 'Trạm QR hiện tại thuộc tổ chức khác.' using errcode = '42501';
+  end if;
 
   select station.active into station_enabled
   from public.qr_stations station
@@ -208,8 +214,139 @@ begin
   );
 end;
 $$;
+revoke all on function tms_private.create_attendance_qr_v1(text) from public, anon;
+grant execute on function tms_private.create_attendance_qr_v1(text) to authenticated;
+
+create or replace function public.create_attendance_qr(p_center_id text default null)
+returns jsonb
+language sql
+security invoker
+set search_path = ''
+as $$
+  select tms_private.create_attendance_qr_v1(p_center_id);
+$$;
 revoke all on function public.create_attendance_qr(text) from public, anon;
 grant execute on function public.create_attendance_qr(text) to authenticated;
+
+create or replace function tms_private.update_qr_station_admin_v1(
+  p_id uuid,
+  p_name text,
+  p_center_id text,
+  p_active boolean
+)
+returns public.qr_stations
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  actor public.employees%rowtype;
+  station public.qr_stations%rowtype;
+begin
+  select * into actor
+  from public.employees
+  where auth_user_id = (select auth.uid()) and status = 'Active';
+  if not found or actor.role <> 'Admin' then
+    raise exception 'Chỉ Admin được cấu hình trạm Kiosk.' using errcode = '42501';
+  end if;
+  if length(trim(coalesce(p_name, ''))) < 2 then
+    raise exception 'Tên trạm phải có ít nhất 2 ký tự.';
+  end if;
+  if not exists (
+    select 1 from public.locations l
+    where l.center_id = p_center_id
+      and l.organization_id = actor.organization_id
+      and l.active
+  ) then
+    raise exception 'Địa điểm không tồn tại, đã tắt hoặc ngoài tổ chức.';
+  end if;
+
+  update public.qr_stations
+  set name = trim(p_name),
+      center_id = p_center_id,
+      active = p_active,
+      updated_at = clock_timestamp()
+  where id = p_id
+    and organization_id = actor.organization_id
+  returning * into station;
+  if not found then
+    raise exception 'Không tìm thấy trạm Kiosk trong tổ chức.' using errcode = '42501';
+  end if;
+
+  insert into public.audit_logs(
+    actor_employee_id, action, entity_type, entity_id, reason, metadata
+  ) values (
+    actor.employee_id,
+    'QR_STATION_UPDATED',
+    'qr_station',
+    station.id::text,
+    case when station.active then 'Cập nhật trạm Kiosk' else 'Vô hiệu hóa trạm Kiosk' end,
+    jsonb_build_object(
+      'name', station.name,
+      'center_id', station.center_id,
+      'active', station.active,
+      'organization_id', actor.organization_id
+    )
+  );
+  return station;
+end;
+$$;
+revoke all on function tms_private.update_qr_station_admin_v1(uuid,text,text,boolean) from public, anon;
+grant execute on function tms_private.update_qr_station_admin_v1(uuid,text,text,boolean) to authenticated;
+
+create or replace function public.update_qr_station_admin(
+  p_id uuid,
+  p_name text,
+  p_center_id text,
+  p_active boolean
+)
+returns public.qr_stations
+language sql
+security invoker
+set search_path = ''
+as $$
+  select tms_private.update_qr_station_admin_v1(p_id, p_name, p_center_id, p_active);
+$$;
+revoke all on function public.update_qr_station_admin(uuid,text,text,boolean) from public, anon;
+grant execute on function public.update_qr_station_admin(uuid,text,text,boolean) to authenticated;
+
+create or replace function tms_private.set_my_avatar_v1(p_url text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  expected_path text;
+begin
+  if (select auth.uid()) is null then raise exception 'Vui lòng đăng nhập.'; end if;
+  expected_path := '/storage/v1/object/public/avatars/' || (select auth.uid())::text || '/avatar.jpg';
+  if p_url is null or length(trim(p_url)) > 2048 or position(expected_path in p_url) = 0 then
+    raise exception 'Đường dẫn ảnh đại diện không hợp lệ.';
+  end if;
+
+  update public.employees
+  set avatar_url = trim(p_url),
+      face_ref_url = trim(p_url),
+      updated_at = clock_timestamp()
+  where auth_user_id = (select auth.uid())
+    and status = 'Active';
+  if not found then raise exception 'Không tìm thấy hồ sơ nhân viên.'; end if;
+end;
+$$;
+revoke all on function tms_private.set_my_avatar_v1(text) from public, anon;
+grant execute on function tms_private.set_my_avatar_v1(text) to authenticated;
+
+create or replace function public.set_my_avatar(p_url text)
+returns void
+language sql
+security invoker
+set search_path = ''
+as $$
+  select tms_private.set_my_avatar_v1(p_url);
+$$;
+revoke all on function public.set_my_avatar(text) from public, anon;
+grant execute on function public.set_my_avatar(text) to authenticated;
 
 -- One browser round-trip. Each inner query still uses Workforce V3 authorization,
 -- tenant scope, published schedule rules and bounded server-side pagination.
@@ -281,8 +418,8 @@ $$;
 revoke all on function public.tms_dashboard_bundle_v1(integer) from public, anon;
 grant execute on function public.tms_dashboard_bundle_v1(integer) to authenticated;
 
--- Retire attendance paths that can bypass Workforce V3 trusted-device,
--- tenant, idempotency, published-schedule and closed-period checks.
+-- Retire legacy mutation/query paths now replaced by Workforce V3. Keeping
+-- definitions preserves rollback/debug history while removing REST/RPC access.
 revoke all on function public.record_qr_attendance(text,double precision,double precision,double precision) from public, anon, authenticated;
 revoke all on function public.record_qr_attendance_v2(text,double precision,double precision,double precision,text) from public, anon, authenticated;
 revoke all on function public.checkout_attendance_gps(double precision,double precision,double precision) from public, anon, authenticated;
@@ -297,6 +434,15 @@ revoke all on function public.sync_my_timesheet_v2() from public, anon, authenti
 revoke all on function public.submit_attendance_explanation(date,text) from public, anon, authenticated;
 revoke all on function public.review_attendance_explanation(uuid,text,text) from public, anon, authenticated;
 revoke all on function public.register_or_validate_trusted_device(text) from public, anon, authenticated;
+revoke all on function public.close_attendance_period_v1(date,date,text) from public, anon, authenticated;
+revoke all on function public.lock_timesheets_v2(date) from public, anon, authenticated;
+revoke all on function public.get_employee_directory() from public, anon, authenticated;
+revoke all on function public.save_shift_assignments_v1(jsonb) from public, anon, authenticated;
+revoke all on function public.refresh_tms_exceptions_v2(date,date) from public, anon, authenticated;
+revoke all on function public.delete_shift_assignment_v1(uuid,text) from public, anon, authenticated;
+revoke all on function public.review_attendance_request_v2(uuid,text,text) from public, anon, authenticated;
+revoke all on function public.review_leave_request(uuid,text,text) from public, anon, authenticated;
+revoke all on function public.submit_attendance_request_v2(uuid,text,text,timestamp with time zone,timestamp with time zone) from public, anon, authenticated;
+revoke all on function public.submit_leave_request(text,date,date,text) from public, anon, authenticated;
 
 notify pgrst, 'reload schema';
-commit;
