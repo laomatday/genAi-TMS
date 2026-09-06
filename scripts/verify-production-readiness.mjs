@@ -102,6 +102,11 @@ if (!employeeService.includes("p_action: 'request.submit'")) {
 const hardeningMigration = await readFile(join(root, 'supabase/migrations/20260906070000_tms_workforce_v3_hardening.sql'), 'utf8');
 for (const requiredClause of [
   't.organization_id = a.organization_id',
+  'create or replace function tms_private.request_organization()',
+  'create policy employees_update_admin_scope_v3',
+  'create policy locations_update_admin_scope_v3',
+  'create policy attendance_policies_read_scope_v3',
+  'create policy qr_stations_read_scope_v3',
   'create or replace function tms_private.create_attendance_qr_v1',
   'create or replace function tms_private.update_qr_station_admin_v1',
   'create or replace function tms_private.set_my_avatar_v1',
