@@ -42,8 +42,32 @@ $$;
 revoke all on function tms_private.can_manage_employee(text) from public, anon;
 grant execute on function tms_private.can_manage_employee(text) to authenticated;
 
--- Remove duplicate permissive SELECT policies and replace them with one
--- organization-safe policy per table.
+-- Defaults for tenant-owned configuration follow the authenticated actor. SQL
+-- migrations/service-role writes without a JWT keep the current default org.
+create or replace function tms_private.request_organization()
+returns uuid
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if (select auth.uid()) is null then
+    return wf_private.default_organization();
+  end if;
+  return wf_private.current_organization();
+end;
+$$;
+revoke all on function tms_private.request_organization() from public, anon;
+grant execute on function tms_private.request_organization() to authenticated;
+
+alter table public.locations
+  alter column organization_id set default tms_private.request_organization();
+alter table public.attendance_policies
+  alter column organization_id set default tms_private.request_organization();
+
+-- Employee reads/writes are organization-scoped. Application account writes use
+-- a service-role Edge Function, but direct Data API access must also remain safe.
 drop policy if exists employee_reads_authorized_profiles on public.employees;
 drop policy if exists tms_admin_employee_scope on public.employees;
 drop policy if exists employees_read_scope_v3 on public.employees;
@@ -54,6 +78,29 @@ using (
   or (select tms_private.can_manage_employee(employee_id))
 );
 
+drop policy if exists admin_inserts_employees on public.employees;
+drop policy if exists employees_insert_admin_scope_v3 on public.employees;
+create policy employees_insert_admin_scope_v3
+on public.employees for insert to authenticated
+with check (
+  (select tms_private.is_admin())
+  and organization_id = (select wf_private.current_organization())
+);
+
+drop policy if exists admin_updates_employees on public.employees;
+drop policy if exists employees_update_admin_scope_v3 on public.employees;
+create policy employees_update_admin_scope_v3
+on public.employees for update to authenticated
+using (
+  (select tms_private.is_admin())
+  and organization_id = (select wf_private.current_organization())
+)
+with check (
+  (select tms_private.is_admin())
+  and organization_id = (select wf_private.current_organization())
+);
+
+-- Location access and mutations are tenant-bound.
 drop policy if exists employee_reads_authorized_locations on public.locations;
 drop policy if exists tms_admin_location_read on public.locations;
 drop policy if exists locations_read_scope_v3 on public.locations;
@@ -77,6 +124,83 @@ using (
           )
         )
       )
+  )
+);
+
+drop policy if exists admin_inserts_locations on public.locations;
+drop policy if exists locations_insert_admin_scope_v3 on public.locations;
+create policy locations_insert_admin_scope_v3
+on public.locations for insert to authenticated
+with check (
+  (select tms_private.is_admin())
+  and organization_id = (select wf_private.current_organization())
+);
+
+drop policy if exists admin_updates_locations on public.locations;
+drop policy if exists locations_update_admin_scope_v3 on public.locations;
+create policy locations_update_admin_scope_v3
+on public.locations for update to authenticated
+using (
+  (select tms_private.is_admin())
+  and organization_id = (select wf_private.current_organization())
+)
+with check (
+  (select tms_private.is_admin())
+  and organization_id = (select wf_private.current_organization())
+);
+
+-- Attendance policies previously exposed active policies across organizations.
+-- Keep the same functional model while restricting every action to the actor org.
+drop policy if exists tms_v2_policy_read on public.attendance_policies;
+drop policy if exists attendance_policies_read_scope_v3 on public.attendance_policies;
+create policy attendance_policies_read_scope_v3
+on public.attendance_policies for select to authenticated
+using (
+  organization_id = (select wf_private.current_organization())
+  and (active or (select tms_private.is_admin_operator()))
+);
+
+drop policy if exists tms_v2_policy_insert on public.attendance_policies;
+drop policy if exists attendance_policies_insert_scope_v3 on public.attendance_policies;
+create policy attendance_policies_insert_scope_v3
+on public.attendance_policies for insert to authenticated
+with check (
+  (select tms_private.is_admin())
+  and organization_id = (select wf_private.current_organization())
+);
+
+drop policy if exists tms_v2_policy_update on public.attendance_policies;
+drop policy if exists attendance_policies_update_scope_v3 on public.attendance_policies;
+create policy attendance_policies_update_scope_v3
+on public.attendance_policies for update to authenticated
+using (
+  (select tms_private.is_admin())
+  and organization_id = (select wf_private.current_organization())
+)
+with check (
+  (select tms_private.is_admin())
+  and organization_id = (select wf_private.current_organization())
+);
+
+drop policy if exists tms_v2_policy_delete on public.attendance_policies;
+drop policy if exists attendance_policies_delete_scope_v3 on public.attendance_policies;
+create policy attendance_policies_delete_scope_v3
+on public.attendance_policies for delete to authenticated
+using (
+  (select tms_private.is_admin())
+  and organization_id = (select wf_private.current_organization())
+);
+
+-- QR station reads are self-or-operator within the same organization.
+drop policy if exists tms_v2_qr_read on public.qr_stations;
+drop policy if exists qr_stations_read_scope_v3 on public.qr_stations;
+create policy qr_stations_read_scope_v3
+on public.qr_stations for select to authenticated
+using (
+  organization_id = (select wf_private.current_organization())
+  and (
+    station_user_id = (select auth.uid())
+    or (select tms_private.is_admin_operator())
   )
 );
 
