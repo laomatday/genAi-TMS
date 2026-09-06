@@ -61,6 +61,12 @@ $$;
 revoke all on function tms_private.request_organization() from public, anon;
 grant execute on function tms_private.request_organization() to authenticated;
 
+-- RLS policies below call current_organization directly. Expose only EXECUTE to
+-- authenticated; wf_private is not an exposed Data API schema and the function
+-- returns only the caller's own organization id.
+revoke all on function wf_private.current_organization() from public, anon;
+grant execute on function wf_private.current_organization() to authenticated;
+
 alter table public.locations
   alter column organization_id set default tms_private.request_organization();
 alter table public.attendance_policies
