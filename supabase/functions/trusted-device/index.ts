@@ -55,10 +55,10 @@ Deno.serve(async (request: Request) => {
 
   const { data: actor, error: actorError } = await admin
     .from("employees")
-    .select("employee_id,role,status")
+    .select("employee_id,role,status,organization_id")
     .eq("auth_user_id", authData.user.id)
     .single();
-  if (actorError || !actor || actor.status !== "Active") {
+  if (actorError || !actor || actor.status !== "Active" || !actor.organization_id) {
     return json({ ok: false, error: "Không tìm thấy tài khoản đang hoạt động." }, 403);
   }
 
@@ -78,16 +78,28 @@ Deno.serve(async (request: Request) => {
       return json({ ok: false, error: "Cần nhân viên và lý do đặt lại thiết bị." }, 400);
     }
 
+    const { data: target, error: targetError } = await admin
+      .from("employees")
+      .select("employee_id,organization_id")
+      .eq("employee_id", employeeId)
+      .eq("organization_id", actor.organization_id)
+      .maybeSingle();
+    if (targetError || !target) {
+      return json({ ok: false, error: "Không tìm thấy nhân viên trong tổ chức hiện tại." }, 404);
+    }
+
     const { data: oldDevices } = await admin
       .from("trusted_devices")
       .select("device_id,device_label,activated_at")
       .eq("employee_id", employeeId)
+      .eq("organization_id", actor.organization_id)
       .eq("status", "ACTIVE");
     const now = new Date().toISOString();
     const { error: revokeError } = await admin
       .from("trusted_devices")
       .update({ status: "REVOKED", revoked_at: now, revoked_by: actor.employee_id, revoke_reason: reason })
       .eq("employee_id", employeeId)
+      .eq("organization_id", actor.organization_id)
       .eq("status", "ACTIVE");
     if (revokeError) return json({ ok: false, error: revokeError.message }, 400);
 
@@ -97,14 +109,14 @@ Deno.serve(async (request: Request) => {
       trusted_device_id: null,
       trusted_device_bound_at: null,
       updated_at: now,
-    }).eq("employee_id", employeeId);
+    }).eq("employee_id", employeeId).eq("organization_id", actor.organization_id);
     await admin.from("audit_logs").insert({
       actor_employee_id: actor.employee_id,
       target_employee_id: employeeId,
       action: "TRUSTED_DEVICE_RESET",
       entity_type: "trusted_device",
       reason,
-      metadata: { old_devices: oldDevices || [] },
+      metadata: { old_devices: oldDevices || [], organization_id: actor.organization_id },
     });
     return json({ ok: true, message: "Đã đặt lại thiết bị. Lần đăng nhập tiếp theo phải kích hoạt thiết bị mới." });
   }
@@ -121,6 +133,7 @@ Deno.serve(async (request: Request) => {
     .from("trusted_devices")
     .select("device_id,device_label,user_agent,activated_at,last_seen_at,status,public_key_jwk")
     .eq("employee_id", employeeId)
+    .eq("organization_id", actor.organization_id)
     .eq("status", "ACTIVE")
     .maybeSingle();
 
@@ -154,6 +167,7 @@ Deno.serve(async (request: Request) => {
       const { error: insertError } = await admin.from("trusted_devices").insert({
         device_id: deviceId,
         employee_id: employeeId,
+        organization_id: actor.organization_id,
         public_key_jwk: publicKey,
         device_label: deviceLabel,
         user_agent: userAgent,
@@ -165,14 +179,14 @@ Deno.serve(async (request: Request) => {
         trusted_device_id: deviceId,
         trusted_device_bound_at: now,
         updated_at: now,
-      }).eq("employee_id", employeeId);
+      }).eq("employee_id", employeeId).eq("organization_id", actor.organization_id);
       await admin.from("audit_logs").insert({
         actor_employee_id: employeeId,
         target_employee_id: employeeId,
         action: "TRUSTED_DEVICE_ACTIVATED",
         entity_type: "trusted_device",
         entity_id: deviceId,
-        metadata: { device_label: deviceLabel, user_agent: userAgent },
+        metadata: { device_label: deviceLabel, user_agent: userAgent, organization_id: actor.organization_id },
       });
     }
     return json({ ok: true, state: "ACTIVE", message: "Thiết bị đã được kích hoạt." });
@@ -236,8 +250,11 @@ Deno.serve(async (request: Request) => {
 
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + DEVICE_GRANT_TTL_MS).toISOString();
-    await admin.from("trusted_device_challenges").update({ used_at: now }).eq("id", challengeId);
-    await admin.from("trusted_devices").update({ last_seen_at: now }).eq("device_id", deviceId);
+    await admin.from("trusted_device_challenges").update({ used_at: now }).eq("id", challengeId).eq("employee_id", employeeId);
+    await admin.from("trusted_devices").update({ last_seen_at: now })
+      .eq("device_id", deviceId)
+      .eq("employee_id", employeeId)
+      .eq("organization_id", actor.organization_id);
     const { error: grantError } = await admin.from("trusted_device_grants").upsert({
       employee_id: employeeId,
       device_id: deviceId,
