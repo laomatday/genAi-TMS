@@ -31,6 +31,16 @@ const forbiddenRuntimePatterns = [
   { pattern: /\.rpc\(['"]toggle_attendance_pause(?:_v3)?['"]/, message: 'legacy/custom pause RPC call' },
   { pattern: /\.rpc\(['"]submit_attendance_explanation(?:_v3)?['"]/, message: 'legacy/custom attendance explanation RPC call' },
   { pattern: /\.rpc\(['"]get_my_(?:attendance|dashboard_v3|tms_v2)['"]/, message: 'legacy/custom dashboard RPC call' },
+  { pattern: /\.rpc\(['"]close_attendance_period_v1['"]/, message: 'legacy close_attendance_period_v1 RPC call' },
+  { pattern: /\.rpc\(['"]lock_timesheets_v2['"]/, message: 'legacy lock_timesheets_v2 RPC call' },
+  { pattern: /\.rpc\(['"]get_employee_directory['"]/, message: 'legacy get_employee_directory RPC call' },
+  { pattern: /\.rpc\(['"]save_shift_assignments_v1['"]/, message: 'legacy save_shift_assignments_v1 RPC call' },
+  { pattern: /\.rpc\(['"]refresh_tms_exceptions_v2['"]/, message: 'legacy refresh_tms_exceptions_v2 RPC call' },
+  { pattern: /\.rpc\(['"]delete_shift_assignment_v1['"]/, message: 'legacy delete_shift_assignment_v1 RPC call' },
+  { pattern: /\.rpc\(['"]review_attendance_request_v2['"]/, message: 'legacy review_attendance_request_v2 RPC call' },
+  { pattern: /\.rpc\(['"]review_leave_request['"]/, message: 'legacy review_leave_request RPC call' },
+  { pattern: /\.rpc\(['"]submit_attendance_request_v2['"]/, message: 'legacy submit_attendance_request_v2 RPC call' },
+  { pattern: /\.rpc\(['"]submit_leave_request['"]/, message: 'legacy submit_leave_request RPC call' },
   { pattern: /\.from\(['"]attendance_explanations['"]/, message: 'direct runtime dependency on legacy attendance_explanations table' },
   { pattern: /\.from\(['"]attendance['"]\)\s*\.update/s, message: 'direct runtime mutation of legacy attendance table' },
   { pattern: /\.eq\(['"]date['"]\s*,\s*request\.work_date/, message: 'invalid legacy attendance date-column update' },
@@ -92,10 +102,17 @@ if (!employeeService.includes("p_action: 'request.submit'")) {
 const hardeningMigration = await readFile(join(root, 'supabase/migrations/20260906070000_tms_workforce_v3_hardening.sql'), 'utf8');
 for (const requiredClause of [
   't.organization_id = a.organization_id',
-  'revoke all on function public.record_qr_attendance(',
+  'create or replace function tms_private.create_attendance_qr_v1',
+  'create or replace function tms_private.update_qr_station_admin_v1',
+  'create or replace function tms_private.set_my_avatar_v1',
   'create or replace function public.tms_dashboard_bundle_v1',
+  'revoke all on function public.close_attendance_period_v1',
+  'revoke all on function public.get_employee_directory()',
 ]) {
   if (!hardeningMigration.includes(requiredClause)) fail(`hardening migration missing: ${requiredClause}`);
+}
+if (/^\s*begin\s*;/mi.test(hardeningMigration) || /^\s*commit\s*;/mi.test(hardeningMigration)) {
+  fail('hardening migration must not own the outer transaction; apply_migration should own it');
 }
 
 if (failures.length) {
