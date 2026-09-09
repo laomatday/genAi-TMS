@@ -1,4 +1,4 @@
-const CACHE_NAME = 'genai-tms-v12';
+const CACHE_NAME = 'genai-tms-v13';
 const CACHE_PREFIX = 'genai-tms-';
 const APP_SHELL = [
   '/',
