@@ -175,7 +175,6 @@ export const TMS_DEFAULT_SHIFTS = [
 
 export const TMS_DEFAULTS = {
   ANNUAL_LEAVE_DAYS: 12,
-  STANDARD_WORK_DAYS_PER_MONTH: 26,
 } as const;
 
 export const LOGIN_EMAIL_DOMAINS: readonly string[] = [ENV_DOMAIN];

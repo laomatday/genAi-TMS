@@ -368,7 +368,36 @@ function countAnnualLeaveDays(requests: LeaveRequest[], workDays: number[], holi
   return count;
 }
 
-function configFrom(policy: DataRow, locations: LocationConfig[]): SystemConfig {
+type WorkHoursConfig = Partial<Pick<SystemConfig, 'MIN_HOURS_FULL' | 'MIN_HOURS_HALF' | 'LUNCH_START' | 'LUNCH_END'>>;
+
+// The server-side attendance math reads these from public.config_system; the browser
+// must hydrate the same keys so client-side estimates (e.g. History work-day credit)
+// match the canonical calculation instead of the frozen module defaults.
+async function fetchWorkHoursConfig(): Promise<WorkHoursConfig> {
+  if (!isSupabaseConfigured) return {};
+  try {
+    const { data, error } = await supabase
+      .from('config_system')
+      .select('key,value')
+      .in('key', ['MIN_HOURS_FULL', 'MIN_HOURS_HALF', 'LUNCH_START', 'LUNCH_END']);
+    if (error || !Array.isArray(data)) return {};
+    const settings = new Map(data.map((row) => [textValue(row.key), textValue(row.value)]));
+    const result: WorkHoursConfig = {};
+    const minFull = Number(settings.get('MIN_HOURS_FULL'));
+    if (Number.isFinite(minFull) && minFull > 0) result.MIN_HOURS_FULL = minFull;
+    const minHalf = Number(settings.get('MIN_HOURS_HALF'));
+    if (Number.isFinite(minHalf) && minHalf > 0) result.MIN_HOURS_HALF = minHalf;
+    const lunchStart = settings.get('LUNCH_START');
+    if (lunchStart && /^\d{1,2}:\d{2}/.test(lunchStart)) result.LUNCH_START = lunchStart.slice(0, 5);
+    const lunchEnd = settings.get('LUNCH_END');
+    if (lunchEnd && /^\d{1,2}:\d{2}/.test(lunchEnd)) result.LUNCH_END = lunchEnd.slice(0, 5);
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function configFrom(policy: DataRow, locations: LocationConfig[], workHours: WorkHoursConfig = {}): SystemConfig {
   const workDays = Array.isArray(policy.work_days)
     ? policy.work_days.map(Number).filter(Number.isFinite)
     : [1, 2, 3, 4, 5];
@@ -376,10 +405,9 @@ function configFrom(policy: DataRow, locations: LocationConfig[]): SystemConfig 
   const maxDistance = locations.reduce((max, location) => Math.max(max, location.radius_meters || 0), TMS_LIMITS.DEFAULT_GEOFENCE_METERS);
   return {
     ...TMS_DEFAULT_SYSTEM_CONFIG,
+    ...workHours,
     OFF_DAYS: offDays,
     LATE_TOLERANCE: numberValue(policy.late_tolerance_minutes, TMS_DEFAULT_SYSTEM_CONFIG.LATE_TOLERANCE),
-    LUNCH_START: TMS_DEFAULT_SYSTEM_CONFIG.LUNCH_START,
-    LUNCH_END: TMS_DEFAULT_SYSTEM_CONFIG.LUNCH_END,
     MAX_DISTANCE_METERS: maxDistance,
   };
 }
@@ -406,7 +434,10 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
   try {
     if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
 
-    const { data, error } = await supabase.rpc('tms_dashboard_bundle_v1', { p_history_days: 120 });
+    const [{ data, error }, workHours] = await Promise.all([
+      supabase.rpc('tms_dashboard_bundle_v1', { p_history_days: 120 }),
+      fetchWorkHoursConfig(),
+    ]);
     if (error) throw error;
     if (!data || typeof data !== 'object') throw new Error('Dashboard không trả về dữ liệu hợp lệ.');
 
@@ -463,7 +494,7 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
         contacts,
         holidays,
         shifts,
-        systemConfig: configFrom(policy, locations),
+        systemConfig: configFrom(policy, locations, workHours),
       },
     };
   } catch (error) {
