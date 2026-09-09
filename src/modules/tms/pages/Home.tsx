@@ -249,15 +249,23 @@ const TabHome: React.FC<Props> = ({
           </section>
 
           <section className="home-action" aria-label="Thao tác chấm công">
-            <button
-              type="button"
-              className="home-action-button"
-              disabled={action.disabled}
-              onClick={() => void action.run()}
-            >
-              {isPausing ? <Spinner size="sm" /> : <span className="material-symbols-rounded" aria-hidden="true">{action.icon}</span>}
-              <span>{action.label}</span>
-            </button>
+            <div className={`home-action-radar home-action-radar-${attendanceState}`}>
+              {action.disabled ? null : (
+                <>
+                  <span className="home-action-ring" aria-hidden="true" />
+                  <span className="home-action-ring home-action-ring-delay" aria-hidden="true" />
+                </>
+              )}
+              <button
+                type="button"
+                className={`home-action-button home-action-button-${attendanceState}`}
+                disabled={action.disabled}
+                onClick={() => void action.run()}
+              >
+                {isPausing ? <Spinner size="sm" /> : <span className="material-symbols-rounded" aria-hidden="true">{action.icon}</span>}
+                <span>{action.label}</span>
+              </button>
+            </div>
             {working && !paused ? (
               <button type="button" className="home-pause-button" disabled={isPausing} onClick={() => void handlePause()}>
                 <span className="material-symbols-rounded" aria-hidden="true">pause</span>
@@ -268,6 +276,20 @@ const TabHome: React.FC<Props> = ({
               {checkedOut ? 'Ngày công đã được ghi nhận. Không cần thao tác thêm.' : 'Vị trí và quyền thiết bị được hệ thống kiểm tra trước khi ghi nhận.'}
             </p>
           </section>
+
+          <div className="home-stats-header">
+            <div>
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Tháng hiện tại</span>
+              <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Tổng quan công</h3>
+            </div>
+          </div>
+
+          <div className="home-stats-grid animate-slide-up">
+            <StatCard title="Công chuẩn" value={summary?.standardDays ?? 0} sub={<span className="stat-label-bottom">ngày</span>} icon="calendar_today" color="blue" />
+            <StatCard title="Công thực tế" value={summary?.workDays ?? 0} sub={<span className="stat-label-bottom">ngày</span>} icon="check_circle" color="indigo" />
+            <StatCard title="Phép đã dùng" value={summary?.leaveDays ?? 0} sub={<span className="stat-label-bottom">còn {summary?.remainingLeave ?? 0}</span>} icon="beach_access" color="amber" />
+            <StatCard title="Đi trễ" value={summary?.lateMins ?? 0} sub={<span className="stat-label-bottom">phút</span>} icon="schedule" color="rose" />
+          </div>
 
           {pendingExplanation && onExplain ? (
             <section className="home-smart-prompt animate-slide-up" aria-label="Cần giải trình">
@@ -290,20 +312,6 @@ const TabHome: React.FC<Props> = ({
               </button>
             </section>
           ) : null}
-
-          <div className="home-stats-header">
-            <div>
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Tháng hiện tại</span>
-              <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Tổng quan công</h3>
-            </div>
-          </div>
-
-          <div className="home-stats-grid animate-slide-up">
-            <StatCard title="Công chuẩn" value={summary?.standardDays ?? 0} sub={<span className="stat-label-bottom">ngày</span>} icon="calendar_today" color="blue" />
-            <StatCard title="Công thực tế" value={summary?.workDays ?? 0} sub={<span className="stat-label-bottom">ngày</span>} icon="check_circle" color="indigo" />
-            <StatCard title="Phép đã dùng" value={summary?.leaveDays ?? 0} sub={<span className="stat-label-bottom">còn {summary?.remainingLeave ?? 0}</span>} icon="beach_access" color="amber" />
-            <StatCard title="Đi trễ" value={summary?.lateMins ?? 0} sub={<span className="stat-label-bottom">phút</span>} icon="schedule" color="rose" />
-          </div>
         </div>
       </PullToRefresh>
 
