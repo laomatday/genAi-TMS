@@ -1,7 +1,9 @@
 import React, { lazy, useCallback } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/core/auth/useAuth';
+import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import DeviceGate from '@/modules/tms/components/DeviceGate';
+import DesktopRestricted from '@/modules/tms/components/DesktopRestricted';
 import LoginView from '@/modules/tms/components/LoginView';
 import LoadingScreen from '@/shared/components/common/LoadingScreen';
 import { ADMIN_ROUTE_ROLES, APP_ROUTES } from '@/shared/constants';
@@ -15,6 +17,7 @@ const QrStation = lazy(() => import('@/modules/tms/components/QrStation'));
 const TmsRoutes: React.FC = () => {
   const { user, loading, login, logout } = useAuth();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const handleLoginSuccess = useCallback((authenticatedUser: Employee) => {
     navigate(APP_ROUTES.HOME, { replace: true });
     login(authenticatedUser);
@@ -28,13 +31,19 @@ const TmsRoutes: React.FC = () => {
   }
 
   const canAdmin = ADMIN_ROUTE_ROLES.includes(user.role);
+
+  // Desktop / tablet: everyday accounts are phone-only. Admin-portal roles
+  // (Admin / HR / Director) keep full access.
+  if (!isMobile && !canAdmin) {
+    return <DesktopRestricted user={user} onLogout={() => void logout()} />;
+  }
+
+  const onOpenWorkspace = user.role === 'Admin'
+    ? () => navigate(isMobile ? APP_ROUTES.ADMIN : APP_ROUTES.HOME)
+    : undefined;
   const employeeApp = (
     <DeviceGate user={user} onLogout={() => void logout()}>
-      <EmployeeApp
-        user={user}
-        onLogout={() => void logout()}
-        onOpenWorkspace={user.role === 'Admin' ? () => navigate(APP_ROUTES.HOME) : undefined}
-      />
+      <EmployeeApp user={user} onLogout={() => void logout()} onOpenWorkspace={onOpenWorkspace} />
     </DeviceGate>
   );
   const adminApp = user.role === 'Admin' ? (
@@ -45,6 +54,21 @@ const TmsRoutes: React.FC = () => {
     </DeviceGate>
   );
 
+  // Mobile: every role lands straight in the TMS employee app.
+  if (isMobile) {
+    return (
+      <Routes>
+        <Route path={APP_ROUTES.ADMIN} element={canAdmin ? adminApp : <Navigate to={APP_ROUTES.HOME} replace />} />
+        <Route
+          path={APP_ROUTES.KIOSK}
+          element={canAdmin ? <QrStation user={user} onExit={() => navigate(APP_ROUTES.HOME, { replace: true })} /> : <Navigate to={APP_ROUTES.HOME} replace />}
+        />
+        <Route path="*" element={employeeApp} />
+      </Routes>
+    );
+  }
+
+  // Desktop / tablet (admin-portal roles): unchanged behaviour.
   return (
     <Routes>
       <Route

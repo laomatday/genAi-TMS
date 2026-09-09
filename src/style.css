@@ -1482,6 +1482,31 @@
 .app-loading-screen { position: static; width: 100%; height: 100%; align-items: center; justify-content: center; }
 .app-loading-state { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); color: var(--color-text-secondary); text-align: center; }
 .app-loading-state p { margin: 0; font-size: var(--text-label); font-weight: 600; }
+
+/* Skeleton shown while auth resolves / a route chunk loads */
+.app-skeleton { position: fixed; inset: 0; display: flex; flex-direction: column; padding: var(--space-6) var(--space-5) calc(var(--space-8) + env(safe-area-inset-bottom)); background: var(--color-bg); }
+.app-skeleton-topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.app-skeleton .skeleton { border-radius: var(--radius-card); }
+.app-skeleton-avatar { width: 2.75rem; height: 2.75rem; border-radius: 50%; }
+.app-skeleton-pill { width: 8.5rem; height: 2.25rem; border-radius: var(--radius-pill); }
+.app-skeleton-body { flex: 1; width: min(var(--app-content-width, 32rem), 100%); margin: clamp(var(--space-8), 8vh, var(--space-16)) auto 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.app-skeleton-hero { height: clamp(9rem, 22vh, 12rem); }
+.app-skeleton-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.app-skeleton-card { height: 6.5rem; }
+.app-skeleton-line { height: 1rem; border-radius: var(--radius-pill); }
+.app-skeleton-line-short { width: 62%; }
+@media (min-width: 1200px) {
+  .app-skeleton-body { width: min(var(--app-content-wide, 60rem), 100%); }
+  .app-skeleton-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* Regular accounts are phone-only; desktop shows this instead of the app */
+.desktop-restricted { position: fixed; inset: 0; display: grid; place-items: center; padding: var(--space-6); background: var(--color-bg); }
+.desktop-restricted-card { width: min(30rem, 100%); padding: clamp(var(--space-6), 4vw, var(--space-10)); display: flex; flex-direction: column; align-items: center; gap: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-card); box-shadow: var(--shadow-card); text-align: center; }
+.desktop-restricted-card .material-symbols-rounded { width: 4rem; height: 4rem; display: grid; place-items: center; border-radius: var(--radius-card); background: var(--color-primary-light); color: var(--color-primary); font-size: 2rem; }
+.desktop-restricted-card h1 { margin: 0; font-size: var(--text-section-title); font-weight: 750; color: var(--color-text-primary); }
+.desktop-restricted-card p { margin: 0; font-size: var(--text-label); line-height: 1.5; color: var(--color-text-secondary); }
+.desktop-restricted-card strong { color: var(--color-text-primary); }
 .app-modal-screen { z-index: var(--layer-modal); backdrop-filter: blur(12px); }
 .app-modal-screen-solid { background: var(--color-bg); backdrop-filter: none; }
 .app-guide-screen { z-index: var(--layer-guide); overflow: hidden; background: var(--color-card); }

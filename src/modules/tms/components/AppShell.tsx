@@ -11,6 +11,7 @@ import BottomNav, { EMPLOYEE_NAV_TABS, type RegisterSwipeHandler, type SwipeDire
 import Header from './Header';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import Spinner from '@/shared/components/common/Spinner';
+import LoadingScreen from '@/shared/components/common/LoadingScreen';
 import { MANAGEMENT_ROLES, STORAGE_KEYS, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
 import { useAuth } from '@/core/auth/useAuth';
 import { ATTENDANCE_ACTIVITY_EVENT } from '@/shared/components/common/AppStatusBanner';
@@ -341,7 +342,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     setShowCheckoutConfirm(true);
   };
 
-  if (loading) return <div className="h-full w-full flex items-center justify-center page-bg"><Spinner size="lg" /></div>;
+  if (loading) return <LoadingScreen />;
   if (!data) return <div className="h-full w-full page-bg flex items-center justify-center p-6"><div className="empty-state-card"><span className="material-symbols-rounded empty-state-icon" aria-hidden="true">cloud_off</span><h2>Không tải được dữ liệu</h2><p>{error || 'Vui lòng kiểm tra kết nối rồi thử lại.'}</p><button type="button" className="btn btn-primary btn-md" onClick={() => void refresh(true)}>Thử lại</button></div></div>;
 
   return <div className="employee-shell" aria-busy={isAttendanceProcessing}>
