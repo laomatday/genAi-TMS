@@ -325,7 +325,7 @@ export default function AttendanceSection({
 
         <div className="admin-timesheet-table" role="table" aria-label="Bảng công chi tiết">
           <div className="admin-timesheet-row admin-table-head" role="row">
-            <span role="columnheader">Ngày</span><span role="columnheader">Nhân viên</span><span role="columnheader">Dự kiến</span><span role="columnheader">Thực tế</span><span role="columnheader">Giờ công</span><span role="columnheader">Đi trễ / về sớm</span><span role="columnheader">Ngoại lệ</span><span role="columnheader">Trạng thái</span>
+            <span role="columnheader">Ngày</span><span role="columnheader">Nhân viên</span><span role="columnheader">Dự kiến</span><span role="columnheader">Thực tế</span><span role="columnheader">Giờ công</span><span role="columnheader">Trễ / sớm</span><span role="columnheader">Ngoại lệ</span><span role="columnheader">Trạng thái</span>
           </div>
           {visibleTimesheets.map((timesheet) => (
             <article className="admin-timesheet-row" role="row" key={timesheet.id}>

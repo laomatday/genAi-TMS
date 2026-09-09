@@ -2033,8 +2033,9 @@
 .admin-scope .admin-select { min-width: 9.5rem; }
 .admin-scope-note { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--admin-line); border-radius: var(--admin-control-radius); background: color-mix(in srgb, var(--color-primary) 5%, var(--admin-panel)); color: var(--admin-ink); font-size: var(--admin-font-caption); font-weight: 650; }
 .admin-scope-note strong { font-weight: 800; }
-.admin-cell-stack { display: inline-flex; flex-direction: column; line-height: 1.25; }
-.admin-cell-stack small { color: var(--admin-faint); font-size: var(--admin-font-caption); }
+.admin-cell-stack { display: inline-flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.admin-cell-stack strong { overflow: hidden; text-overflow: ellipsis; }
+.admin-cell-stack small { overflow: hidden; color: var(--admin-faint); font-size: var(--admin-font-caption); text-overflow: ellipsis; white-space: nowrap; }
 
 @media (max-width: 900px) {
   .admin-topbar { flex-wrap: wrap; }
@@ -2166,10 +2167,11 @@
 .admin-select-menu strong { overflow: hidden; font-size: var(--admin-font-body); font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
 .admin-select-menu small { margin-top: 2px; color: var(--admin-faint); font-size: var(--admin-font-caption); }
 .admin-select-menu > button > .material-symbols-rounded { font-size: 18px; }
-.admin-account-table, .admin-timesheet-table, .admin-audit-table { position: relative; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-color: color-mix(in srgb, var(--admin-faint) 42%, transparent) transparent; scrollbar-width: thin; }
+.admin-account-table, .admin-timesheet-table, .admin-audit-table { position: relative; max-width: 1440px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-color: color-mix(in srgb, var(--admin-faint) 42%, transparent) transparent; scrollbar-width: thin; }
 .admin-account-table::-webkit-scrollbar, .admin-timesheet-table::-webkit-scrollbar, .admin-audit-table::-webkit-scrollbar, .schedule-board-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .admin-account-table::-webkit-scrollbar-thumb, .admin-timesheet-table::-webkit-scrollbar-thumb, .admin-audit-table::-webkit-scrollbar-thumb, .schedule-board-scroll::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: color-mix(in srgb, var(--admin-faint) 42%, transparent); background-clip: padding-box; }
-.admin-account-row { min-width: 770px; min-height: 66px; padding: 0 10px; display: grid; grid-template-columns: minmax(240px, 1.5fr) 92px 100px 125px 108px; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--admin-line) 58%, transparent); background: transparent; color: var(--admin-ink); font: inherit; font-size: var(--admin-font-label); text-align: left; }
+.admin-account-row { min-width: 812px; min-height: 66px; padding: 0 10px; display: grid; grid-template-columns: minmax(240px, 1.9fr) 96px minmax(150px, 1fr) 132px 116px; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--admin-line) 58%, transparent); background: transparent; color: var(--admin-ink); font: inherit; font-size: var(--admin-font-label); text-align: left; }
+.admin-account-row > span { min-width: 0; }
 button.admin-account-row { width: 100%; cursor: pointer; }
 button.admin-account-row:hover, button.admin-account-row.selected { border-radius: var(--admin-control-radius); background: var(--admin-panel-subtle); }
 .admin-account-person { min-width: 0; display: flex; align-items: center; gap: 10px; }
