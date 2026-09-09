@@ -77,13 +77,53 @@ export function toLocalMonthString(date = new Date()) {
   return toISODateString(date).slice(0, 7);
 }
 
+export interface FeedbackPrefs {
+  haptics: boolean;
+  sound: boolean;
+}
+
+const FEEDBACK_PREFS_KEY = 'genai_feedback_prefs';
+const FEEDBACK_PREFS_DEFAULT: FeedbackPrefs = { haptics: true, sound: true };
+let feedbackPrefsCache: FeedbackPrefs | null = null;
+
+export function getFeedbackPrefs(): FeedbackPrefs {
+  if (feedbackPrefsCache) return feedbackPrefsCache;
+  if (typeof window === 'undefined') return { ...FEEDBACK_PREFS_DEFAULT };
+  try {
+    const raw = window.localStorage.getItem(FEEDBACK_PREFS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Partial<FeedbackPrefs>) : {};
+    feedbackPrefsCache = {
+      haptics: parsed.haptics !== false,
+      sound: parsed.sound !== false,
+    };
+  } catch {
+    feedbackPrefsCache = { ...FEEDBACK_PREFS_DEFAULT };
+  }
+  return feedbackPrefsCache;
+}
+
+export function setFeedbackPrefs(next: Partial<FeedbackPrefs>): FeedbackPrefs {
+  const merged = { ...getFeedbackPrefs(), ...next };
+  feedbackPrefsCache = merged;
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(FEEDBACK_PREFS_KEY, JSON.stringify(merged));
+    } catch {
+      // Preference persistence is best-effort; the in-memory value still applies for this session.
+    }
+  }
+  return merged;
+}
+
 export function triggerHaptic(pattern: HapticPattern = 'light') {
   if (typeof navigator === 'undefined' || !navigator.vibrate) return;
+  if (!getFeedbackPrefs().haptics) return;
   navigator.vibrate(HAPTIC_PATTERNS[pattern]);
 }
 
 export function playAudioChime(type: 'success' | 'warning' | 'error' = 'success') {
   if (typeof window === 'undefined') return;
+  if (!getFeedbackPrefs().sound) return;
   try {
     const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) return;

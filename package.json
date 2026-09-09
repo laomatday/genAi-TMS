@@ -8,7 +8,8 @@
     "audit:repo": "bun scripts/verify-production-readiness.mjs",
     "build": "tsc --noEmit && vite build",
     "lint": "tsc --noEmit",
-    "check": "bun run audit:repo && bun run build",
+    "test": "vitest run",
+    "check": "bun run audit:repo && bun run test && bun run build",
     "preview": "vite preview --host 0.0.0.0 --port 3000"
   },
   "dependencies": {
@@ -30,7 +31,8 @@
     "@vitejs/plugin-react": "^4.7.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.4.5",
-    "vite": "^6.4.3"
+    "vite": "^6.4.3",
+    "vitest": "^2.1.9"
   },
   "knip": {
     "entry": [

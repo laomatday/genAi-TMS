@@ -911,7 +911,7 @@
   .app-nav-container { top: 50%; bottom: auto; left: var(--space-3); width: var(--app-nav-height); max-width: none; transform: translateY(-50%); }
   .app-nav-shell { flex-direction: column; gap: var(--space-1); padding: var(--space-1); border-radius: var(--radius-pill); }
   .app-nav-item { width: calc(var(--app-nav-height) - (var(--space-1) * 2)); height: var(--app-nav-height); flex: 0 0 var(--app-nav-height); }
-  .home-dashboard { width: min(var(--app-content-wide), 100%); display: grid; grid-template-columns: minmax(21rem, .9fr) minmax(26rem, 1.1fr); grid-template-rows: auto auto auto auto; align-content: center; column-gap: clamp(var(--space-12), 7vw, 5.75rem); }
+  .home-dashboard { width: min(var(--app-content-wide), 100%); display: grid; grid-template-columns: minmax(21rem, .9fr) minmax(26rem, 1.1fr); grid-template-rows: auto auto auto auto; align-content: start; padding-top: clamp(var(--space-8), 6vh, var(--space-12)); column-gap: clamp(var(--space-12), 7vw, 5.75rem); }
   .home-hero { grid-column: 1; grid-row: 1 / span 3; align-self: center; margin-bottom: 0; }
   .home-action { grid-column: 2; grid-row: 1; }
   .home-stats-header { grid-column: 2; grid-row: 2; }

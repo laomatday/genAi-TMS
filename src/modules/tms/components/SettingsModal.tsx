@@ -4,6 +4,7 @@ import ModalHeader from '@/shared/components/modals/ModalHeader';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { getThemeMode, setThemeMode, type ThemeMode } from '@/shared/contexts/ThemeContext';
+import { getFeedbackPrefs, setFeedbackPrefs, type FeedbackPrefs } from '@/core/utils/helpers';
 import { APP_INFO } from '@/shared/constants';
 
 interface Props {
@@ -41,6 +42,37 @@ const SettingItem: React.FC<SettingItemProps> = ({ icon, tone, title, subtitle, 
     return <div className="settings-item settings-item-static">{content}</div>;
 };
 
+const SettingToggle: React.FC<{
+    icon: string;
+    tone: SettingItemProps['tone'];
+    title: string;
+    subtitle: string;
+    checked: boolean;
+    onChange: (next: boolean) => void;
+}> = ({ icon, tone, title, subtitle, checked, onChange }) => (
+    <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className="settings-item w-full"
+    >
+        <div className={`app-item-icon app-icon-tone-${tone}`}>
+            <span className="material-symbols-rounded" aria-hidden="true">{icon}</span>
+        </div>
+        <div className="flex-1 min-w-0 text-left">
+            <h4 className="text-base font-bold text-slate-800 dark:text-dark-text-primary leading-tight">{title}</h4>
+            <p className="text-xs text-slate-400 dark:text-dark-text-secondary font-bold mt-0.5">{subtitle}</p>
+        </div>
+        <span
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-slate-300 dark:bg-dark-border'}`}
+            aria-hidden="true"
+        >
+            <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-5' : 'translate-x-0.5'}`} />
+        </span>
+    </button>
+);
+
 const THEME_CHOICES: ReadonlyArray<{ mode: ThemeMode; icon: string; label: string }> = [
     { mode: 'system', icon: 'devices', label: 'Hệ thống' },
     { mode: 'light', icon: 'light_mode', label: 'Sáng' },
@@ -49,6 +81,7 @@ const THEME_CHOICES: ReadonlyArray<{ mode: ThemeMode; icon: string; label: strin
 
 const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
     const [selectedTheme, setSelectedTheme] = useState<ThemeMode>('system');
+    const [feedback, setFeedback] = useState<FeedbackPrefs>(() => getFeedbackPrefs());
     const [isGuideOpen, setIsGuideOpen] = useState(false);
     const [showSupportModal, setShowSupportModal] = useState(false);
     const dialogRef = useModalAccessibility(isOpen, onClose);
@@ -56,6 +89,7 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
     useEffect(() => {
         if (isOpen) {
             setSelectedTheme(getThemeMode());
+            setFeedback(getFeedbackPrefs());
             return;
         }
         setIsGuideOpen(false);
@@ -65,6 +99,10 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
     const handleThemeChange = (mode: ThemeMode) => {
         setSelectedTheme(mode);
         setThemeMode(mode);
+    };
+
+    const handleFeedbackChange = (patch: Partial<FeedbackPrefs>) => {
+        setFeedback(setFeedbackPrefs(patch));
     };
 
     if (!isOpen) return null;
@@ -94,6 +132,28 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                 })}
                             </div>
                             <SettingItem icon="language" tone="info" title="Ngôn ngữ" subtitle="Hiện hỗ trợ Tiếng Việt" type="info" />
+                        </div>
+                    </div>
+
+                    <div className="space-y-3">
+                        <h3 className="app-section-title"><span className="material-symbols-rounded" aria-hidden="true">notifications_active</span> Phản hồi thao tác</h3>
+                        <div className="app-list-surface divide-y divide-slate-100 dark:divide-dark-border">
+                            <SettingToggle
+                                icon="vibration"
+                                tone="primary"
+                                title="Rung phản hồi"
+                                subtitle="Rung nhẹ khi chấm công và thao tác chính"
+                                checked={feedback.haptics}
+                                onChange={(next) => handleFeedbackChange({ haptics: next })}
+                            />
+                            <SettingToggle
+                                icon="volume_up"
+                                tone="info"
+                                title="Âm báo"
+                                subtitle="Phát âm xác nhận khi thao tác thành công hoặc lỗi"
+                                checked={feedback.sound}
+                                onChange={(next) => handleFeedbackChange({ sound: next })}
+                            />
                         </div>
                     </div>
 
