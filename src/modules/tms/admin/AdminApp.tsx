@@ -40,13 +40,25 @@ const EMPTY_SCOPE: AdminScope = { region: 'all', branch: 'all' };
 // so a multi-branch org can be managed one area at a time. Config-shaped slices
 // (locations, policies, shifts, holidays, settings, periods) stay complete so the
 // editors keep working regardless of the active scope.
-function scopeAdminData(data: AdminData, scope: AdminScope): { data: AdminData; scoped: boolean } {
+// `allowedBranchIds` is the hard ceiling for a Director/HR operator restricted to
+// their managed locations; when set, the result is always intersected with it.
+// NOTE: this is a UI restriction only — real enforcement lives in Postgres RLS.
+function scopeAdminData(
+  data: AdminData,
+  scope: AdminScope,
+  allowedBranchIds: Set<string> | null = null,
+): { data: AdminData; scoped: boolean } {
   let branchIds: Set<string> | null = null;
   if (scope.branch !== 'all') {
     branchIds = new Set([scope.branch]);
   } else if (scope.region !== 'all') {
     branchIds = new Set(
       data.locations.filter((location) => (location.city?.trim() || UNASSIGNED_REGION) === scope.region).map((location) => location.center_id),
+    );
+  }
+  if (allowedBranchIds) {
+    branchIds = new Set(
+      [...(branchIds ?? new Set(data.locations.map((location) => location.center_id)))].filter((id) => allowedBranchIds.has(id)),
     );
   }
   if (!branchIds) return { data, scoped: false };
@@ -196,28 +208,42 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
     }
   }, [load]);
 
-  const regionOptions = useMemo(() => {
-    if (!data) return [] as string[];
-    return [...new Set(data.locations.map((location) => location.city?.trim() || UNASSIGNED_REGION))].sort((a, b) => a.localeCompare(b, 'vi'));
-  }, [data]);
+  const currentProfile = data?.employees.find((employee) => employee.employee_id === user.employee_id) || user;
 
-  const branchOptions = useMemo(() => {
-    if (!data) return [] as { value: string; label: string }[];
-    return data.locations
+  // Director / HR are pinned to the branches they manage; Admin sees the whole org.
+  // The lock only takes effect once we know which branches exist in the loaded data.
+  const lockedBranchIds = useMemo(() => {
+    if (user.role === 'Admin') return null;
+    const managed = (currentProfile.managed_locations || user.managed_locations || []).filter(Boolean);
+    return managed.length ? new Set(managed) : null;
+  }, [currentProfile.managed_locations, user.managed_locations, user.role]);
+
+  const visibleLocations = useMemo(
+    () => (data ? data.locations.filter((location) => !lockedBranchIds || lockedBranchIds.has(location.center_id)) : []),
+    [data, lockedBranchIds],
+  );
+
+  const regionOptions = useMemo(
+    () => [...new Set(visibleLocations.map((location) => location.city?.trim() || UNASSIGNED_REGION))].sort((a, b) => a.localeCompare(b, 'vi')),
+    [visibleLocations],
+  );
+
+  const branchOptions = useMemo(
+    () => visibleLocations
       .filter((location) => scope.region === 'all' || (location.city?.trim() || UNASSIGNED_REGION) === scope.region)
       .sort((a, b) => a.center_name.localeCompare(b.center_name, 'vi'))
-      .map((location) => ({ value: location.center_id, label: location.center_name }));
-  }, [data, scope.region]);
+      .map((location) => ({ value: location.center_id, label: location.center_name })),
+    [visibleLocations, scope.region],
+  );
 
   const { data: scopedData, scoped } = useMemo(
-    () => (data ? scopeAdminData(data, scope) : { data: null as AdminData | null, scoped: false }),
-    [data, scope],
+    () => (data ? scopeAdminData(data, scope, lockedBranchIds) : { data: null as AdminData | null, scoped: false }),
+    [data, scope, lockedBranchIds],
   );
 
   const currentNav = navigation.find((item) => item.id === section) || navigation[0];
   const pendingCount = scopedData?.requests.length || 0;
-  const currentProfile = data?.employees.find((employee) => employee.employee_id === user.employee_id) || user;
-  const showScope = Boolean(data && data.locations.length > 1);
+  const showScope = Boolean(data && visibleLocations.length > 1);
 
   return (
     <main className="admin-shell">
@@ -263,22 +289,25 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
           <div><span>{APP_INFO.PRODUCT_NAME}</span><h1>{currentNav?.label}</h1></div>
           {showScope ? (
             <div className="admin-scope" role="group" aria-label="Phạm vi chi nhánh">
-              <span className="material-symbols-rounded" aria-hidden="true">travel_explore</span>
+              <span className="material-symbols-rounded" aria-hidden="true">{lockedBranchIds ? 'lock' : 'travel_explore'}</span>
               {regionOptions.length > 1 ? (
                 <AdminSelect
                   value={scope.region}
                   onChange={(value) => setScope({ region: value, branch: 'all' })}
                   label="Khu vực"
-                  options={[{ value: 'all', label: 'Mọi khu vực' }, ...regionOptions.map((region) => ({ value: region, label: region }))]}
+                  options={[{ value: 'all', label: lockedBranchIds ? 'Khu vực quản lý' : 'Mọi khu vực' }, ...regionOptions.map((region) => ({ value: region, label: region }))]}
                 />
               ) : null}
               <AdminSelect
                 value={scope.branch}
                 onChange={(value) => setScope((current) => ({ ...current, branch: value }))}
                 label="Chi nhánh"
-                options={[{ value: 'all', label: scope.region === 'all' ? 'Mọi chi nhánh' : `Mọi chi nhánh · ${scope.region}` }, ...branchOptions]}
+                options={[
+                  { value: 'all', label: lockedBranchIds ? 'Chi nhánh quản lý' : (scope.region === 'all' ? 'Mọi chi nhánh' : `Mọi chi nhánh · ${scope.region}`) },
+                  ...branchOptions,
+                ]}
               />
-              {scoped ? (
+              {scoped && !lockedBranchIds ? (
                 <button type="button" className="admin-text-button" onClick={() => setScope(EMPTY_SCOPE)}>Bỏ lọc</button>
               ) : null}
             </div>
@@ -310,7 +339,16 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
           <div className="admin-content">
             {scoped ? (
               <p className="admin-scope-note" role="status">
-                Đang xem <strong>{scope.branch !== 'all' ? (branchOptions.find((b) => b.value === scope.branch)?.label || scope.branch) : scope.region}</strong>
+                {lockedBranchIds ? 'Phân quyền theo chi nhánh · ' : 'Đang xem '}
+                <strong>
+                  {scope.branch !== 'all'
+                    ? (branchOptions.find((b) => b.value === scope.branch)?.label || scope.branch)
+                    : scope.region !== 'all'
+                      ? scope.region
+                      : lockedBranchIds
+                        ? visibleLocations.map((location) => location.center_name).join(', ')
+                        : 'Toàn tổ chức'}
+                </strong>
                 {' · '}{scopedData.employees.length} nhân sự
               </p>
             ) : null}
