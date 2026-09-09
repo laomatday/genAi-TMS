@@ -5,7 +5,7 @@ import type { EmployeeInput } from './adminService';
 
 export type AdminSection = 'overview' | 'accounts' | 'scheduling' | 'attendance' | 'settings' | 'kiosks' | 'audit';
 export type AttendanceFilter = 'all' | 'action' | 'approved' | 'locked';
-export type SettingsSection = 'policies' | 'shifts' | 'system' | 'holidays' | 'locations';
+export type SettingsSection = 'policies' | 'shifts' | 'system' | 'holidays' | 'locations' | 'permissions';
 
 export interface AdminCapability {
   manageAccounts: boolean;

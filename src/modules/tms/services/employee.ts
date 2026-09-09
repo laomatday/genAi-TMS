@@ -1,10 +1,13 @@
 import { supabase, isSupabaseConfigured } from '@/core/supabase';
 import { timeToMinutes } from '@/core/utils/helpers';
 import {
+  APPROVAL_CONFIG_KEY,
+  normalizeApprovalRoles,
   TMS_DEFAULT_SHIFTS,
   TMS_DEFAULT_SYSTEM_CONFIG,
   TMS_LIMITS,
   TMS_STORAGE,
+  type ApprovalRoleConfig,
 } from '@/shared/constants';
 import type {
   Attendance,
@@ -369,31 +372,32 @@ function countAnnualLeaveDays(requests: LeaveRequest[], workDays: number[], holi
 }
 
 type WorkHoursConfig = Partial<Pick<SystemConfig, 'MIN_HOURS_FULL' | 'MIN_HOURS_HALF' | 'LUNCH_START' | 'LUNCH_END'>>;
+interface ClientConfig { workHours: WorkHoursConfig; approvalRoles: ApprovalRoleConfig; }
 
 // The server-side attendance math reads these from public.config_system; the browser
 // must hydrate the same keys so client-side estimates (e.g. History work-day credit)
 // match the canonical calculation instead of the frozen module defaults.
-async function fetchWorkHoursConfig(): Promise<WorkHoursConfig> {
-  if (!isSupabaseConfigured) return {};
+async function fetchClientConfig(): Promise<ClientConfig> {
+  if (!isSupabaseConfigured) return { workHours: {}, approvalRoles: normalizeApprovalRoles(null) };
   try {
     const { data, error } = await supabase
       .from('config_system')
       .select('key,value')
-      .in('key', ['MIN_HOURS_FULL', 'MIN_HOURS_HALF', 'LUNCH_START', 'LUNCH_END']);
-    if (error || !Array.isArray(data)) return {};
+      .in('key', ['MIN_HOURS_FULL', 'MIN_HOURS_HALF', 'LUNCH_START', 'LUNCH_END', APPROVAL_CONFIG_KEY]);
+    if (error || !Array.isArray(data)) return { workHours: {}, approvalRoles: normalizeApprovalRoles(null) };
     const settings = new Map(data.map((row) => [textValue(row.key), textValue(row.value)]));
-    const result: WorkHoursConfig = {};
+    const workHours: WorkHoursConfig = {};
     const minFull = Number(settings.get('MIN_HOURS_FULL'));
-    if (Number.isFinite(minFull) && minFull > 0) result.MIN_HOURS_FULL = minFull;
+    if (Number.isFinite(minFull) && minFull > 0) workHours.MIN_HOURS_FULL = minFull;
     const minHalf = Number(settings.get('MIN_HOURS_HALF'));
-    if (Number.isFinite(minHalf) && minHalf > 0) result.MIN_HOURS_HALF = minHalf;
+    if (Number.isFinite(minHalf) && minHalf > 0) workHours.MIN_HOURS_HALF = minHalf;
     const lunchStart = settings.get('LUNCH_START');
-    if (lunchStart && /^\d{1,2}:\d{2}/.test(lunchStart)) result.LUNCH_START = lunchStart.slice(0, 5);
+    if (lunchStart && /^\d{1,2}:\d{2}/.test(lunchStart)) workHours.LUNCH_START = lunchStart.slice(0, 5);
     const lunchEnd = settings.get('LUNCH_END');
-    if (lunchEnd && /^\d{1,2}:\d{2}/.test(lunchEnd)) result.LUNCH_END = lunchEnd.slice(0, 5);
-    return result;
+    if (lunchEnd && /^\d{1,2}:\d{2}/.test(lunchEnd)) workHours.LUNCH_END = lunchEnd.slice(0, 5);
+    return { workHours, approvalRoles: normalizeApprovalRoles(settings.get(APPROVAL_CONFIG_KEY) ?? null) };
   } catch {
-    return {};
+    return { workHours: {}, approvalRoles: normalizeApprovalRoles(null) };
   }
 }
 
@@ -434,10 +438,11 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
   try {
     if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
 
-    const [{ data, error }, workHours] = await Promise.all([
+    const [{ data, error }, clientConfig] = await Promise.all([
       supabase.rpc('tms_dashboard_bundle_v1', { p_history_days: 120 }),
-      fetchWorkHoursConfig(),
+      fetchClientConfig(),
     ]);
+    const { workHours, approvalRoles } = clientConfig;
     if (error) throw error;
     if (!data || typeof data !== 'object') throw new Error('Dashboard không trả về dữ liệu hợp lệ.');
 
@@ -495,6 +500,7 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
         holidays,
         shifts,
         systemConfig: configFrom(policy, locations, workHours),
+        approvalRoles,
       },
     };
   } catch (error) {

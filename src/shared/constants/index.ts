@@ -31,6 +31,42 @@ export const SCOPED_MANAGEMENT_ROLES: readonly EmployeeRole[] = ['Leader', 'Mana
 export const ADMIN_ROUTE_ROLES: readonly EmployeeRole[] = ['Admin', 'HR', 'Director'];
 export const DEVICE_EXEMPT_ROLES: readonly EmployeeRole[] = ['Admin', 'HR', 'Director', 'Kiosk'];
 
+// Which roles may approve which request family. Configurable from Admin →
+// Tham số hệ thống → Phân quyền duyệt (stored in config_system as APPROVAL_ROLES).
+// Admin is always an approver and is not stored. Leader is excluded by default.
+export type ApprovalKind = 'leave' | 'attendance';
+export const APPROVAL_KINDS: readonly ApprovalKind[] = ['leave', 'attendance'];
+export const APPROVAL_CONFIG_KEY = 'APPROVAL_ROLES';
+export const APPROVAL_EDITABLE_ROLES: readonly EmployeeRole[] = ['Leader', 'Manager', 'Director', 'HR'];
+export type ApprovalRoleConfig = Record<ApprovalKind, EmployeeRole[]>;
+export const DEFAULT_APPROVAL_ROLES: ApprovalRoleConfig = {
+  leave: ['Manager', 'Director', 'HR', 'Admin'],
+  attendance: ['Manager', 'Director', 'HR', 'Admin'],
+};
+
+export function normalizeApprovalRoles(raw: unknown): ApprovalRoleConfig {
+  let parsed: unknown = raw;
+  if (typeof raw === 'string') {
+    try { parsed = JSON.parse(raw); } catch { parsed = null; }
+  }
+  const pick = (kind: ApprovalKind): EmployeeRole[] => {
+    const list = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>)[kind] : null;
+    const roles = Array.isArray(list)
+      ? list.filter((role): role is EmployeeRole => APPROVAL_EDITABLE_ROLES.includes(role as EmployeeRole))
+      : DEFAULT_APPROVAL_ROLES[kind].filter((role) => role !== 'Admin');
+    return [...new Set<EmployeeRole>([...roles, 'Admin'])];
+  };
+  return { leave: pick('leave'), attendance: pick('attendance') };
+}
+
+export function canApprove(role: EmployeeRole, kind: ApprovalKind, config: ApprovalRoleConfig = DEFAULT_APPROVAL_ROLES): boolean {
+  return config[kind].includes(role);
+}
+
+export function canApproveAny(role: EmployeeRole, config: ApprovalRoleConfig = DEFAULT_APPROVAL_ROLES): boolean {
+  return canApprove(role, 'leave', config) || canApprove(role, 'attendance', config);
+}
+
 export const STORAGE_KEYS = {
   THEME: 'genai_theme',
   HISTORY_VIEW: 'genai_history_view_mode',

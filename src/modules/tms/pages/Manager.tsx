@@ -3,7 +3,7 @@ import { DashboardData, Employee } from '@/shared/types';
 import { processRequest, processExplanation } from '@/modules/tms/services/employee';
 import { formatDateString, triggerHaptic } from '@/core/utils/helpers';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
-import { MANAGEMENT_ROLES } from '@/shared/constants';
+import { canApprove, DEFAULT_APPROVAL_ROLES } from '@/shared/constants';
 import ModalListRequest from '@/modules/tms/components/ModalListRequest';
 import type { ApprovalGroup, ApprovalItem, ApprovalTypeConfig } from '@/modules/tms/components/ModalListRequest';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
@@ -32,6 +32,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
   );
 
   const contacts = data?.contacts || [];
+  const approvalRoles = data?.approvalRoles || DEFAULT_APPROVAL_ROLES;
   const approvals = data?.notifications.approvals || [];
   const explanationApprovals = data?.notifications.explanationApprovals || [];
 
@@ -55,17 +56,15 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
       const emp = contacts.find(c => c.employee_id === item.employee_id);
       if (!emp) return false;
 
-      if (user.role === 'Admin' || user.role === 'HR') {
-        return true;
-      }
+      // Approval right depends on the request family and the configurable role map.
+      const kind = item.itemType === 'leave' ? 'leave' : 'attendance';
+      if (!canApprove(user.role, kind, approvalRoles)) return false;
 
-      if (MANAGEMENT_ROLES.includes(user.role)) {
-        const isDirectReport = String(emp.direct_manager_id) === String(user.employee_id);
-        const isInManagedLocation = emp.center_id ? managedLocationsSet.has(emp.center_id) : false;
-        return isDirectReport || isInManagedLocation;
-      }
+      if (user.role === 'Admin' || user.role === 'HR') return true;
 
-      return false;
+      const isDirectReport = String(emp.direct_manager_id) === String(user.employee_id);
+      const isInManagedLocation = emp.center_id ? managedLocationsSet.has(emp.center_id) : false;
+      return isDirectReport || isInManagedLocation;
     });
 
     const groups: Record<string, ApprovalItem[]> = {};
@@ -88,7 +87,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
     });
 
     return { directReports, groups };
-  }, [approvals, explanationApprovals, contacts, locationsMap, user]);
+  }, [approvals, explanationApprovals, contacts, locationsMap, managedLocationsSet, approvalRoles, user]);
 
   const approvalGroups = useMemo<ApprovalGroup[]>(() => {
     const groups: ApprovalGroup[] = [];

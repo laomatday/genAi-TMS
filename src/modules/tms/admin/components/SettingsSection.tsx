@@ -1,6 +1,14 @@
-import { useState, type FormEvent } from 'react';
-import { TMS_LIMITS } from '@/shared/constants';
-import type { SystemConfig } from '@/shared/types';
+import { useMemo, useState, type FormEvent } from 'react';
+import {
+  APPROVAL_CONFIG_KEY,
+  APPROVAL_EDITABLE_ROLES,
+  APPROVAL_KINDS,
+  normalizeApprovalRoles,
+  TMS_LIMITS,
+  type ApprovalKind,
+  type ApprovalRoleConfig,
+} from '@/shared/constants';
+import type { EmployeeRole, SystemConfig } from '@/shared/types';
 import {
   DEFAULT_ATTENDANCE_POLICY,
   DEFAULT_HOLIDAY,
@@ -20,7 +28,13 @@ const settingTabs: ReadonlyArray<{ id: SettingsTab; label: string; icon: string 
   { id: 'shifts', label: 'Ca làm', icon: 'schedule' },
   { id: 'holidays', label: 'Ngày lễ', icon: 'event' },
   { id: 'locations', label: 'Địa điểm', icon: 'location_on' },
+  { id: 'permissions', label: 'Phân quyền duyệt', icon: 'verified_user' },
 ];
+
+const APPROVAL_KIND_LABELS: Record<ApprovalKind, { title: string; hint: string }> = {
+  leave: { title: 'Duyệt yêu cầu nghỉ / công tác / WFH', hint: 'Nghỉ phép, nghỉ ốm, không lương, công tác, làm việc tại nhà.' },
+  attendance: { title: 'Duyệt giải trình & điều chỉnh công', hint: 'Giải trình công thiếu, quên check-in/out, điều chỉnh giờ.' },
+};
 
 function getSystemConfig(settings: SystemSetting[]): SystemConfig {
   const settingMap = new Map(settings.map((setting) => [setting.key, setting.value]));
@@ -193,6 +207,70 @@ function SystemSettings({ data, busy, onRun }: { data: AdminData; busy: boolean;
   );
 }
 
+function PermissionsSettings({ data, busy, onRun }: { data: AdminData; busy: boolean; onRun: AdminActionRunner }) {
+  const stored = useMemo(
+    () => normalizeApprovalRoles(data.systemSettings.find((setting) => setting.key === APPROVAL_CONFIG_KEY)?.value ?? null),
+    [data.systemSettings],
+  );
+  const [config, setConfig] = useState<ApprovalRoleConfig>(stored);
+
+  const toggle = (kind: ApprovalKind, role: EmployeeRole, checked: boolean) => {
+    setConfig((current) => ({
+      ...current,
+      [kind]: checked
+        ? [...new Set<EmployeeRole>([...current[kind], role])]
+        : current[kind].filter((item) => item !== role),
+    }));
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const payloadValue = JSON.stringify({
+      leave: config.leave.filter((role) => role !== 'Admin'),
+      attendance: config.attendance.filter((role) => role !== 'Admin'),
+    });
+    await onRun(
+      () => saveSystemSettings([{ key: APPROVAL_CONFIG_KEY, value: payloadValue }]),
+      'Đã lưu phân quyền duyệt.',
+    );
+  };
+
+  return (
+    <form className="admin-panel admin-system-form" onSubmit={(event) => void submit(event)}>
+      <PanelTitle eyebrow="Quyền duyệt yêu cầu" title="Phân quyền duyệt" />
+      <p className="admin-help-text">
+        Chọn vai trò được phép duyệt / từ chối từng loại yêu cầu. <strong>Admin</strong> luôn có quyền.
+        Vai trò không được chọn sẽ không thấy mục duyệt trong ứng dụng.
+      </p>
+      <div className="admin-setting-groups">
+        {APPROVAL_KINDS.map((kind) => (
+          <fieldset key={kind}>
+            <legend>{APPROVAL_KIND_LABELS[kind].title}</legend>
+            <p className="admin-help-text">{APPROVAL_KIND_LABELS[kind].hint}</p>
+            {APPROVAL_EDITABLE_ROLES.map((role) => (
+              <label className="admin-switch" key={role}>
+                <input
+                  type="checkbox"
+                  checked={config[kind].includes(role)}
+                  onChange={(event) => toggle(kind, role, event.target.checked)}
+                />
+                <span><strong>{role}</strong></span>
+              </label>
+            ))}
+            <label className="admin-switch" aria-disabled="true">
+              <input type="checkbox" checked disabled />
+              <span><strong>Admin</strong><small>Luôn được duyệt</small></span>
+            </label>
+          </fieldset>
+        ))}
+      </div>
+      <footer className="admin-editor-actions">
+        <button className="admin-primary-button" disabled={busy}><span className="material-symbols-rounded">save</span>Lưu phân quyền</button>
+      </footer>
+    </form>
+  );
+}
+
 function HolidaysSettings({ data, busy, onRun }: { data: AdminData; busy: boolean; onRun: AdminActionRunner }) {
   const [holiday, setHoliday] = useState<HolidayRecord>({ ...DEFAULT_HOLIDAY });
   const submit = async (event: FormEvent) => {
@@ -244,6 +322,7 @@ export default function SettingsSection({ data, busy, onRun }: { data: AdminData
       {section === 'system' ? <SystemSettings data={data} busy={busy} onRun={onRun} /> : null}
       {section === 'holidays' ? <HolidaysSettings data={data} busy={busy} onRun={onRun} /> : null}
       {section === 'locations' ? <LocationsSettings data={data} busy={busy} onRun={onRun} /> : null}
+      {section === 'permissions' ? <PermissionsSettings data={data} busy={busy} onRun={onRun} /> : null}
     </div>
   );
 }

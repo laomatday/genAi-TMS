@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import type { DashboardData, Employee, Explanation, LeaveRequest } from '@/shared/types';
 import { formatDateString, toISODateString } from '@/core/utils/helpers';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
-import { MANAGEMENT_ROLES } from '@/shared/constants';
+import { canApprove, DEFAULT_APPROVAL_ROLES } from '@/shared/constants';
 
 interface Props {
     data: DashboardData | null;
@@ -22,9 +22,13 @@ const NotificationsModal: React.FC<Props> = ({ data, user, onSwitchTab, onRefres
 
     const contacts = data?.contacts || [];
 
+    const approvalRoles = data?.approvalRoles || DEFAULT_APPROVAL_ROLES;
+
     const { filteredApprovals, filteredExplanationApprovals } = useMemo(() => {
-        const allApprovals = data?.notifications.approvals || [];
-        const allExplanationApprovals = data?.notifications.explanationApprovals || [];
+        const canLeave = canApprove(user.role, 'leave', approvalRoles);
+        const canAttendance = canApprove(user.role, 'attendance', approvalRoles);
+        const allApprovals = canLeave ? (data?.notifications.approvals || []) : [];
+        const allExplanationApprovals = canAttendance ? (data?.notifications.explanationApprovals || []) : [];
 
         if (user.role === 'Admin' || user.role === 'HR') {
             return {
@@ -33,7 +37,7 @@ const NotificationsModal: React.FC<Props> = ({ data, user, onSwitchTab, onRefres
             };
         }
 
-        if (MANAGEMENT_ROLES.includes(user.role)) {
+        if (canLeave || canAttendance) {
             const filterByUserScope = (approval: LeaveRequest | Explanation) => {
                 const emp = contacts.find(c => c.employee_id === approval.employee_id);
                 if (!emp) return false;
@@ -52,7 +56,7 @@ const NotificationsModal: React.FC<Props> = ({ data, user, onSwitchTab, onRefres
             filteredApprovals: [],
             filteredExplanationApprovals: [],
         };
-    }, [data, user, contacts, managedLocationsSet]);
+    }, [data, user, contacts, managedLocationsSet, approvalRoles]);
 
 
     const pendingCount = filteredApprovals.length + filteredExplanationApprovals.length;

@@ -12,7 +12,7 @@ import Header from './Header';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import Spinner from '@/shared/components/common/Spinner';
 import LoadingScreen from '@/shared/components/common/LoadingScreen';
-import { MANAGEMENT_ROLES, STORAGE_KEYS, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
+import { canApproveAny, STORAGE_KEYS, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
 import { useAuth } from '@/core/auth/useAuth';
 import { ATTENDANCE_ACTIVITY_EVENT } from '@/shared/components/common/AppStatusBanner';
 
@@ -116,7 +116,10 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     swipeHandlerRef.current = handler;
     return () => { if (swipeHandlerRef.current === handler) swipeHandlerRef.current = null; };
   }, []);
-  const canManage = useMemo(() => Boolean(currentUser?.role && MANAGEMENT_ROLES.includes(currentUser.role)), [currentUser]);
+  const canManage = useMemo(
+    () => Boolean(currentUser?.role && canApproveAny(currentUser.role, data?.approvalRoles)),
+    [currentUser, data?.approvalRoles],
+  );
 
   useEffect(() => {
     const active = isAttendanceProcessing || showQRScanner || showCheckoutConfirm;

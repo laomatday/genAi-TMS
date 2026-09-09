@@ -170,6 +170,7 @@ export interface DashboardData {
   holidays: HolidayConfig[];
   shifts: ShiftConfig[];
   systemConfig: SystemConfig;
+  approvalRoles: { leave: EmployeeRole[]; attendance: EmployeeRole[] };
 }
 
 export interface AttendanceBootstrap { profile: Employee; history: Attendance[]; serverTime: string; }
