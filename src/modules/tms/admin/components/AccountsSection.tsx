@@ -103,16 +103,22 @@ export default function AccountsSection({
   const [resetReason, setResetReason] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ employee_id: string; name: string } | null>(null);
 
+  const locationById = useMemo(
+    () => new Map(data.locations.map((location) => [location.center_id, location])),
+    [data.locations],
+  );
+
   const filteredEmployees = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase('vi');
     return data.employees.filter((item) => {
       if (roleFilter !== 'all' && item.role !== roleFilter) return false;
       if (statusFilter !== 'all' && item.status !== statusFilter) return false;
       if (!normalizedQuery) return true;
-      return [item.employee_id, item.name, item.email, item.department, item.position, item.center_id]
+      const branch = locationById.get(item.center_id);
+      return [item.employee_id, item.name, item.email, item.department, item.position, item.center_id, branch?.center_name, branch?.city]
         .some((value) => String(value || '').toLocaleLowerCase('vi').includes(normalizedQuery));
     });
-  }, [data.employees, query, roleFilter, statusFilter]);
+  }, [data.employees, locationById, query, roleFilter, statusFilter]);
 
   const pageCount = Math.ceil(filteredEmployees.length / TMS_LIMITS.ADMIN_TABLE_PAGE_SIZE);
   const safePage = Math.min(page, Math.max(pageCount, 1));
@@ -255,7 +261,13 @@ export default function AccountsSection({
                 <button type="button" className={`admin-account-row ${editorOpen && employee.employee_id === item.employee_id ? 'selected' : ''}`} onClick={() => startEdit(item)} key={item.employee_id} role="row" aria-label={`Mở hồ sơ ${item.name}`}>
                   <span className="admin-account-person" data-label="Nhân viên"><Avatar src={item.avatar_url || item.face_ref_url} name={item.name} className="admin-avatar" textSize="" /><span><strong>{item.name}</strong><small>{item.employee_id} · {item.email}</small></span></span>
                   <span data-label="Vai trò">{item.role}</span>
-                  <span data-label="Chi nhánh">{item.center_id || '—'}</span>
+                  <span data-label="Chi nhánh">
+                    {(() => {
+                      const branch = locationById.get(item.center_id);
+                      if (!branch) return item.center_id || '—';
+                      return <span className="admin-cell-stack"><strong>{branch.center_name}</strong>{branch.city ? <small>{branch.city}</small> : null}</span>;
+                    })()}
+                  </span>
                   <span data-label="Thiết bị"><i className={`admin-dot ${device ? 'online' : ''}`} aria-hidden="true" />{item.role === 'Admin' ? 'Miễn khóa' : device ? 'Đã kích hoạt' : 'Chưa có'}</span>
                   <span data-label="Trạng thái"><b className={`admin-status account-${item.status.toLowerCase()}`}>{item.status === 'Active' ? 'Hoạt động' : item.auth_user_id || item.uid ? 'Tạm khóa' : 'Đã xóa đăng nhập'}</b></span>
                 </button>

@@ -9,6 +9,7 @@ import { ADMIN_NAV, getAdminCapabilities, type AdminSection } from './constants'
 import { monthRange } from './formatters';
 import { getAdminData } from './adminService';
 import type { AdminActionRunner, AdminData } from './types';
+import { AdminSelect } from './components/AdminCommon';
 import AccountsSection from './components/AccountsSection';
 import AttendanceSection from './components/AttendanceSection';
 import AuditSection from './components/AuditSection';
@@ -24,6 +25,54 @@ function todayInVietnam() {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
+}
+
+const UNASSIGNED_REGION = 'Chưa phân khu vực';
+
+interface AdminScope {
+  region: string;
+  branch: string;
+}
+
+const EMPTY_SCOPE: AdminScope = { region: 'all', branch: 'all' };
+
+// Narrows the operational, list-shaped slices of AdminData to a branch or region
+// so a multi-branch org can be managed one area at a time. Config-shaped slices
+// (locations, policies, shifts, holidays, settings, periods) stay complete so the
+// editors keep working regardless of the active scope.
+function scopeAdminData(data: AdminData, scope: AdminScope): { data: AdminData; scoped: boolean } {
+  let branchIds: Set<string> | null = null;
+  if (scope.branch !== 'all') {
+    branchIds = new Set([scope.branch]);
+  } else if (scope.region !== 'all') {
+    branchIds = new Set(
+      data.locations.filter((location) => (location.city?.trim() || UNASSIGNED_REGION) === scope.region).map((location) => location.center_id),
+    );
+  }
+  if (!branchIds) return { data, scoped: false };
+
+  const inScope = branchIds;
+  const employees = data.employees.filter((employee) => {
+    if (inScope.has(employee.center_id)) return true;
+    return [...(employee.allowed_locations || []), ...(employee.managed_locations || [])].some((id) => inScope.has(id));
+  });
+  const employeeIds = new Set(employees.map((employee) => employee.employee_id));
+  const byEmployee = <T extends { employee_id?: string }>(rows: T[]) =>
+    rows.filter((row) => (row.employee_id ? employeeIds.has(row.employee_id) : false));
+
+  return {
+    scoped: true,
+    data: {
+      ...data,
+      employees,
+      timesheets: byEmployee(data.timesheets),
+      requests: byEmployee(data.requests),
+      monthlyRequests: data.monthlyRequests ? byEmployee(data.monthlyRequests) : data.monthlyRequests,
+      devices: byEmployee(data.devices),
+      shiftAssignments: byEmployee(data.shiftAssignments),
+      stations: data.stations.filter((station) => inScope.has(station.center_id)),
+    },
+  };
 }
 
 function AdminAccountMenu({
@@ -103,6 +152,7 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
   }), [capabilities.manageAccounts, capabilities.manageSchedules, capabilities.manageSettings, capabilities.viewAudit]);
   const [section, setSection] = useState<AdminSection>('overview');
   const [data, setData] = useState<AdminData | null>(null);
+  const [scope, setScope] = useState<AdminScope>(EMPTY_SCOPE);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -146,9 +196,28 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
     }
   }, [load]);
 
+  const regionOptions = useMemo(() => {
+    if (!data) return [] as string[];
+    return [...new Set(data.locations.map((location) => location.city?.trim() || UNASSIGNED_REGION))].sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [data]);
+
+  const branchOptions = useMemo(() => {
+    if (!data) return [] as { value: string; label: string }[];
+    return data.locations
+      .filter((location) => scope.region === 'all' || (location.city?.trim() || UNASSIGNED_REGION) === scope.region)
+      .sort((a, b) => a.center_name.localeCompare(b.center_name, 'vi'))
+      .map((location) => ({ value: location.center_id, label: location.center_name }));
+  }, [data, scope.region]);
+
+  const { data: scopedData, scoped } = useMemo(
+    () => (data ? scopeAdminData(data, scope) : { data: null as AdminData | null, scoped: false }),
+    [data, scope],
+  );
+
   const currentNav = navigation.find((item) => item.id === section) || navigation[0];
-  const pendingCount = data?.requests.length || 0;
+  const pendingCount = scopedData?.requests.length || 0;
   const currentProfile = data?.employees.find((employee) => employee.employee_id === user.employee_id) || user;
+  const showScope = Boolean(data && data.locations.length > 1);
 
   return (
     <main className="admin-shell">
@@ -192,6 +261,28 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
       <section className="admin-workspace">
         <header className="admin-topbar">
           <div><span>{APP_INFO.PRODUCT_NAME}</span><h1>{currentNav?.label}</h1></div>
+          {showScope ? (
+            <div className="admin-scope" role="group" aria-label="Phạm vi chi nhánh">
+              <span className="material-symbols-rounded" aria-hidden="true">travel_explore</span>
+              {regionOptions.length > 1 ? (
+                <AdminSelect
+                  value={scope.region}
+                  onChange={(value) => setScope({ region: value, branch: 'all' })}
+                  label="Khu vực"
+                  options={[{ value: 'all', label: 'Mọi khu vực' }, ...regionOptions.map((region) => ({ value: region, label: region }))]}
+                />
+              ) : null}
+              <AdminSelect
+                value={scope.branch}
+                onChange={(value) => setScope((current) => ({ ...current, branch: value }))}
+                label="Chi nhánh"
+                options={[{ value: 'all', label: scope.region === 'all' ? 'Mọi chi nhánh' : `Mọi chi nhánh · ${scope.region}` }, ...branchOptions]}
+              />
+              {scoped ? (
+                <button type="button" className="admin-text-button" onClick={() => setScope(EMPTY_SCOPE)}>Bỏ lọc</button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="admin-topbar-actions">
             {user.role !== 'Admin' ? <span className="admin-role-badge">Phạm vi {user.role}</span> : null}
             <button type="button" className="admin-icon-button" disabled={refreshing} onClick={() => void load(true)} aria-label="Tải lại dữ liệu"><span className={`material-symbols-rounded ${refreshing ? 'spinning' : ''}`}>refresh</span></button>
@@ -215,15 +306,21 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
           </section>
         ) : null}
 
-        {data ? (
+        {data && scopedData ? (
           <div className="admin-content">
-            {section === 'overview' ? <OverviewSection data={data} today={todayInVietnam()} onNavigate={setSection} /> : null}
-            {section === 'accounts' && capabilities.manageAccounts ? <AccountsSection data={data} currentEmployeeId={user.employee_id} busy={busy} onRun={run} /> : null}
-            {section === 'scheduling' && capabilities.manageSchedules ? <SchedulingSection data={data} month={month} onMonthChange={setMonth} busy={busy} onRun={run} /> : null}
-            {section === 'attendance' ? <AttendanceSection data={data} month={month} onMonthChange={setMonth} busy={busy} onRun={run} /> : null}
-            {section === 'settings' && capabilities.manageSettings ? <SettingsSection data={data} busy={busy} onRun={run} /> : null}
-            {section === 'kiosks' ? <KiosksSection data={data} busy={busy} canManage={capabilities.manageKiosks} onRun={run} onOpenStation={() => navigate(APP_ROUTES.KIOSK)} /> : null}
-            {section === 'audit' && capabilities.viewAudit ? <AuditSection data={data} /> : null}
+            {scoped ? (
+              <p className="admin-scope-note" role="status">
+                Đang xem <strong>{scope.branch !== 'all' ? (branchOptions.find((b) => b.value === scope.branch)?.label || scope.branch) : scope.region}</strong>
+                {' · '}{scopedData.employees.length} nhân sự
+              </p>
+            ) : null}
+            {section === 'overview' ? <OverviewSection data={scopedData} today={todayInVietnam()} onNavigate={setSection} /> : null}
+            {section === 'accounts' && capabilities.manageAccounts ? <AccountsSection data={scopedData} currentEmployeeId={user.employee_id} busy={busy} onRun={run} /> : null}
+            {section === 'scheduling' && capabilities.manageSchedules ? <SchedulingSection data={scopedData} month={month} onMonthChange={setMonth} busy={busy} onRun={run} /> : null}
+            {section === 'attendance' ? <AttendanceSection data={scopedData} month={month} onMonthChange={setMonth} busy={busy} onRun={run} /> : null}
+            {section === 'settings' && capabilities.manageSettings ? <SettingsSection data={scopedData} busy={busy} onRun={run} /> : null}
+            {section === 'kiosks' ? <KiosksSection data={scopedData} busy={busy} canManage={capabilities.manageKiosks} onRun={run} onOpenStation={() => navigate(APP_ROUTES.KIOSK)} /> : null}
+            {section === 'audit' && capabilities.viewAudit ? <AuditSection data={scopedData} /> : null}
           </div>
         ) : null}
       </section>

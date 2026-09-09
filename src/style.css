@@ -2025,8 +2025,22 @@
 .admin-topbar { position: sticky; z-index: 25; top: 0; min-height: var(--admin-topbar-height); margin-bottom: var(--space-3); padding: var(--space-4) 0 var(--space-2); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); background: var(--color-bg); box-shadow: 0 10px 18px var(--color-bg); }
 .admin-topbar > div:first-child > span { color: var(--admin-faint); font-size: var(--admin-font-caption); font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
 .admin-topbar h1 { margin: var(--space-1) 0 0; font-size: var(--text-page-title); line-height: 1.08; letter-spacing: -.035em; }
-.admin-topbar-actions { display: flex; align-items: center; gap: 8px; }
+.admin-topbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .admin-role-badge { min-height: var(--touch-target); padding: 0 14px; display: inline-flex; align-items: center; border-radius: var(--admin-control-radius); background: var(--color-info-light); color: var(--color-info-dark); font-size: var(--admin-font-caption); font-weight: 800; }
+
+.admin-scope { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.admin-scope > .material-symbols-rounded { color: var(--admin-faint); font-size: 20px; }
+.admin-scope .admin-select { min-width: 9.5rem; }
+.admin-scope-note { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--admin-line); border-radius: var(--admin-control-radius); background: color-mix(in srgb, var(--color-primary) 5%, var(--admin-panel)); color: var(--admin-ink); font-size: var(--admin-font-caption); font-weight: 650; }
+.admin-scope-note strong { font-weight: 800; }
+.admin-cell-stack { display: inline-flex; flex-direction: column; line-height: 1.25; }
+.admin-cell-stack small { color: var(--admin-faint); font-size: var(--admin-font-caption); }
+
+@media (max-width: 900px) {
+  .admin-topbar { flex-wrap: wrap; }
+  .admin-scope { order: 3; width: 100%; }
+  .admin-scope .admin-select { flex: 1 1 8rem; min-width: 0; }
+}
 .admin-account-menu { position: relative; }
 .admin-account-trigger { width: var(--admin-control-height); min-width: var(--admin-control-height); height: var(--admin-control-height); padding: var(--space-1); display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--admin-line) 72%, transparent); border-radius: var(--radius-pill); background: var(--admin-panel); color: var(--admin-ink); font: inherit; cursor: pointer; transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease; }
 .admin-account-trigger:hover, .admin-account-trigger[aria-expanded="true"] { border-color: color-mix(in srgb, var(--color-primary) 24%, var(--admin-line)); background: color-mix(in srgb, var(--color-primary) 4%, var(--admin-panel)); box-shadow: var(--shadow-sm); }
