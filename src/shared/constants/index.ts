@@ -29,7 +29,7 @@ export const EMPLOYEE_ROLES: readonly EmployeeRole[] = ['Staff', 'Leader', 'Mana
 export const MANAGEMENT_ROLES: readonly EmployeeRole[] = ['Leader', 'Manager', 'Director', 'Admin', 'HR'];
 export const SCOPED_MANAGEMENT_ROLES: readonly EmployeeRole[] = ['Leader', 'Manager', 'Director'];
 export const ADMIN_ROUTE_ROLES: readonly EmployeeRole[] = ['Admin', 'HR', 'Director'];
-export const DEVICE_EXEMPT_ROLES: readonly EmployeeRole[] = ['Admin', 'Kiosk'];
+export const DEVICE_EXEMPT_ROLES: readonly EmployeeRole[] = ['Admin', 'HR', 'Director', 'Kiosk'];
 
 export const STORAGE_KEYS = {
   THEME: 'genai_theme',
