@@ -2590,6 +2590,9 @@ button.admin-account-row:hover, button.admin-account-row.selected { border-radiu
     border-radius: 18px;
     background: var(--admin-panel-subtle);
   }
+  /* The global "pill every admin button" rule outspecifies the card block above,
+     so force the account card (a <button>) back to the shared card radius. */
+  button.admin-account-row:not(.admin-table-head) { border-radius: 18px; }
   button.admin-account-row:hover, button.admin-account-row.selected { border-radius: 18px; background: color-mix(in srgb, var(--color-primary) 5%, var(--admin-panel)); }
   .admin-account-row:not(.admin-table-head) > span,
   .admin-timesheet-row:not(.admin-table-head) > span,
