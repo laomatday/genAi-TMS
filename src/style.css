@@ -1103,7 +1103,16 @@
   transition: filter var(--motion-fast), transform var(--motion-fast), background-color var(--motion-fast);
 }
 
-.home-action-button > .material-symbols-rounded { font-size: var(--text-kpi); }
+.home-action-button > .material-symbols-rounded {
+  font-size: var(--text-kpi);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  overflow: hidden;
+  white-space: nowrap;
+}
 .home-action-button > span:last-child { max-width: 8rem; }
 .home-action-button:hover:not(:disabled) { filter: brightness(1.06); }
 .home-action-button:active:not(:disabled) { transform: scale(0.97); }
