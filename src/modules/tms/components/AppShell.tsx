@@ -129,6 +129,23 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     };
   }, [isAttendanceProcessing, showCheckoutConfirm, showQRScanner]);
 
+  useEffect(() => {
+    // Warm the QR scanner chunk during idle time so tapping "Quét QR chấm công" doesn't
+    // stall on the first download — cheap now that it no longer bundles a large decoder.
+    let cancelled = false;
+    const warm = () => { if (!cancelled) void import('./ModalQRScanner'); };
+    const requestIdle = window.requestIdleCallback;
+    let idleHandle: number | undefined;
+    let timeoutHandle: number | undefined;
+    if (typeof requestIdle === 'function') idleHandle = requestIdle(warm);
+    else timeoutHandle = window.setTimeout(warm, 2000);
+    return () => {
+      cancelled = true;
+      if (idleHandle !== undefined) window.cancelIdleCallback?.(idleHandle);
+      if (timeoutHandle !== undefined) window.clearTimeout(timeoutHandle);
+    };
+  }, []);
+
   const { rawNotiCount, badgeCount } = useMemo(() => {
     if (!data) return { rawNotiCount: 0, badgeCount: 0 };
     // Workforce V3 already returns reviewer requests scoped by capability and tenant.

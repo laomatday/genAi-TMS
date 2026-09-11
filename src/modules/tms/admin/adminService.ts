@@ -311,10 +311,6 @@ export async function deleteShiftAssignment(id: string, _reason = '') {
   await workforceCommand('schedule.delete', { id, revision: Number(data.revision || 0) });
 }
 
-export async function preparePayrollExport(range: AttendanceRange) {
-  return workforceCommand('payroll.export', { from: range.from, to: range.to });
-}
-
 export async function closeAttendancePeriod(range: AttendanceRange, note = '') {
   if (note.trim().length < 5) throw new Error('Ghi chú đóng kỳ cần ít nhất 5 ký tự.');
   const result = await workforceCommand('payroll.close', {

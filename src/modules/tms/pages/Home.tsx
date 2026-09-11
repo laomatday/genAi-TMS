@@ -114,25 +114,6 @@ const TabHome: React.FC<Props> = ({
     return 'Chưa có lịch';
   }, [checkedOut, currentShift.end, currentShift.start, timeStr, todaysAtt, working]);
 
-  const workProgress = useMemo(() => {
-    if (!working || !todaysAtt?.time_in || currentShift.start === '00:00' || currentShift.end === '00:00') return null;
-    const inMinutes = timeToMinutes(todaysAtt.time_in);
-    let nowMinutes = timeToMinutes(timeStr);
-    const startMinutes = timeToMinutes(currentShift.start);
-    let endMinutes = timeToMinutes(currentShift.end);
-    if (endMinutes < startMinutes) {
-      endMinutes += 1440;
-      if (nowMinutes < startMinutes) nowMinutes += 1440;
-    }
-    const elapsed = Math.max(0, nowMinutes - inMinutes);
-    const duration = Math.max(60, endMinutes - startMinutes);
-    return {
-      percent: Math.min(100, Math.round((elapsed / duration) * 100)),
-      workedHours: (elapsed / 60).toFixed(1),
-      targetHours: (duration / 60).toFixed(1),
-    };
-  }, [currentShift.end, currentShift.start, timeStr, todaysAtt?.time_in, working]);
-
   const pendingExplanation = explainableItems?.[0] || null;
   const summary = data?.history.summary;
 
@@ -232,20 +213,6 @@ const TabHome: React.FC<Props> = ({
               </div>
             </div>
 
-            {workProgress ? (
-              <div className="home-work-progress-card animate-fade-in">
-                <div className="mb-1.5 flex items-center justify-between text-xs font-semibold">
-                  <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
-                    <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
-                    Tiến độ ca
-                  </span>
-                  <span className="tabular-nums font-bold text-primary">{workProgress.workedHours}h / {workProgress.targetHours}h</span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-700/60">
-                  <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${workProgress.percent}%` }} />
-                </div>
-              </div>
-            ) : null}
           </section>
 
           <section className="home-action" aria-label="Thao tác chấm công">
@@ -272,9 +239,6 @@ const TabHome: React.FC<Props> = ({
                 Tạm dừng
               </button>
             ) : null}
-            <p className="mt-3 text-center text-xs text-slate-500 dark:text-slate-400">
-              {checkedOut ? 'Ngày công đã được ghi nhận. Không cần thao tác thêm.' : 'Vị trí và quyền thiết bị được hệ thống kiểm tra trước khi ghi nhận.'}
-            </p>
           </section>
 
           <div className="home-stats-header">

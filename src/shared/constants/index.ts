@@ -27,7 +27,6 @@ export const APP_ROUTES = {
 
 export const EMPLOYEE_ROLES: readonly EmployeeRole[] = ['Staff', 'Leader', 'Manager', 'Director', 'HR', 'Admin', 'Kiosk'];
 export const MANAGEMENT_ROLES: readonly EmployeeRole[] = ['Leader', 'Manager', 'Director', 'Admin', 'HR'];
-export const SCOPED_MANAGEMENT_ROLES: readonly EmployeeRole[] = ['Leader', 'Manager', 'Director'];
 export const ADMIN_ROUTE_ROLES: readonly EmployeeRole[] = ['Admin', 'HR', 'Director'];
 export const DEVICE_EXEMPT_ROLES: readonly EmployeeRole[] = ['Admin', 'HR', 'Director', 'Kiosk'];
 
@@ -77,16 +76,6 @@ export const STORAGE_KEYS = {
   DB_NAME: 'genai-tms-device',
   STORE_NAME: 'keys',
 } as const;
-
-export const VI_DAYS_OF_WEEK = [
-  'CHỦ NHẬT',
-  'THỨ HAI',
-  'THỨ BA',
-  'THỨ TƯ',
-  'THỨ NĂM',
-  'THỨ SÁU',
-  'THỨ BẢY',
-] as const;
 
 export const ADMIN_BULK_NOTE_PRESETS = {
   APPROVED: [

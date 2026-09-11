@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { APP_INFO, APP_ROUTES, UI_MOTION } from '@/shared/constants';
@@ -10,13 +10,26 @@ import { monthRange } from './formatters';
 import { getAdminData } from './adminService';
 import type { AdminActionRunner, AdminData } from './types';
 import { AdminSelect } from './components/AdminCommon';
-import AccountsSection from './components/AccountsSection';
-import AttendanceSection from './components/AttendanceSection';
-import AuditSection from './components/AuditSection';
-import KiosksSection from './components/KiosksSection';
-import OverviewSection from './components/OverviewSection';
-import SettingsSection from './components/SettingsSection';
-import SchedulingSection from './components/SchedulingSection';
+
+// Each section (and its own dependencies — e.g. OverviewSection pulls in recharts,
+// AccountsSection/AttendanceSection pull in the Excel export code) only downloads
+// once an admin actually opens that tab, instead of all loading up front.
+const AccountsSection = lazy(() => import('./components/AccountsSection'));
+const AttendanceSection = lazy(() => import('./components/AttendanceSection'));
+const AuditSection = lazy(() => import('./components/AuditSection'));
+const KiosksSection = lazy(() => import('./components/KiosksSection'));
+const OverviewSection = lazy(() => import('./components/OverviewSection'));
+const SettingsSection = lazy(() => import('./components/SettingsSection'));
+const SchedulingSection = lazy(() => import('./components/SchedulingSection'));
+
+function AdminSectionFallback() {
+  return (
+    <div className="admin-loading" role="status" aria-live="polite">
+      <span className="admin-spinner" aria-hidden="true" />
+      <strong>Đang tải…</strong>
+    </div>
+  );
+}
 
 function todayInVietnam() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -352,13 +365,15 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
                 {' · '}{scopedData.employees.length} nhân sự
               </p>
             ) : null}
-            {section === 'overview' ? <OverviewSection data={scopedData} today={todayInVietnam()} onNavigate={setSection} /> : null}
-            {section === 'accounts' && capabilities.manageAccounts ? <AccountsSection data={scopedData} currentEmployeeId={user.employee_id} busy={busy} onRun={run} /> : null}
-            {section === 'scheduling' && capabilities.manageSchedules ? <SchedulingSection data={scopedData} month={month} onMonthChange={setMonth} busy={busy} onRun={run} /> : null}
-            {section === 'attendance' ? <AttendanceSection data={scopedData} month={month} onMonthChange={setMonth} busy={busy} onRun={run} /> : null}
-            {section === 'settings' && capabilities.manageSettings ? <SettingsSection data={scopedData} busy={busy} onRun={run} /> : null}
-            {section === 'kiosks' ? <KiosksSection data={scopedData} busy={busy} canManage={capabilities.manageKiosks} onRun={run} onOpenStation={() => navigate(APP_ROUTES.KIOSK)} /> : null}
-            {section === 'audit' && capabilities.viewAudit ? <AuditSection data={scopedData} /> : null}
+            <Suspense fallback={<AdminSectionFallback />}>
+              {section === 'overview' ? <OverviewSection data={scopedData} today={todayInVietnam()} onNavigate={setSection} /> : null}
+              {section === 'accounts' && capabilities.manageAccounts ? <AccountsSection data={scopedData} currentEmployeeId={user.employee_id} busy={busy} onRun={run} /> : null}
+              {section === 'scheduling' && capabilities.manageSchedules ? <SchedulingSection data={scopedData} month={month} onMonthChange={setMonth} busy={busy} onRun={run} /> : null}
+              {section === 'attendance' ? <AttendanceSection data={scopedData} month={month} onMonthChange={setMonth} busy={busy} onRun={run} /> : null}
+              {section === 'settings' && capabilities.manageSettings ? <SettingsSection data={scopedData} busy={busy} onRun={run} /> : null}
+              {section === 'kiosks' ? <KiosksSection data={scopedData} busy={busy} canManage={capabilities.manageKiosks} onRun={run} onOpenStation={() => navigate(APP_ROUTES.KIOSK)} /> : null}
+              {section === 'audit' && capabilities.viewAudit ? <AuditSection data={scopedData} /> : null}
+            </Suspense>
           </div>
         ) : null}
       </section>

@@ -1,7 +1,7 @@
 import { TMS_LIMITS } from '@/shared/constants';
 import type { Cell, CellObject, SheetData } from 'write-excel-file/browser';
 
-export type ExcelValue = string | number | boolean | Date | null | undefined;
+type ExcelValue = string | number | boolean | Date | null | undefined;
 
 export interface ExcelColumn<Row> {
   header: string;
@@ -110,7 +110,7 @@ export async function readExcelRows(file: File): Promise<ImportedExcelRow[]> {
   }));
 }
 
-export function excelValue(row: ImportedExcelRow, ...headers: string[]) {
+function excelValue(row: ImportedExcelRow, ...headers: string[]) {
   for (const header of headers) {
     const value = row.values.get(normalizeHeader(header));
     if (value != null && value !== '') return value;

@@ -1,7 +1,7 @@
 import { createContext } from 'react';
 
 export type ToastType = 'info' | 'success' | 'warning' | 'error';
-export interface ToastAction {
+interface ToastAction {
   label: string;
   onClick: () => void | Promise<void>;
 }

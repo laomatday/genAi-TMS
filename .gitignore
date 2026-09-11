@@ -2,6 +2,10 @@ node_modules
 dist
 functions/lib
 
+# This repo's lockfile is bun.lock; a stray npm/yarn lockfile causes dependency drift.
+package-lock.json
+yarn.lock
+
 # Never commit runtime environment files. Only the documented template is versioned.
 .env
 .env.*

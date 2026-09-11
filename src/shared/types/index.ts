@@ -173,8 +173,6 @@ export interface DashboardData {
   approvalRoles: { leave: EmployeeRole[]; attendance: EmployeeRole[] };
 }
 
-export interface AttendanceBootstrap { profile: Employee; history: Attendance[]; serverTime: string; }
-
 export interface WorkforceReceipt {
   id: string;
   event_id?: string;

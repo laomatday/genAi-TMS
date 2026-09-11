@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import IconButton from '@/shared/components/common/IconButton';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { TMS_LIMITS } from '@/shared/constants';
@@ -11,10 +10,20 @@ interface Props {
 }
 
 type ScannerStatus = 'starting' | 'scanning' | 'error';
-type CameraDevice = Awaited<ReturnType<typeof Html5Qrcode.getCameras>>[number];
+
+interface DetectedBarcode {
+  rawValue: string;
+}
+
+interface BarcodeDetectorLike {
+  detect: (source: CanvasImageSource) => Promise<DetectedBarcode[]>;
+}
+
+type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDetectorLike;
 
 const SCANNER_ELEMENT_ID = 'qr-reader';
 const REAR_CAMERA_PATTERN = /back|rear|environment|world|camera sau/i;
+const DETECT_INTERVAL_MS = Math.max(50, Math.round(1000 / TMS_LIMITS.QR_SCAN_FPS));
 
 const CAMERA_MESSAGES = {
   insecure: 'Camera chỉ hoạt động khi mở ứng dụng bằng HTTPS hoặc localhost.',
@@ -25,10 +34,6 @@ const CAMERA_MESSAGES = {
   busy: 'Camera đang được ứng dụng khác sử dụng. Hãy đóng ứng dụng đó rồi thử lại.',
   generic: 'Không thể mở camera. Vui lòng kiểm tra quyền truy cập rồi thử lại.',
 } as const;
-
-const selectCamera = (cameras: CameraDevice[]) => (
-  cameras.find((camera) => REAR_CAMERA_PATTERN.test(camera.label)) ?? cameras[0]
-);
 
 const shouldSkipDeviceFallback = (error: unknown) => {
   const detail = error instanceof Error
@@ -64,100 +69,117 @@ const assertCameraAvailable = () => {
   }
 };
 
+// Prefer the browser's native, hardware-accelerated BarcodeDetector (ships in the JS
+// engine, zero bundle cost). Only browsers lacking it (older Safari, Firefox) pay the
+// cost of a dynamically-imported, actively-maintained WASM polyfill.
+export async function resolveBarcodeDetectorCtor(): Promise<BarcodeDetectorCtor> {
+  if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+    return (window as unknown as { BarcodeDetector: BarcodeDetectorCtor }).BarcodeDetector;
+  }
+  const { BarcodeDetector } = await import('barcode-detector/pure');
+  return BarcodeDetector as unknown as BarcodeDetectorCtor;
+}
+
 const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
   const [status, setStatus] = useState<ScannerStatus>('starting');
   const [cameraError, setCameraError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const [torchOn, setTorchOn] = useState(false);
+  const [torchSupported, setTorchSupported] = useState(false);
   const scanHandledRef = useRef(false);
   const handlersRef = useRef({ onScan, onError });
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
   const dialogRef = useModalAccessibility(true, onClose);
   handlersRef.current = { onScan, onError };
 
   useEffect(() => {
     let disposed = false;
-    let scanner: Html5Qrcode | null = null;
+    let stream: MediaStream | null = null;
+    let detectTimer = 0;
 
     scanHandledRef.current = false;
     setStatus('starting');
     setCameraError('');
+    setTorchOn(false);
+    setTorchSupported(false);
 
-    const disposeScanner = async (activeScanner: Html5Qrcode) => {
-      try {
-        if (activeScanner.isScanning) await activeScanner.stop();
-      } catch (stopError) {
-        console.warn('Camera cleanup warning:', stopError);
-      } finally {
-        try {
-          activeScanner.clear();
-        } catch (clearError) {
-          console.warn('Scanner cleanup warning:', clearError);
-        }
-      }
-    };
-
-    const releaseCamera = async () => {
-      const activeScanner = scanner;
-      scanner = null;
-      if (activeScanner) await disposeScanner(activeScanner);
+    const stopStream = () => {
+      const activeStream = stream;
+      stream = null;
+      trackRef.current = null;
+      activeStream?.getTracks().forEach((track) => track.stop());
     };
 
     const startScanner = async () => {
       try {
         assertCameraAvailable();
-
-        const scanConfig = {
-          fps: TMS_LIMITS.QR_SCAN_FPS,
-          qrbox: (viewWidth: number, viewHeight: number) => {
-            const size = Math.floor(Math.min(viewWidth, viewHeight) * TMS_LIMITS.QR_SCAN_AREA_RATIO);
-            return { width: size, height: size };
-          },
-          aspectRatio: 1,
-        };
-        const handleScan = (decodedText: string) => {
-          if (disposed || scanHandledRef.current) return;
-          scanHandledRef.current = true;
-          navigator.vibrate?.(100);
-          void releaseCamera().then(() => {
-            if (!disposed) handlersRef.current.onScan(decodedText);
-          });
-        };
-        const startWith = async (camera: string | MediaTrackConstraints) => {
-          const activeScanner = new Html5Qrcode(SCANNER_ELEMENT_ID, {
-            verbose: false,
-            formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
-            useBarCodeDetectorIfSupported: true,
-          });
-          scanner = activeScanner;
-          await activeScanner.start(camera, scanConfig, handleScan, () => undefined);
-
-          if (disposed || scanner !== activeScanner) {
-            await disposeScanner(activeScanner);
-            return false;
-          }
-          return true;
-        };
+        const DetectorCtor = await resolveBarcodeDetectorCtor();
+        if (disposed) return;
+        const detector = new DetectorCtor({ formats: ['qr_code'] });
 
         try {
-          const started = await startWith({ facingMode: 'environment' });
-          if (!started) return;
-        } catch (directStartError) {
-          await releaseCamera();
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+        } catch (directError) {
           if (disposed) return;
-          if (shouldSkipDeviceFallback(directStartError)) throw directStartError;
+          if (shouldSkipDeviceFallback(directError)) throw directError;
 
-          const cameras = await Html5Qrcode.getCameras();
+          const devices = await navigator.mediaDevices.enumerateDevices();
           if (disposed) return;
-          if (cameras.length === 0) throw directStartError;
-
-          const camera = selectCamera(cameras);
-          if (!camera) throw directStartError;
-          const started = await startWith(camera.id);
-          if (!started) return;
+          const cameras = devices.filter((device) => device.kind === 'videoinput');
+          if (cameras.length === 0) throw directError;
+          const camera = cameras.find((device) => REAR_CAMERA_PATTERN.test(device.label)) ?? cameras[0];
+          if (!camera) throw directError;
+          stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: camera.deviceId } } });
+        }
+        if (disposed || !stream) {
+          stopStream();
+          return;
         }
 
+        const video = videoRef.current;
+        if (!video) {
+          stopStream();
+          return;
+        }
+        video.srcObject = stream;
+        await video.play();
+        if (disposed) {
+          stopStream();
+          return;
+        }
+
+        const [track] = stream.getVideoTracks();
+        trackRef.current = track ?? null;
+        const capabilities = track?.getCapabilities?.() as (MediaTrackCapabilities & { torch?: boolean }) | undefined;
+        setTorchSupported(Boolean(capabilities?.torch));
+
         setStatus('scanning');
+
+        const tick = async () => {
+          if (disposed || scanHandledRef.current) return;
+          if (video.readyState >= video.HAVE_CURRENT_DATA) {
+            try {
+              const results = await detector.detect(video);
+              const value = results[0]?.rawValue;
+              if (value && !scanHandledRef.current) {
+                scanHandledRef.current = true;
+                navigator.vibrate?.(100);
+                stopStream();
+                if (!disposed) handlersRef.current.onScan(value);
+                return;
+              }
+            } catch (detectError) {
+              console.warn('QR detect warning:', detectError);
+            }
+          }
+          if (!disposed && !scanHandledRef.current) {
+            detectTimer = window.setTimeout(() => void tick(), DETECT_INTERVAL_MS);
+          }
+        };
+        void tick();
       } catch (startError) {
-        await releaseCamera();
+        stopStream();
         if (disposed) return;
         const message = getCameraErrorMessage(startError);
         console.warn('Scanner start warning:', startError);
@@ -174,11 +196,24 @@ const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
       disposed = true;
       scanHandledRef.current = true;
       window.clearTimeout(startTimer);
-      void releaseCamera();
+      window.clearTimeout(detectTimer);
+      stopStream();
     };
   }, [attempt]);
 
   const retry = () => setAttempt((current) => current + 1);
+
+  const toggleTorch = async () => {
+    const track = trackRef.current;
+    if (!track) return;
+    try {
+      const next = !torchOn;
+      await track.applyConstraints({ advanced: [{ torch: next } as MediaTrackConstraintSet] });
+      setTorchOn(next);
+    } catch (torchError) {
+      console.warn('Torch toggle warning:', torchError);
+    }
+  };
 
   return (
     <div ref={dialogRef} tabIndex={-1} className="scanner-modal" role="dialog" aria-modal="true" aria-labelledby="qr-scanner-title">
@@ -187,11 +222,23 @@ const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
           <span className="scanner-title-icon material-symbols-rounded" aria-hidden="true">qr_code_scanner</span>
           <strong id="qr-scanner-title">Quét mã Kiosk</strong>
         </div>
-        <IconButton icon="close" label="Đóng trình quét" tone="inverse" onClick={onClose} />
+        <div className="flex items-center gap-2">
+          {status === 'scanning' && torchSupported ? (
+            <IconButton
+              icon={torchOn ? 'flash_on' : 'flash_off'}
+              label={torchOn ? 'Tắt đèn flash' : 'Bật đèn flash'}
+              tone="inverse"
+              onClick={() => void toggleTorch()}
+            />
+          ) : null}
+          <IconButton icon="close" label="Đóng trình quét" tone="inverse" onClick={onClose} />
+        </div>
       </header>
 
       <div className="scanner-stage">
-        <div id={SCANNER_ELEMENT_ID} />
+        <div id={SCANNER_ELEMENT_ID}>
+          <video ref={videoRef} muted playsInline autoPlay />
+        </div>
 
         {status === 'scanning' && (
           <div className="scanner-mask" aria-hidden="true">

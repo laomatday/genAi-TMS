@@ -2,47 +2,30 @@ import { supabase, isSupabaseConfigured } from '@/core/supabase';
 import { getCurrentDeviceId } from '@/core/deviceBinding';
 import { TMS_LIMITS } from '@/shared/constants';
 import type {
-  AttendanceBootstrap,
   DynamicQrResult,
-  Employee,
   WorkforceAttendanceResult,
   WorkforceReceipt,
 } from '@/shared/types';
 
-function rpcError(error: { message: string } | null, data: unknown, operation: string) {
+// Exported for direct unit testing (see attendance.test.ts) — this maps the server's
+// RPC response shape to thrown errors, and a silent regression here would surface as
+// misleading toast messages rather than a caught bug.
+export function rpcError(error: { message: string } | null, data: unknown, operation: string) {
   if (error) throw new Error(error.message);
   if (!data || typeof data !== 'object') throw new Error(`${operation} không trả về dữ liệu hợp lệ.`);
   const payload = data as WorkforceAttendanceResult;
   if (payload.ok === false) throw new Error(payload.message || `${operation} thất bại.`);
 }
 
-function commandId() {
+// Exported for direct unit testing — generates the idempotency key sent with every
+// attendance command; a malformed id would let a duplicate check-in slip through.
+export function commandId() {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
   bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
   const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-export async function getAttendanceBootstrap(): Promise<AttendanceBootstrap> {
-  if (!isSupabaseConfigured) {
-    throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
-  }
-  const { data, error } = await supabase.rpc('workforce_query', {
-    p_resource: 'bootstrap',
-    p_args: {},
-  });
-  if (error) throw new Error(error.message);
-  if (!data || typeof data !== 'object') throw new Error('Không tải được trạng thái chấm công.');
-  const payload = data as Record<string, unknown>;
-  const profile = payload.profile as Employee | undefined;
-  if (!profile?.employee_id) throw new Error('Không tìm thấy hồ sơ nhân viên.');
-  return {
-    profile: { ...profile, id: profile.employee_id, uid: profile.auth_user_id },
-    history: [],
-    serverTime: typeof payload.server_time === 'string' ? payload.server_time : new Date().toISOString(),
-  };
 }
 
 export async function recordQrAttendance(input: {

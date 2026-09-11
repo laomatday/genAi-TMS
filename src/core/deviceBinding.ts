@@ -78,8 +78,10 @@ export function getCurrentDeviceId() {
   return getLogicalDeviceId();
 }
 
-export function getDeviceLabel() {
-  const ua = navigator.userAgent;
+// `userAgent` defaults to the real browser value; tests pass a fixture string directly
+// so this stays a pure, unit-testable function (see deviceBinding.test.ts).
+export function getDeviceLabel(userAgent: string = navigator.userAgent) {
+  const ua = userAgent;
   const platform = /Android/i.test(ua) ? 'Android' : /iPhone|iPad|iPod/i.test(ua) ? 'iPhone/iPad' : /Windows/i.test(ua) ? 'Windows' : /Macintosh|Mac OS/i.test(ua) ? 'macOS' : /Linux/i.test(ua) ? 'Linux' : 'Thiết bị';
   const browser = /Edg\//i.test(ua) ? 'Edge' : /Chrome\//i.test(ua) ? 'Chrome' : /Safari\//i.test(ua) ? 'Safari' : /Firefox\//i.test(ua) ? 'Firefox' : 'Browser';
   return `${browser} · ${platform}`;

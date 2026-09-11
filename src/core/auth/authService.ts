@@ -28,6 +28,15 @@ export async function fetchMyProfile(): Promise<Employee> {
   } as Employee;
 }
 
+// Exported for direct unit testing (see authService.test.ts) — a login id without "@"
+// is tried against every configured company domain in turn.
+export function buildLoginEmailCandidates(loginId: string): string[] {
+  const cleanId = loginId.trim().toLowerCase();
+  return cleanId.includes('@')
+    ? [cleanId]
+    : LOGIN_EMAIL_DOMAINS.map((domain) => `${cleanId}@${domain}`);
+}
+
 export async function doLogin(loginId: string, password: string) {
   if (!isSupabaseConfigured) {
     return {
@@ -36,11 +45,7 @@ export async function doLogin(loginId: string, password: string) {
     };
   }
 
-  const cleanId = loginId.trim().toLowerCase();
-
-  const candidates = cleanId.includes('@')
-    ? [cleanId]
-    : LOGIN_EMAIL_DOMAINS.map((domain) => `${cleanId}@${domain}`);
+  const candidates = buildLoginEmailCandidates(loginId);
 
   let lastError: unknown;
   for (const email of candidates) {
