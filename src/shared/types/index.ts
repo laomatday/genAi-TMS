@@ -132,6 +132,16 @@ export interface LocationConfig {
 }
 export type Location = Omit<LocationConfig, 'location_name' | 'center_name' | 'active'> & { center_name: string; location_name?: string; active: boolean };
 
+/** Label-only branch registry. Covers every branch of the organization, including
+ *  inactive ones and branches outside the viewer's geofence scope, so any center_id
+ *  coming back from the directory or a timesheet can be rendered as a name. */
+export interface LocationLabel {
+  center_id: string;
+  center_name: string;
+  city?: string;
+  active: boolean;
+}
+
 export interface ShiftConfig { name: string; start: string; end: string; break_point?: string; }
 
 export interface HolidayConfig { id?: number; name: string; from_date: string; to_date: string; paid?: boolean; active?: boolean; }
@@ -166,6 +176,7 @@ export interface DashboardData {
   myExplanations: Explanation[];
   teamLeaves: LeaveRequest[];
   locations: LocationConfig[];
+  locationDirectory: LocationLabel[];
   contacts: Employee[];
   holidays: HolidayConfig[];
   shifts: ShiftConfig[];

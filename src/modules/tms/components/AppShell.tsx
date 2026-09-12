@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useStat
 import type { Employee } from '@/shared/types';
 import { doCheckOut } from '@/modules/tms/services/employee';
 import { recordQrAttendance } from '@/modules/tms/services/attendance';
+import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import { triggerHaptic, playAudioChime, toISODateString } from '@/core/utils/helpers';
 import { useDashboardData } from '@/modules/tms/hooks/useDashboardData';
 import { useToast } from '@/shared/contexts/useToast';
@@ -120,6 +121,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     () => Boolean(currentUser?.role && canApproveAny(currentUser.role, data?.approvalRoles)),
     [currentUser, data?.approvalRoles],
   );
+  const locationNames = useMemo(() => buildLocationNameMap(data), [data]);
 
   useEffect(() => {
     const active = isAttendanceProcessing || showQRScanner || showCheckoutConfirm;
@@ -376,7 +378,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
       {activeTab === 'calendar' && <CalendarPage data={data} user={currentUser} onRefresh={refresh} currentDate={managerDate} />}
       {activeTab === 'contacts' && <TabContacts data={data} user={currentUser} resetTrigger={contactsResetTrigger} searchTrigger={contactsSearchTrigger} setIsHeaderVisible={setIsHeaderVisible} registerSwipeHandler={registerSwipeHandler} onNavigate={handleTabChange} />}
       {activeTab === 'manager' && <TabManager data={data} user={currentUser} onRefresh={refresh} onAlert={handleShowAlert} />}
-      {activeTab === 'profile' && <TabProfile user={currentUser} locations={data.locations || []} contacts={data.contacts || []} onLogout={onLogout} onUpdate={(profile) => { updateProfile(profile); void refresh(); }} onClose={() => { setDirection('left'); setActiveTab(lastActiveTab); }} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={() => handleTabChange('manager')} />}
+      {activeTab === 'profile' && <TabProfile user={currentUser} locations={data.locations || []} locationNames={locationNames} contacts={data.contacts || []} onLogout={onLogout} onUpdate={(profile) => { updateProfile(profile); void refresh(); }} onClose={() => { setDirection('left'); setActiveTab(lastActiveTab); }} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={() => handleTabChange('manager')} />}
       {activeTab === 'notifications' && <NotificationsModal data={data} user={currentUser} onSwitchTab={handleTabChange} onRefresh={refresh} />}
     </Suspense></motion.div></AnimatePresence></div></div>
     <Suspense fallback={null}>{showCreateRequestModal && <ModalCreateRequest user={currentUser} isOpen onClose={() => setShowCreateRequestModal(false)} onSuccess={refresh} onAlert={handleShowAlert} onNavigate={handleTabChange} data={data} />} {showExplainWorkModal && <ModalExplainWork isOpen onClose={() => setShowExplainWorkModal(false)} onSuccess={refresh} onAlert={handleShowAlert} initialData={explainWorkInitialData || undefined} explainableItems={explainableItems} onNavigate={handleTabChange} data={data} />}</Suspense>

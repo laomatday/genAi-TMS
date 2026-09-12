@@ -18,6 +18,7 @@ import type {
   HolidayConfig,
   LeaveRequest,
   LocationConfig,
+  LocationLabel,
   ReviewStatus,
   ShiftConfig,
   SystemConfig,
@@ -200,15 +201,48 @@ function mapHoliday(row: DataRow): HolidayConfig {
   };
 }
 
-function mapContact(row: DataRow): Employee {
+interface DirectoryPerson {
+  role: EmployeeRole;
+  direct_manager_id: string | null;
+}
+
+function mapLocationLabel(row: DataRow): LocationLabel {
+  const centerId = textValue(row.center_id);
+  return {
+    center_id: centerId,
+    center_name: textValue(row.center_name, centerId),
+    city: optionalText(row.city),
+    active: row.active !== false,
+  };
+}
+
+function mapDirectoryPeople(rows: unknown): Record<string, DirectoryPerson> {
+  const map: Record<string, DirectoryPerson> = {};
+  if (!Array.isArray(rows)) return map;
+  rows.forEach((entry) => {
+    const row = entry as DataRow;
+    const employeeId = textValue(row.employee_id);
+    if (!employeeId) return;
+    const role = textValue(row.role) as EmployeeRole;
+    map[employeeId] = {
+      role: EMPLOYEE_ROLES.includes(role) ? role : 'Staff',
+      direct_manager_id: optionalText(row.direct_manager_id) || null,
+    };
+  });
+  return map;
+}
+
+function mapContact(row: DataRow, people: Record<string, DirectoryPerson> = {}): Employee {
   const employeeId = textValue(row.employee_id);
+  const person = people[employeeId];
   return {
     id: employeeId,
     employee_id: employeeId,
     name: textValue(row.name),
     email: textValue(row.email),
     phone: optionalText(row.phone),
-    role: 'Staff',
+    role: person?.role || 'Staff',
+    direct_manager_id: person?.direct_manager_id ?? null,
     center_id: textValue(row.center_id),
     position: optionalText(row.position),
     department: optionalText(row.department),
@@ -218,13 +252,16 @@ function mapContact(row: DataRow): Employee {
   };
 }
 
-function shiftNameFor(row: DataRow, shifts: ShiftConfig[]) {
+function shiftNameFor(row: DataRow, shifts: ShiftConfig[], policyName = '') {
   const start = localTime(row.expected_start);
   const end = localTime(row.expected_end);
-  return shifts.find((shift) => shift.start === start && shift.end === end)?.name || 'Ca làm việc';
+  const matched = shifts.find((shift) => shift.start === start && shift.end === end)?.name;
+  // A timesheet driven by the attendance policy has no matching config_shifts row,
+  // so the policy name is the real label; the generic text is the last resort.
+  return matched || optionalText(row.shift_name) || policyName || 'Ca làm việc';
 }
 
-function mapTimesheet(row: DataRow, profile: Employee, shifts: ShiftConfig[]): Attendance {
+function mapTimesheet(row: DataRow, profile: Employee, shifts: ShiftConfig[], policyName = ''): Attendance {
   const exceptionCodes = stringArray(row.exception_codes);
   const status = textValue(row.status);
   const lateMinutes = numberValue(row.late_minutes);
@@ -243,7 +280,7 @@ function mapTimesheet(row: DataRow, profile: Employee, shifts: ShiftConfig[]): A
     name: textValue(row.employee_name, profile.name),
     center_id: textValue(row.location_id, profile.center_id),
     location_name: optionalText(row.location_name) || textValue(row.location_id, profile.center_id),
-    shift_name: shiftNameFor(row, shifts),
+    shift_name: shiftNameFor(row, shifts, policyName),
     shift_start: localTime(row.expected_start),
     shift_end: localTime(row.expected_end),
     time_in: localTime(actualCheckin),
@@ -453,11 +490,21 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
     const profile = profileFrom(profileRow);
     if (!profile.employee_id) throw new Error('Không tìm thấy hồ sơ nhân viên.');
 
+    const directoryContext = bundle.directory_context && typeof bundle.directory_context === 'object'
+      ? bundle.directory_context as DataRow
+      : {};
+    const policy = bootstrap.policy && typeof bootstrap.policy === 'object' ? bootstrap.policy as DataRow : {};
+
     const shifts = (Array.isArray(metadata.shifts) ? metadata.shifts : []).map((row) => mapShift(row as DataRow));
     const locations = (Array.isArray(metadata.locations) ? metadata.locations : []).map((row) => mapLocation(row as DataRow));
+    // Label-only registry covering every branch, including inactive ones and branches
+    // outside the viewer's geofence scope. metadata.locations cannot name those.
+    const locationDirectory = (Array.isArray(directoryContext.locations) ? directoryContext.locations : [])
+      .map((row) => mapLocationLabel(row as DataRow));
     const holidays = (Array.isArray(metadata.holidays) ? metadata.holidays : []).map((row) => mapHoliday(row as DataRow));
-    const contacts = rowsOf(bundle.directory).map(mapContact);
-    const history = rowsOf(bundle.history).map((row) => mapTimesheet(row, profile, shifts));
+    const directoryPeople = mapDirectoryPeople(directoryContext.people);
+    const contacts = rowsOf(bundle.directory).map((row) => mapContact(row, directoryPeople));
+    const history = rowsOf(bundle.history).map((row) => mapTimesheet(row, profile, shifts, textValue(policy.name)));
 
     const myRows = rowsOf(bundle.requests_me);
     const teamRows = rowsOf(bundle.requests_team).filter((row) => textValue(row.employee_id) !== profile.employee_id);
@@ -466,7 +513,6 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
     const teamRequests = teamRows.map(mapLeave).filter((item): item is LeaveRequest => Boolean(item));
     const teamExplanations = teamRows.map(mapExplanation).filter((item): item is Explanation => Boolean(item));
 
-    const policy = bootstrap.policy && typeof bootstrap.policy === 'object' ? bootstrap.policy as DataRow : {};
     const policyWorkDays = Array.isArray(policy.work_days)
       ? policy.work_days.map(Number).filter(Number.isFinite)
       : [1, 2, 3, 4, 5];
@@ -496,6 +542,7 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
         myExplanations,
         teamLeaves: teamRequests.filter((request) => request.status === 'Pending' || request.status === 'Approved'),
         locations,
+        locationDirectory,
         contacts,
         holidays,
         shifts,

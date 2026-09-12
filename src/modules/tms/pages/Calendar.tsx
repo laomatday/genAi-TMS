@@ -5,6 +5,7 @@ import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import ModalOffList from '@/modules/tms/components/ModalOffList';
 import type { LeaveGroup } from '@/modules/tms/components/ModalOffList';
 import type { LeaveRequest } from '@/shared/types';
+import { buildLocationNameMap } from '@/modules/tms/services/locations';
 
 interface Props {
   data: DashboardData | null;
@@ -20,11 +21,7 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
   const teamLeaves = data?.teamLeaves || [];
   const contacts = data?.contacts || [];
 
-  const locationsMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    data?.locations.forEach(l => map[l.center_id] = l.location_name);
-    return map;
-  }, [data?.locations]);
+  const locationsMap = useMemo(() => buildLocationNameMap(data), [data]);
 
   const generateCalendar = () => {
     const year = currentDate.getFullYear();

@@ -7,6 +7,7 @@ import { canApprove, DEFAULT_APPROVAL_ROLES } from '@/shared/constants';
 import ModalListRequest from '@/modules/tms/components/ModalListRequest';
 import type { ApprovalGroup, ApprovalItem, ApprovalTypeConfig } from '@/modules/tms/components/ModalListRequest';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
+import { buildLocationNameMap } from '@/modules/tms/services/locations';
 
 interface Props {
   data: DashboardData | null;
@@ -36,11 +37,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
   const approvals = data?.notifications.approvals || [];
   const explanationApprovals = data?.notifications.explanationApprovals || [];
 
-  const locationsMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    data?.locations.forEach(l => map[l.center_id] = l.location_name);
-    return map;
-  }, [data?.locations]);
+  const locationsMap = useMemo(() => buildLocationNameMap(data), [data]);
 
   const managedLocationsSet = useMemo(() => {
     return new Set(user.managed_locations || []);

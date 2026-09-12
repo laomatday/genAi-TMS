@@ -5,6 +5,7 @@ import { toISODateString, triggerHaptic } from '@/core/utils/helpers';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import { STORAGE_KEYS, TMS_DEFAULT_SYSTEM_CONFIG } from '@/shared/constants';
 import type { RegisterSwipeHandler } from '@/modules/tms/components/BottomNav';
+import { buildLocationNameMap } from '@/modules/tms/services/locations';
 
 interface Props {
     data: DashboardData | null;
@@ -116,13 +117,7 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
         onExplain(dateStr, defaultReason);
     };
 
-    const locationsMap = useMemo(() => {
-        const map: Record<string, string> = {};
-        data?.locations.forEach(loc => {
-            map[loc.center_id] = loc.location_name || loc.center_name || loc.center_id;
-        });
-        return map;
-    }, [data?.locations]);
+    const locationsMap = useMemo(() => buildLocationNameMap(data), [data]);
 
     const processedData = useMemo<ProcessedHistoryData>(() => {
         if (!data) return { stats: { workDays: 0, lateMins: 0, errors: 0 }, list: [], title: '', calendarGrid: [] };
@@ -699,7 +694,7 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                                                                             </div>
                                                                             <div className="min-w-0">
                                                                                 <p className="font-extrabold text-slate-400 dark:text-dark-text-secondary uppercase tracking-widest text-xxs mb-0.5">Trung tâm</p>
-                                                                                <p className="font-bold text-slate-700 dark:text-dark-text-primary truncate">{locationsMap[rec.center_id] || rec.center_id}</p>
+                                                                                <p className="font-bold text-slate-700 dark:text-dark-text-primary truncate">{rec.location_name || locationsMap[rec.center_id] || rec.center_id}</p>
                                                                             </div>
                                                                         </div>
                                                                     )}

@@ -6,6 +6,7 @@ import Avatar from '@/shared/components/common/Avatar';
 import IconButton from '@/shared/components/common/IconButton';
 import ModalContactDetail from '@/modules/tms/components/ModalContactDetail';
 import { STORAGE_KEYS, TMS_LIMITS } from '@/shared/constants';
+import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import { type RegisterSwipeHandler, type TabType } from '@/modules/tms/components/BottomNav';
 
 interface Props {
@@ -70,13 +71,7 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
     const tabsRef = useRef<HTMLDivElement>(null);
     const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
-    const locationsMap = useMemo(() => {
-        const map: Record<string, string> = {};
-        if (data?.locations) {
-            data.locations.forEach(l => map[l.center_id] = l.location_name);
-        }
-        return map;
-    }, [data?.locations]);
+    const locationsMap = useMemo(() => buildLocationNameMap(data), [data]);
 
     const contacts = useMemo(() => {
         const allContacts = ((data?.contacts && data.contacts.length > 0) ? data.contacts : cachedContacts).filter(c => c.role !== 'Kiosk');

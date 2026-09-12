@@ -12,6 +12,7 @@ import { useModalAccessibility } from '@/shared/components/modals/useModalAccess
 interface Props {
     user: Employee;
     locations: LocationConfig[];
+    locationNames: Record<string, string>;
     contacts: Employee[];
     onLogout: () => void;
     onUpdate: (updatedUser: Partial<Employee>) => void;
@@ -49,7 +50,7 @@ const ProfileRow: React.FC<ProfileRowProps> = ({ icon, tone, label, value, isLin
     return <div className="profile-row">{content}</div>;
 };
 
-const TabProfile: React.FC<Props> = ({ user, locations, contacts, onLogout, onUpdate, onClose, onAlert, setShowImageCropper, onOpenManager }) => {
+const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts, onLogout, onUpdate, onClose, onAlert, setShowImageCropper, onOpenManager }) => {
     const [showPwdModal, setShowPwdModal] = useState(false);
     const [loadingPwd, setLoadingPwd] = useState(false);
     const [passData, setPassData] = useState({ old: '', new: '', confirm: '' });
@@ -84,11 +85,8 @@ const TabProfile: React.FC<Props> = ({ user, locations, contacts, onLogout, onUp
 
     const managedLocationNames = useMemo(() => {
         if (!user.managed_locations || !Array.isArray(user.managed_locations) || user.managed_locations.length === 0) return '';
-        return user.managed_locations.map(id => {
-            const loc = locations.find(l => l.center_id === id);
-            return loc ? loc.location_name : id;
-        }).join(', ');
-    }, [user.managed_locations, locations]);
+        return user.managed_locations.map(id => locationNames[id] || id).join(', ');
+    }, [user.managed_locations, locationNames]);
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
