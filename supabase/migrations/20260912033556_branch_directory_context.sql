@@ -128,4 +128,4 @@ $$;
 revoke all on function public.tms_dashboard_bundle_v1(integer) from public, anon;
 grant execute on function public.tms_dashboard_bundle_v1(integer) to authenticated;
 
-notify pgrst, 'reload schema';
+notify pgrst, 'reload schema';;

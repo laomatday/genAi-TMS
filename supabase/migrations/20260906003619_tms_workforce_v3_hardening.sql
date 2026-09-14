@@ -576,3 +576,4 @@ revoke all on function public.submit_attendance_request_v2(uuid,text,text,timest
 revoke all on function public.submit_leave_request(text,date,date,text) from public, anon, authenticated;
 
 notify pgrst, 'reload schema';
+;

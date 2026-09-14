@@ -68,7 +68,9 @@ const requiredFiles = [
   'supabase/migrations/20260905033401_harden_workforce_v3_published_schedule_and_review.sql',
   'supabase/migrations/20260905043052_workforce_experience_notification_delivery.sql',
   'supabase/migrations/20260905043727_workforce_enable_scheduled_maintenance.sql',
-  'supabase/migrations/20260906070000_tms_workforce_v3_hardening.sql',
+  'supabase/migrations/20260906003619_tms_workforce_v3_hardening.sql',
+  'supabase/migrations/20260907015350_retire_workforce_v3_legacy_rpc_compatibility.sql',
+  'supabase/migrations/20260912033556_branch_directory_context.sql',
   'supabase/migrations/20260914102118_tenantize_workforce_configuration.sql',
   'supabase/migrations/20260914114002_allow_checkin_with_stale_sessions.sql',
   'supabase/tests/tenant_configuration_isolation.sql',
@@ -152,7 +154,7 @@ if (!employeeService.includes("p_action: 'request.submit'")) {
   fail('employee requests are not routed through Workforce V3');
 }
 
-const hardeningMigration = await readFile(join(root, 'supabase/migrations/20260906070000_tms_workforce_v3_hardening.sql'), 'utf8');
+const hardeningMigration = await readFile(join(root, 'supabase/migrations/20260906003619_tms_workforce_v3_hardening.sql'), 'utf8');
 for (const requiredClause of [
   't.organization_id = a.organization_id',
   'create or replace function tms_private.request_organization()',
