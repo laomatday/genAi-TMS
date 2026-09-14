@@ -11,6 +11,8 @@ import { LEAVE_REQUEST_TYPES, TMS_LIMITS } from '@/shared/constants';
 interface Props {
     user: Employee;
     isOpen: boolean;
+    /** Preselects the request type when opened from a quick-create shortcut. */
+    initialType?: string;
     onClose: () => void;
     onSuccess: () => void;
     onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
@@ -25,7 +27,7 @@ interface RequestFormErrors {
     reason?: string;
 }
 
-const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, onClose, onSuccess, onAlert, onNavigate, data }) => {
+const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClose, onSuccess, onAlert, onNavigate, data }) => {
     const [formData, setFormData] = useState({
         type: 'Nghỉ phép',
         fromDate: '',
@@ -53,11 +55,14 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, onClose, onSuccess,
 
     useEffect(() => {
         if (isOpen) {
-            setFormData({ type: 'Nghỉ phép', fromDate: '', toDate: '', reason: '' });
+            const preset = initialType && LEAVE_REQUEST_TYPES.includes(initialType as typeof LEAVE_REQUEST_TYPES[number])
+                ? initialType
+                : 'Nghỉ phép';
+            setFormData({ type: preset, fromDate: '', toDate: '', reason: '' });
             setFormErrors({});
             setIsTypeOpen(false);
         }
-    }, [isOpen]);
+    }, [isOpen, initialType]);
 
     const focusFirstError = (errors: RequestFormErrors) => {
         const target = errors.type

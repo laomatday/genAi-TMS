@@ -12,12 +12,49 @@ interface Props {
     data: DashboardData | null;
     user: Employee;
     onRefresh: () => Promise<void>;
+    onCreateRequest?: (type?: string) => void;
     registerSwipeHandler?: RegisterSwipeHandler;
 }
 
 type RequestListItem = (LeaveRequest & { itemType: 'leave' }) | (Explanation & { itemType: 'explanation' });
 
-const TabRequests: React.FC<Props> = ({ data, onRefresh, user, registerSwipeHandler }) => {
+const STATUS_CONFIG: Record<string, { label: string; tone: string; icon: string }> = {
+    Approved: { label: 'Đã duyệt', tone: 'success', icon: 'check_circle' },
+    Rejected: { label: 'Từ chối', tone: 'danger', icon: 'cancel' },
+    Pending: { label: 'Chờ duyệt', tone: 'warning', icon: 'pending' },
+};
+
+/** Quick-create shortcuts for the three request types staff file most often. */
+const QUICK_TYPES: Array<{ type: string; label: string; icon: string }> = [
+    { type: 'Nghỉ phép', label: 'Nghỉ phép', icon: 'beach_access' },
+    { type: 'Làm việc tại nhà', label: 'WFH tại nhà', icon: 'home_work' },
+    { type: 'Công tác', label: 'Đi công tác', icon: 'flight_takeoff' },
+];
+
+function typeConfig(type: string) {
+    if (type.includes('Nghỉ ốm')) return { icon: 'medical_services', tone: 'danger' };
+    if (type.includes('Nghỉ không lương')) return { icon: 'event_busy', tone: 'warning' };
+    if (type.includes('Làm việc tại nhà') || type.includes('WFH')) return { icon: 'home_work', tone: 'success' };
+    if (type.includes('Công tác')) return { icon: 'flight_takeoff', tone: 'info' };
+    if (type.includes('Giải trình')) return { icon: 'assignment_turned_in', tone: 'info' };
+    if (type.includes('Nghỉ phép')) return { icon: 'beach_access', tone: 'primary' };
+    return { icon: 'description', tone: 'muted' };
+}
+
+/** Inclusive day span of a leave request; a same-day request counts as one day. */
+function dayCount(from: string, to: string) {
+    const start = new Date(`${from.slice(0, 10)}T00:00:00`);
+    const end = new Date(`${to.slice(0, 10)}T00:00:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 1;
+    return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
+}
+
+function shortCode(item: RequestListItem) {
+    const raw = ('request_id' in item && item.request_id) ? item.request_id : item.id;
+    return `#${String(raw).slice(-8).toUpperCase()}`;
+}
+
+const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, registerSwipeHandler }) => {
     const [viewMode, setViewMode] = useState<'leaves' | 'explanations'>('leaves');
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'leave' | 'explanation' } | null>(null);
@@ -34,72 +71,297 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, registerSwipeHand
         return undefined;
     }, [registerSwipeHandler, viewMode]);
 
-    const requests = useMemo(() => [...(data?.myRequests || [])].sort((a,b)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime()), [data?.myRequests]);
-    const explanations = useMemo(() => [...(data?.myExplanations || [])].sort((a,b)=>new Date(b.created_at).getTime()-new Date(a.created_at).getTime()), [data?.myExplanations]);
+    const requests = useMemo(() => [...(data?.myRequests || [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [data?.myRequests]);
+    const explanations = useMemo(() => [...(data?.myExplanations || [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [data?.myExplanations]);
 
-    const getStatusConfig = (status: string) => {
-        switch (status) {
-            case 'Approved': return { label:'Đã duyệt', tone:'success', icon:'check_circle' };
-            case 'Rejected': return { label:'Từ chối', tone:'danger', icon:'cancel' };
-            default: return { label:'Chờ duyệt', tone:'warning', icon:'pause_circle' };
+    const approverNames = useMemo(() => {
+        const names: Record<string, string> = {};
+        (data?.contacts || []).forEach(c => { names[c.employee_id] = c.name; });
+        return names;
+    }, [data?.contacts]);
+
+    /** Annual-leave entitlement is not stored as a single number, so the quota bar
+     *  is reconstructed: days already approved this year plus the balance left. */
+    const leaveQuota = useMemo(() => {
+        const year = new Date().getFullYear();
+        const used = requests
+            .filter(r => r.status === 'Approved' && r.type.includes('Nghỉ phép') && new Date(`${r.from_date}T00:00:00`).getFullYear() === year)
+            .reduce((sum, r) => sum + dayCount(r.from_date, r.to_date), 0);
+        const remaining = user.annual_leave_balance ?? 0;
+        const total = used + remaining;
+        return { used, remaining, total, ratio: total > 0 ? (remaining / total) * 100 : 0 };
+    }, [requests, user.annual_leave_balance]);
+
+    const isLeaveView = viewMode === 'leaves';
+    const source = isLeaveView ? requests : explanations;
+    const pendingCount = source.filter(item => item.status === 'Pending').length;
+    const approvedCount = source.filter(item => item.status === 'Approved').length;
+
+    const switchViewMode = (mode: 'leaves' | 'explanations') => { triggerHaptic('light'); setViewMode(mode); setExpandedId(null); };
+    const toggleExpand = (id: string) => { triggerHaptic('light'); setExpandedId(prev => prev === id ? null : id); };
+
+    const handleDelete = async () => {
+        if (!deleteConfirm) return;
+        triggerHaptic('medium');
+        const res = deleteConfirm.type === 'leave' ? await deleteRequest(deleteConfirm.id) : await deleteExplanation(deleteConfirm.id);
+        if (res.success) {
+            showToast({ title: 'Thành công', body: res.message, type: 'success' });
+            onRefresh();
+        } else {
+            showToast({ title: 'Lỗi', body: res.message, type: 'error' });
         }
-    };
-    const getTypeConfig = (type: string) => {
-        if(type.includes('Nghỉ phép')) return {icon:'beach_access',tone:'primary'};
-        if(type.includes('Nghỉ ốm')) return {icon:'medical_services',tone:'danger'};
-        if(type.includes('Nghỉ không lương')) return {icon:'event_busy',tone:'warning'};
-        if(type.includes('Làm việc tại nhà')) return {icon:'home_work',tone:'success'};
-        if(type.includes('Công tác')) return {icon:'flight_takeoff',tone:'info'};
-        if(type.includes('Giải trình')) return {icon:'assignment_turned_in',tone:'info'};
-        return {icon:'description',tone:'muted'};
-    };
-
-    const stats = useMemo(() => viewMode === 'leaves' ? {
-        col1:{label:'Chờ duyệt',value:requests.filter(r=>r.status==='Pending').length,tone:'warning'},
-        col2:{label:'Đã duyệt',value:requests.filter(r=>r.status==='Approved').length,tone:'primary'},
-        col3:{label:'Quỹ phép',value:user.annual_leave_balance||0,tone:'success'}
-    } : {
-        col1:{label:'Chờ duyệt',value:explanations.filter(e=>e.status==='Pending').length,tone:'warning'},
-        col2:{label:'Đã duyệt',value:explanations.filter(e=>e.status==='Approved').length,tone:'primary'},
-        col3:{label:'Từ chối',value:explanations.filter(e=>e.status==='Rejected').length,tone:'danger'}
-    }, [viewMode,requests,explanations,user]);
-
-    const switchViewMode=(mode:'leaves'|'explanations')=>{triggerHaptic('light');setViewMode(mode);setExpandedId(null);};
-    const toggleExpand=(id:string)=>{triggerHaptic('light');setExpandedId(prev=>prev===id?null:id);};
-    const handleDelete=async()=>{
-        if(!deleteConfirm)return; triggerHaptic('medium');
-        const res=deleteConfirm.type==='leave'?await deleteRequest(deleteConfirm.id):await deleteExplanation(deleteConfirm.id);
-        if(res.success){showToast({title:'Thành công',body:res.message,type:'success'});onRefresh();}else showToast({title:'Lỗi',body:res.message,type:'error'});
         setDeleteConfirm(null);
     };
-    const containerVariants={hidden:{opacity:0},show:{opacity:1,transition:{staggerChildren:.1}}};
-    const itemVariants={hidden:{opacity:0,y:20},show:{opacity:1,y:0,transition:{type:'spring' as const,stiffness:300,damping:24}} as const,exit:{opacity:0,scale:.9,transition:{duration:.2}}};
 
-    const renderList = (mode:'leaves'|'explanations') => {
-        const isLeave=mode==='leaves';
-        const source: RequestListItem[] = isLeave
-            ? requests.map((request) => ({ ...request, itemType: 'leave' }))
-            : explanations.map((explanation) => ({ ...explanation, itemType: 'explanation' }));
-        return <div>
-            <h3 className="app-section-title requests-list-title"><span className="material-symbols-rounded" aria-hidden="true">{isLeave?'beach_access':'history_edu'}</span>{isLeave?'Danh sách đơn nghỉ phép':'Danh sách giải trình'}</h3>
-            {source.length===0 ? <motion.div initial={{opacity:0,scale:.9}} animate={{opacity:1,scale:1}} className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-dark-text-secondary opacity-60 bg-white dark:bg-dark-surface rounded-xl border border-dashed border-slate-200 dark:border-dark-border"><div className="w-16 h-16 bg-slate-50 dark:bg-dark-border/50 rounded-full flex items-center justify-center mb-3"><span className="material-symbols-rounded text-3xl text-slate-300 dark:text-dark-text-secondary">{isLeave?'folder_open':'history_edu'}</span></div><p className="text-sm font-bold text-slate-500 dark:text-dark-text-primary">{isLeave?'Chưa có đề xuất nào':'Chưa có giải trình nào'}</p></motion.div> :
-            <motion.div variants={containerVariants} initial="hidden" animate="show" className="app-list-surface divide-y divide-slate-100 dark:divide-dark-border"><AnimatePresence>{source.map((raw)=>{
-                const id=raw.id; const statusInfo=getStatusConfig(raw.status); const typeInfo=raw.itemType==='leave'?getTypeConfig(raw.type):{icon:'history_edu',tone:'info'}; const isExpanded=expandedId===id;
-                return <motion.div variants={itemVariants} key={id} role="button" tabIndex={0} aria-expanded={isExpanded} className="w-full relative hover-surface group cursor-pointer" onClick={()=>toggleExpand(id)} onKeyDown={(event)=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleExpand(id);}}}>
-                    <div className="p-4 flex gap-3.5 relative"><div className={`app-item-icon app-icon-tone-${typeInfo.tone}`}><span className="material-symbols-rounded">{typeInfo.icon}</span></div>
-                    <div className="flex-1 min-w-0 pt-0.5 relative"><div className="flex justify-between items-start mb-1"><h4 className="font-bold text-slate-800 dark:text-dark-text-primary text-sm leading-tight truncate pr-2">{raw.itemType==='leave'?raw.type:'Giải trình công'}</h4><span className={`request-status status-tone-${statusInfo.tone}`}><span className="material-symbols-rounded">{statusInfo.icon}</span>{statusInfo.label}</span></div>
-                    <div className="pr-8"><div className="flex items-center gap-2 text-xxs font-bold text-slate-500 dark:text-dark-text-secondary font-sans mb-0.5">{raw.itemType==='leave'?(raw.from_date===raw.to_date?formatDateString(raw.from_date):`${formatDateString(raw.from_date)} - ${formatDateString(raw.to_date)}`):formatDateString(raw.date)}</div><p className={`text-xxs text-slate-500 dark:text-dark-text-secondary italic ${isExpanded?'':'line-clamp-1'}`}><span className="font-bold not-italic">Lý do:</span> {raw.reason}</p></div>
-                    {raw.status==='Pending'&&<button type="button" aria-label="Xóa yêu cầu" onClick={(e)=>{e.stopPropagation();setDeleteConfirm({id,type:raw.itemType});}} className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-slate-50 dark:bg-dark-border flex items-center justify-center text-slate-400 hover:text-secondary-red hover:bg-secondary-red/10 transition-colors"><span className="material-symbols-rounded text-sm">delete</span></button>}</div></div>
-                    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded?'max-h-40 opacity-100':'max-h-0 opacity-0'}`}>{raw.manager_note&&<div className="mx-4 mb-4 mt-1 pl-3 py-1 border-l-2 border-slate-200 dark:border-dark-border"><p className="text-xxs font-bold text-slate-400 dark:text-dark-text-secondary uppercase tracking-widest mb-0.5">Quản lý phản hồi:</p><p className="text-xs font-medium text-slate-700 dark:text-dark-text-primary leading-relaxed">{raw.manager_note}</p></div>}</div>
-                </motion.div>;
-            })}</AnimatePresence></motion.div>}
-        </div>;
+    const listItems: RequestListItem[] = isLeaveView
+        ? requests.map((request) => ({ ...request, itemType: 'leave' as const }))
+        : explanations.map((explanation) => ({ ...explanation, itemType: 'explanation' as const }));
+
+    const containerVariants = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: .06 } } };
+    const itemVariants = {
+        hidden: { opacity: 0, y: 16 },
+        show: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 300, damping: 26 } } as const,
+        exit: { opacity: 0, scale: .95, transition: { duration: .18 } },
     };
 
-    return <><PullToRefresh onRefresh={onRefresh} className="page-bg font-sans"><div className="employee-page employee-page-standard requests-page animate-fade-in space-y-8">
-        <div className="app-segmented"><button type="button" onClick={()=>switchViewMode('leaves')} className={`app-segmented-option ${viewMode==='leaves'?'app-segmented-option-active':''}`}>Nghỉ phép</button><button type="button" onClick={()=>switchViewMode('explanations')} className={`app-segmented-option ${viewMode==='explanations'?'app-segmented-option-active':''}`}>Giải trình</button></div>
-        <div className="app-kpi-grid requests-kpi-grid">{[stats.col1,stats.col2,stats.col3].map((s)=><div key={s.label} className="app-kpi-card"><strong className={`status-tone-${s.tone} tabular-nums`}>{s.value}</strong><span>{s.label}</span></div>)}</div>
-        {renderList(viewMode)}
-    </div></PullToRefresh><ConfirmDialog isOpen={!!deleteConfirm} title="Xác nhận xoá" message="Bạn có chắc chắn muốn xoá đơn này không? Hành động này không thể hoàn tác." confirmLabel="Xoá đơn" onConfirm={handleDelete} onCancel={()=>setDeleteConfirm(null)} type="danger" /></>;
+    return (
+        <>
+            <PullToRefresh onRefresh={onRefresh} className="page-bg font-sans">
+                <div className="employee-page employee-page-standard requests-page animate-fade-in ui-stack">
+
+                    {/* Type switch ---------------------------------------- */}
+                    <div className="requests-switch">
+                        {([
+                            { mode: 'leaves' as const, icon: 'event_available', label: 'Nghỉ phép', sub: 'Leaves', count: requests.length },
+                            { mode: 'explanations' as const, icon: 'assignment_turned_in', label: 'Giải trình', sub: 'Explanations', count: explanations.length },
+                        ]).map(tab => (
+                            <button
+                                key={tab.mode}
+                                type="button"
+                                aria-pressed={viewMode === tab.mode}
+                                className={`requests-switch-option ${viewMode === tab.mode ? 'requests-switch-option-active' : ''}`.trim()}
+                                onClick={() => switchViewMode(tab.mode)}
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">{tab.icon}</span>
+                                <span className="requests-switch-text">
+                                    <span className="requests-switch-label">{tab.label}</span>
+                                    <span className="requests-switch-sub">{tab.sub}</span>
+                                </span>
+                                <span className="ui-pill ui-pill-muted">{tab.count}</span>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Figures -------------------------------------------- */}
+                    <div className="ui-metrics">
+                        <div className="ui-metric">
+                            <span className="ui-metric-head">
+                                <span>Chờ duyệt</span>
+                                <span className="material-symbols-rounded ui-tone-warning" aria-hidden="true">pending</span>
+                            </span>
+                            <span className={`ui-metric-value ${pendingCount > 0 ? 'ui-tone-warning' : ''}`.trim()}>
+                                {pendingCount}
+                                <span className="ui-metric-unit">đơn</span>
+                            </span>
+                            <span className="ui-metric-foot">{pendingCount > 0 ? 'Đang xử lý' : 'Không còn đơn treo'}</span>
+                        </div>
+
+                        <div className="ui-metric">
+                            <span className="ui-metric-head">
+                                <span>Đã duyệt</span>
+                                <span className="material-symbols-rounded ui-tone-success" aria-hidden="true">task_alt</span>
+                            </span>
+                            <span className="ui-metric-value ui-tone-success">
+                                {approvedCount}
+                                <span className="ui-metric-unit">đơn</span>
+                            </span>
+                            <span className="ui-metric-foot">Đã xử lý</span>
+                        </div>
+
+                        <div className="ui-metric">
+                            <span className="ui-metric-head">
+                                <span>Quỹ phép</span>
+                                <span className="ui-metric-unit">{leaveQuota.remaining}/{leaveQuota.total}d</span>
+                            </span>
+                            <span className="ui-metric-value ui-tone-primary">
+                                {leaveQuota.remaining}
+                                <span className="ui-metric-unit">ngày</span>
+                            </span>
+                            <span className="ui-progress" role="img" aria-label={`Còn ${leaveQuota.remaining} trên ${leaveQuota.total} ngày phép`}>
+                                <span style={{ width: `${Math.min(100, Math.max(0, leaveQuota.ratio))}%` }} />
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Create --------------------------------------------- */}
+                    {onCreateRequest && (
+                        <>
+                            <button type="button" className="ui-cta" onClick={() => { triggerHaptic('light'); onCreateRequest(); }}>
+                                <span className="material-symbols-rounded" aria-hidden="true">add_circle</span>
+                                Tạo đề xuất mới
+                            </button>
+
+                            <div className="ui-chips">
+                                {QUICK_TYPES.map(quick => (
+                                    <button
+                                        key={quick.type}
+                                        type="button"
+                                        className="ui-chip"
+                                        onClick={() => { triggerHaptic('light'); onCreateRequest(quick.type); }}
+                                    >
+                                        <span className="material-symbols-rounded" aria-hidden="true">{quick.icon}</span>
+                                        {quick.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </>
+                    )}
+
+                    {/* History -------------------------------------------- */}
+                    <div>
+                        <div className="ui-label-row">
+                            <span className="ui-label">Lịch sử đề xuất</span>
+                            <span className="ui-label">{listItems.length} bản ghi</span>
+                        </div>
+
+                        {listItems.length === 0 ? (
+                            <div className="ui-empty">
+                                <span className="material-symbols-rounded" aria-hidden="true">{isLeaveView ? 'folder_open' : 'history_edu'}</span>
+                                <span className="ui-empty-title">{isLeaveView ? 'Chưa có đề xuất nào' : 'Chưa có giải trình nào'}</span>
+                                <span className="ui-empty-text">Các đơn bạn gửi sẽ hiển thị tại đây kèm trạng thái duyệt.</span>
+                            </div>
+                        ) : (
+                            <motion.div variants={containerVariants} initial="hidden" animate="show" className="ui-stack">
+                                <AnimatePresence>
+                                    {listItems.map((item) => {
+                                        const status = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.Pending;
+                                        const type = item.itemType === 'leave' ? typeConfig(item.type) : { icon: 'assignment_turned_in', tone: 'info' };
+                                        const isExpanded = expandedId === item.id;
+                                        const title = item.itemType === 'leave' ? item.type : 'Giải trình chấm công';
+                                        const period = item.itemType === 'leave'
+                                            ? (item.from_date === item.to_date
+                                                ? formatDateString(item.from_date)
+                                                : `${formatDateString(item.from_date)} → ${formatDateString(item.to_date)}`)
+                                            : formatDateString(item.date);
+                                        const days = item.itemType === 'leave' ? dayCount(item.from_date, item.to_date) : 1;
+                                        const approver = item.approver_id ? approverNames[item.approver_id] || item.approver_id : null;
+
+                                        return (
+                                            <motion.section
+                                                key={item.id}
+                                                variants={itemVariants}
+                                                className={`ui-card request-card ${item.status === 'Rejected' ? 'ui-card-attention' : ''}`.trim()}
+                                            >
+                                                <div
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    aria-expanded={isExpanded}
+                                                    className="request-card-main"
+                                                    onClick={() => toggleExpand(item.id)}
+                                                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleExpand(item.id); } }}
+                                                >
+                                                    <div className="request-card-head">
+                                                        <span className={`ui-tile ui-tile-soft ui-tone-${type.tone}`} aria-hidden="true">
+                                                            <span className="material-symbols-rounded">{type.icon}</span>
+                                                        </span>
+                                                        <span className="request-card-title">
+                                                            <span className="request-card-name">{title}</span>
+                                                            <span className="request-card-code">{shortCode(item)}</span>
+                                                        </span>
+                                                        <span className={`ui-pill ui-pill-${status?.tone ?? 'warning'}`}>
+                                                            <span className="ui-pill-dot" aria-hidden="true" />
+                                                            {status?.label ?? 'Chờ duyệt'}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="request-card-period">
+                                                        <span className="request-card-dates">{period}</span>
+                                                        <span className="ui-pill ui-pill-muted">{days} ngày</span>
+                                                    </div>
+
+                                                    <p className={`request-card-reason ${isExpanded ? '' : 'request-card-reason-clamped'}`.trim()}>
+                                                        <strong>{item.itemType === 'leave' ? 'Lý do:' : 'Nội dung:'}</strong> {item.reason}
+                                                    </p>
+                                                </div>
+
+                                                {(approver || item.status === 'Pending') && (
+                                                    <div className="request-card-footer">
+                                                        <span className="request-card-approver">
+                                                            <span className="material-symbols-rounded" aria-hidden="true">how_to_reg</span>
+                                                            <span>{approver ? `Duyệt bởi ${approver}` : 'Chưa có người duyệt'}</span>
+                                                        </span>
+                                                        {item.status === 'Pending' && (
+                                                            <button
+                                                                type="button"
+                                                                className="request-card-withdraw"
+                                                                onClick={() => setDeleteConfirm({ id: item.id, type: item.itemType })}
+                                                            >
+                                                                <span className="material-symbols-rounded" aria-hidden="true">undo</span>
+                                                                Thu hồi đơn
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {item.manager_note && item.status === 'Approved' && (
+                                                    <div className="request-card-note">
+                                                        <div className="ui-quote">
+                                                            <span className="ui-tile ui-tile-sm ui-tone-success" aria-hidden="true">
+                                                                <span className="material-symbols-rounded">forum</span>
+                                                            </span>
+                                                            <span className="ui-quote-body">
+                                                                <span className="ui-quote-head">
+                                                                    {approver || 'Quản lý'}
+                                                                    <span className="ui-quote-time">{formatDateString(item.updated_at || item.created_at)}</span>
+                                                                </span>
+                                                                <p className="ui-quote-text">“{item.manager_note}”</p>
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {item.status === 'Rejected' && (
+                                                    <div className="request-card-note">
+                                                        <p className="ui-note ui-note-danger">
+                                                            <span className="material-symbols-rounded" aria-hidden="true">error</span>
+                                                            <span>
+                                                                <strong>Lý do từ chối: </strong>
+                                                                {item.manager_note || 'Quản lý chưa ghi lý do cụ thể.'}
+                                                            </span>
+                                                        </p>
+                                                        {onCreateRequest && item.itemType === 'leave' && (
+                                                            <button
+                                                                type="button"
+                                                                className="request-card-resubmit"
+                                                                onClick={() => { triggerHaptic('light'); onCreateRequest(item.type); }}
+                                                            >
+                                                                <span className="material-symbols-rounded" aria-hidden="true">send</span>
+                                                                Bổ sung &amp; gửi lại
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </motion.section>
+                                        );
+                                    })}
+                                </AnimatePresence>
+                            </motion.div>
+                        )}
+                    </div>
+                </div>
+            </PullToRefresh>
+
+            <ConfirmDialog
+                isOpen={!!deleteConfirm}
+                title="Thu hồi đơn?"
+                message="Đơn sẽ bị xoá khỏi hàng đợi duyệt. Hành động này không thể hoàn tác."
+                confirmLabel="Thu hồi"
+                onConfirm={handleDelete}
+                onCancel={() => setDeleteConfirm(null)}
+                type="danger"
+            />
+        </>
+    );
 };
+
 export default TabRequests;

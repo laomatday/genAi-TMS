@@ -18,8 +18,22 @@ interface Props {
     onOpenWorkspace?: () => void;
 }
 
+/** Each tab carries its own title and a short tag so the header always says
+ *  where you are — the mobile screens have no other place for a page name. */
+const TAB_IDENTITY: Partial<Record<TabType, { title: string; tag?: string }>> = {
+    home: { title: 'Trang chủ' },
+    history: { title: 'Chấm công', tag: 'Nhật ký' },
+    requests: { title: 'Đề xuất', tag: 'Đơn từ' },
+    calendar: { title: 'Lịch làm việc', tag: 'Team' },
+    contacts: { title: 'Danh bạ', tag: 'Nội bộ' },
+    manager: { title: 'Quản lý', tag: 'Lead' },
+    notifications: { title: 'Thông báo' },
+};
+
 const Header: React.FC<Props> = ({ user, activeTab, notificationCount, onOpenProfile, onOpenNotifications, onCreateRequest, onContactSearch, canManage, onOpenManager, onOpenWorkspace }) => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const identity = TAB_IDENTITY[activeTab] ?? { title: 'genAi TMS' };
+    const subtitle = [user.name, user.position].filter(Boolean).join(' • ');
 
     useEffect(() => {
         setIsSettingsOpen(false);
@@ -29,19 +43,33 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, onOpenPro
         <>
             <header className="app-header">
                 <div className="app-header-inner">
-                    <button
-                        type="button"
-                        className="app-header-profile"
-                        aria-label={`Mở hồ sơ của ${user.name}`}
-                        title="Hồ sơ"
-                        onClick={onOpenProfile}
-                    >
-                        <Avatar
-                            src={user.avatar_url || user.face_ref_url}
-                            name={user.name}
-                            className="app-header-avatar"
-                        />
-                    </button>
+                    <div className="app-header-identity">
+                        <button
+                            type="button"
+                            className="app-header-profile"
+                            aria-label={`Mở hồ sơ của ${user.name}`}
+                            title="Hồ sơ"
+                            onClick={onOpenProfile}
+                        >
+                            <Avatar
+                                src={user.avatar_url || user.face_ref_url}
+                                name={user.name}
+                                className="app-header-avatar"
+                            />
+                            <span
+                                className={`app-header-presence ${user.status === 'Active' ? '' : 'app-header-presence-off'}`.trim()}
+                                aria-hidden="true"
+                            />
+                        </button>
+
+                        <div className="app-header-titles">
+                            <div className="app-header-title-row">
+                                <h1 className="app-header-title">{identity.title}</h1>
+                                {identity.tag ? <span className="app-header-tag">{identity.tag}</span> : null}
+                            </div>
+                            <p className="app-header-subtitle">{subtitle}</p>
+                        </div>
+                    </div>
 
                     <div className="app-header-actions">
                         {activeTab === 'contacts' && onContactSearch && (

@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { DashboardData, Employee } from '@/shared/types';
 import { getShortName, triggerHaptic } from '@/core/utils/helpers';
 import Avatar from '@/shared/components/common/Avatar';
-import IconButton from '@/shared/components/common/IconButton';
 import ModalContactDetail from '@/modules/tms/components/ModalContactDetail';
 import { STORAGE_KEYS, TMS_LIMITS } from '@/shared/constants';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
@@ -38,10 +37,21 @@ const HighlightText: React.FC<{ text: string; highlight: string }> = ({ text, hi
     );
 };
 
+/** Group cards cycle through the brand tones so consecutive departments stay
+ *  distinguishable without inventing colours outside the palette. */
+const GROUP_TONES = ['ui-tone-primary', 'ui-tone-success', 'ui-tone-info', 'ui-tone-warning', 'ui-tone-muted'] as const;
+
+const groupIcon = (groupId: string) => {
+    if (groupId.startsWith('grp_director')) return 'shield_person';
+    if (groupId.startsWith('grp_manager')) return 'hub';
+    if (groupId.startsWith('grp_leader')) return 'star';
+    if (groupId.startsWith('grp_team')) return 'groups';
+    return 'badge';
+};
+
 const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrigger = 0, setIsHeaderVisible, registerSwipeHandler, onNavigate }) => {
     const [term, setTerm] = useState('');
     const [debouncedTerm, setDebouncedTerm] = useState('');
-    const [isSearching, setIsSearching] = useState(false);
     const [selectedContact, setSelectedContact] = useState<Employee | null>(null);
     const [activeCenter, setActiveCenter] = useState<string>('Tất cả');
     const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
@@ -141,7 +151,7 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
     useEffect(() => {
         if (registerSwipeHandler) {
             return registerSwipeHandler((direction) => {
-                if (isSearching || selectedContact) return false; // Disable swipe when searching or viewing details
+                if (term || selectedContact) return false; // Branch swiping would fight the search results
 
                 const currentIndex = centers.indexOf(activeCenter);
 
@@ -167,7 +177,7 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
             });
         }
         return undefined;
-    }, [registerSwipeHandler, activeCenter, centers, isSearching, selectedContact]);
+    }, [registerSwipeHandler, activeCenter, centers, term, selectedContact]);
 
     useEffect(() => {
         if (searchTrigger > 0) {
@@ -184,10 +194,8 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
                     setSelectedContact(null);
                 }
             }
-            if (isSearching) {
-                setIsSearching(false);
-                setTerm('');
-            }
+            setTerm('');
+            setDebouncedTerm('');
             if (setIsHeaderVisible) setIsHeaderVisible(true);
         }
     }, [resetTrigger]);
@@ -221,14 +229,10 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
                 setSelectedContact(null);
                 if (setIsHeaderVisible) setIsHeaderVisible(true);
             }
-            if (isSearching && !selectedContact) {
-                setIsSearching(false);
-                setTerm('');
-            }
         };
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
-    }, [selectedContact, isSearching, setIsHeaderVisible]);
+    }, [selectedContact, setIsHeaderVisible]);
 
     useEffect(() => {
         if (data?.contacts && data.contacts.length > 0) {
@@ -264,16 +268,6 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
         });
         return { empNameMap: nameMap, empRoleMap: roleMap, empDeptMap: deptMap };
     }, [data?.contacts]);
-
-    useEffect(() => {
-        if (isSearching && inputRef.current && !selectedContact) {
-            const timer = setTimeout(() => {
-                inputRef.current?.focus();
-            }, TMS_LIMITS.INPUT_FOCUS_DELAY_MS);
-            return () => clearTimeout(timer);
-        }
-        return undefined;
-    }, [isSearching, selectedContact]);
 
     const filtered = useMemo(() => {
         if (!debouncedTerm) return [];
@@ -406,211 +400,240 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
         }
     }, [contactGroups]);
 
+    // The search field is always on screen now, so the header's search action just
+    // moves focus into it instead of swapping the page into a separate search mode.
     const handleStartSearch = () => {
         triggerHaptic('light');
-        setIsSearching(true);
-        window.history.pushState({ search: true }, '');
+        inputRef.current?.focus();
     };
 
     const handleCancelSearch = () => {
         triggerHaptic('light');
-        if (window.history.state && window.history.state.search) {
-            window.history.back();
-        } else {
-            setIsSearching(false);
-            setTerm('');
-        }
+        setTerm('');
+        setDebouncedTerm('');
+        inputRef.current?.blur();
+    };
+
+    const directory = useMemo(() => {
+        const total = contactsInActiveCenter.length;
+        const active = contactsInActiveCenter.filter(c => c.status === 'Active').length;
+        return { total, active, groups: contactGroups.length };
+    }, [contactsInActiveCenter, contactGroups]);
+
+    const centerCounts = useMemo(() => {
+        const counts: Record<string, number> = { 'Tất cả': contacts.length };
+        contacts.forEach(c => {
+            const centerName = locationsMap[c.center_id] || c.center_id || 'Khác';
+            counts[centerName] = (counts[centerName] || 0) + 1;
+        });
+        return counts;
+    }, [contacts, locationsMap]);
+
+    const renderPerson = (c: Employee, highlight?: string) => {
+        const centerName = locationsMap[c.center_id] || c.center_id;
+        const phone = c.phone ? String(c.phone) : '';
+        const presence = c.status === 'Active' ? 'ui-person-dot-active' : '';
+        return (
+            <div key={c.employee_id} className="ui-person">
+                <button
+                    type="button"
+                    className="ui-person-figure"
+                    aria-label={`Xem hồ sơ ${c.name}`}
+                    onClick={() => handleOpenContact(c)}
+                >
+                    <Avatar src={c.face_ref_url} name={c.name} className="w-11 h-11 rounded-2xl" textSize="text-xs" />
+                    <span className={`ui-person-dot ${presence}`.trim()} aria-hidden="true" />
+                </button>
+
+                <div className="ui-person-body" role="button" tabIndex={0}
+                    onClick={() => handleOpenContact(c)}
+                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleOpenContact(c); } }}
+                >
+                    <span className="ui-person-name">
+                        {highlight ? <HighlightText text={c.name} highlight={highlight} /> : c.name}
+                    </span>
+                    {c.position ? (
+                        <span className="ui-person-tags">
+                            <span className="ui-pill ui-pill-muted">
+                                {highlight ? <HighlightText text={c.position} highlight={highlight} /> : c.position}
+                            </span>
+                        </span>
+                    ) : null}
+                    <span className="ui-person-meta">
+                        {c.department ? <span className="ui-person-meta-strong">{c.department}</span> : null}
+                        {c.department && centerName ? <span aria-hidden="true">•</span> : null}
+                        {centerName ? <span>{centerName}</span> : null}
+                    </span>
+                </div>
+
+                <div className="ui-person-actions">
+                    <a
+                        className={`ui-person-action ${phone ? '' : 'ui-person-action-disabled'}`.trim()}
+                        href={phone ? `tel:${phone}` : undefined}
+                        aria-label={phone ? `Gọi ${c.name}` : 'Chưa có số điện thoại'}
+                        aria-disabled={phone ? undefined : true}
+                        onClick={(event) => { if (!phone) event.preventDefault(); }}
+                    >
+                        <span className="material-symbols-rounded" aria-hidden="true">call</span>
+                    </a>
+                    <a
+                        className={`ui-person-action ${c.email ? '' : 'ui-person-action-disabled'}`.trim()}
+                        href={c.email ? `mailto:${c.email}` : undefined}
+                        aria-label={c.email ? `Gửi email cho ${c.name}` : 'Chưa có email'}
+                        aria-disabled={c.email ? undefined : true}
+                        onClick={(event) => { if (!c.email) event.preventDefault(); }}
+                    >
+                        <span className="material-symbols-rounded" aria-hidden="true">mail</span>
+                    </a>
+                    <button
+                        type="button"
+                        className="ui-person-action ui-person-action-accent"
+                        aria-label={`Xem hồ sơ ${c.name}`}
+                        onClick={() => handleOpenContact(c)}
+                    >
+                        <span className="material-symbols-rounded" aria-hidden="true">badge</span>
+                    </button>
+                </div>
+            </div>
+        );
     };
 
     return (
         <div className="contacts-page absolute inset-0 flex flex-col page-bg font-sans transition-colors duration-300">
-            <div className="contacts-toolbar pt-20 px-4 shrink-0 z-20 flex flex-col">
-                {isSearching ? (
-                    <div className="px-4 mb-2 animate-fade-in">
-                        <div className="flex items-center gap-3">
-                            <div className="relative group flex-1">
-                                <span className="material-symbols-rounded absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-dark-text-secondary text-xl">search</span>
-                                <input
-                                    ref={inputRef}
-                                    autoFocus={true}
-                                    type="text"
-                                    inputMode="search"
-                                    enterKeyHint="search"
-                                    className="input-field h-14 pl-12 pr-10"
-                                    placeholder="Tìm kiếm..."
-                                    value={term}
-                                    onChange={e => setTerm(e.target.value)}
-                                />
-                                {term && (
-                                    <IconButton
-                                        icon="close"
-                                        label="Xóa nội dung tìm kiếm"
-                                        size="sm"
-                                        onClick={() => setTerm('')}
-                                        className="absolute right-3 top-1/2 -translate-y-1/2"
-                                    />
-                                )}
-                            </div>
+            <div className="contacts-toolbar">
+                <div className="ui-search">
+                    <span className="material-symbols-rounded" aria-hidden="true">search</span>
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        inputMode="search"
+                        enterKeyHint="search"
+                        aria-label="Tìm kiếm danh bạ"
+                        placeholder="Tìm tên, vị trí, email hoặc ban…"
+                        value={term}
+                        onChange={e => setTerm(e.target.value)}
+                    />
+                    {term ? (
+                        <button type="button" className="ui-search-clear" aria-label="Xóa nội dung tìm kiếm" onClick={handleCancelSearch}>
+                            <span className="material-symbols-rounded" aria-hidden="true">close</span>
+                        </button>
+                    ) : null}
+                </div>
+
+                {!term && (
+                    <div className="ui-chips contacts-chips" ref={tabsRef}>
+                        {centers.map(center => (
                             <button
-                                onClick={handleCancelSearch}
-                                className="text-sm font-bold text-slate-500 dark:text-dark-text-secondary active:text-slate-800 dark:active:text-dark-text-primary px-2 py-2"
+                                key={center}
+                                type="button"
+                                aria-pressed={activeCenter === center}
+                                ref={(el) => {
+                                    if (el) tabRefs.current.set(center, el);
+                                    else tabRefs.current.delete(center);
+                                }}
+                                onClick={() => { triggerHaptic('light'); setActiveCenter(center); }}
+                                className={`ui-chip ${activeCenter === center ? 'ui-chip-active' : ''}`.trim()}
                             >
-                                Hủy
+                                {center !== 'Tất cả' ? <span className="ui-chip-dot" aria-hidden="true" /> : null}
+                                <span>{center}</span>
+                                <span className="ui-chip-count">{centerCounts[center] ?? 0}</span>
                             </button>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="w-full">
-                        <div
-                            ref={tabsRef}
-                            className="bg-slate-200/50 dark:bg-dark-surface p-1.5 rounded-xl flex overflow-x-auto gap-1 hide-scroll border border-transparent dark:border-dark-border"
-                        >
-                            {centers.map(center => (
-                                <button
-                                    key={center}
-                                    ref={(el) => {
-                                        if (el) tabRefs.current.set(center, el);
-                                        else tabRefs.current.delete(center);
-                                    }}
-                                    onClick={() => { triggerHaptic('light'); setActiveCenter(center); }}
-                                    className={`whitespace-nowrap px-5 py-2.5 rounded-xl text-xxs font-black uppercase tracking-widest transition-all duration-300 shrink-0 ${activeCenter === center
-                                        ? 'text-primary dark:text-primary bg-white dark:bg-dark-border shadow-sm'
-                                        : 'text-slate-500 dark:text-dark-text-secondary hover:text-slate-700 dark:hover:text-dark-text-primary'
-                                        }`}
-                                >
-                                    {center}
-                                </button>
-                            ))}
-                            <div className="w-4 shrink-0"></div>
-                        </div>
+                        ))}
                     </div>
                 )}
             </div>
 
-            <div className="contacts-results flex-1 overflow-y-auto hide-scroll px-4 pb-32 pt-8">
-                {isSearching && term ? (
-                    <div className="animate-fade-in">
-                        <div className="bg-white dark:bg-dark-surface rounded-xl overflow-hidden border border-slate-100 dark:border-dark-border divide-y divide-slate-50 dark:divide-dark-border">
-                            {term !== debouncedTerm ? (
-                                <div className="flex flex-col items-center justify-center py-10 text-slate-400 dark:text-dark-text-secondary opacity-60">
-                                    <span className="material-symbols-rounded animate-spin text-3xl mb-3">progress_activity</span>
-                                    <p className="text-sm font-semibold">Đang tìm kiếm...</p>
-                                </div>
-                            ) : filtered.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-10 text-slate-400 dark:text-dark-text-secondary opacity-60">
-                                    <span className="material-symbols-rounded text-5xl mb-3">search_off</span>
-                                    <p className="text-sm font-semibold">Không tìm thấy kết quả</p>
-                                </div>
-                            ) : (
-                                filtered.map(c => (
-                                    <div key={c.employee_id}
-                                        onClick={() => handleOpenContact(c)}
-                                        className="flex items-center gap-4 p-4 active:bg-slate-50 dark:active:bg-dark-border/50 transition-colors cursor-pointer group"
-                                    >
-                                        <Avatar
-                                            src={c.face_ref_url}
-                                            name={c.name}
-                                            className="w-10 h-10 rounded-xl"
-                                            textSize="text-xs"
-                                        />
-                                        <div className="flex-1 min-w-0">
-                                            <h4 className="text-sm font-bold text-slate-800 dark:text-dark-text-primary truncate">
-                                                <HighlightText text={c.name} highlight={debouncedTerm} />
-                                            </h4>
-                                            <div className="flex flex-wrap gap-1 mt-1">
-                                                {c.department && (
-                                                    <span className="px-2 py-0.5 rounded-md bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary text-xxs font-extrabold border border-primary/20 dark:border-primary/30 uppercase tracking-wide truncate max-w-24">
-                                                        <HighlightText text={c.department} highlight={debouncedTerm} />
-                                                    </span>
-                                                )}
-                                                {c.position && (
-                                                    <span className="px-2 py-0.5 rounded-md bg-secondary-purple/10 dark:bg-secondary-purple/20 text-secondary-purple dark:text-secondary-purple text-xxs font-extrabold border border-secondary-purple/20 dark:border-secondary-purple/30 uppercase tracking-wide truncate max-w-24">
-                                                        <HighlightText text={c.position} highlight={debouncedTerm} />
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
+            <div className="contacts-results hide-scroll">
+                {term ? (
+                    <div className="ui-stack animate-fade-in">
+                        <div className="ui-label-row">
+                            <span className="ui-label">Kết quả tìm kiếm</span>
+                            <span className="ui-label">{term === debouncedTerm ? `${filtered.length} người` : '…'}</span>
                         </div>
+                        {term !== debouncedTerm ? (
+                            <div className="ui-empty">
+                                <span className="material-symbols-rounded animate-spin" aria-hidden="true">progress_activity</span>
+                                <span className="ui-empty-title">Đang tìm kiếm…</span>
+                            </div>
+                        ) : filtered.length === 0 ? (
+                            <div className="ui-empty">
+                                <span className="material-symbols-rounded" aria-hidden="true">search_off</span>
+                                <span className="ui-empty-title">Không tìm thấy kết quả</span>
+                                <span className="ui-empty-text">Thử tìm theo tên, phòng ban hoặc email công vụ.</span>
+                            </div>
+                        ) : (
+                            <div className="ui-card ui-card-flush">
+                                {filtered.map(c => renderPerson(c, debouncedTerm))}
+                            </div>
+                        )}
                     </div>
                 ) : (
-                    <div className="pb-4">
-                        <div className="bg-white dark:bg-dark-surface rounded-xl border border-slate-100 dark:border-dark-border shadow-sm overflow-hidden divide-y divide-slate-100 dark:divide-dark-border animate-slide-up">
-                            {contactGroups.map((group) => {
-                                const isExpanded = expandedGroupId === group.id;
-                                return (
-                                    <div key={group.id} className="transition-all duration-300">
-                                        <div
-                                            onClick={() => toggleGroup(group.id)}
-                                            className="px-4 py-3 flex items-center justify-between cursor-pointer select-none group/header active:bg-slate-50 dark:active:bg-dark-border/50 transition-colors"
-                                        >
-                                            <div className="flex items-center gap-2 text-primary dark:text-primary">
-                                                <span className="text-xs font-black uppercase tracking-widest">{group.title}</span>
-                                            </div>
-                                            <div className="flex items-center justify-center">
-                                                <span className="bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary px-2 py-0.5 rounded-md text-xs font-bold tabular-nums">{group.contacts.length}</span>
-                                            </div>
-                                        </div>
-
-                                        <AnimatePresence initial={false}>
-                                            {isExpanded && (
-                                                <motion.div
-                                                    initial={{ height: 0, opacity: 0 }}
-                                                    animate={{ height: 'auto', opacity: 1 }}
-                                                    exit={{ height: 0, opacity: 0 }}
-                                                    transition={{ duration: 0.2 }}
-                                                    className="overflow-hidden"
-                                                >
-                                                    <div className="divide-y divide-slate-50 dark:divide-dark-border border-t border-slate-100 dark:border-dark-border bg-white dark:bg-dark-surface">
-                                                        {group.contacts.map(c => (
-                                                            <div key={c.employee_id}
-                                                                onClick={() => handleOpenContact(c)}
-                                                                className="flex items-center gap-4 p-4 active:bg-slate-50 dark:active:bg-dark-border/50 transition-colors cursor-pointer group"
-                                                            >
-                                                                <Avatar
-                                                                    src={c.face_ref_url}
-                                                                    name={c.name}
-                                                                    className="w-10 h-10 rounded-xl"
-                                                                    textSize="text-xs"
-                                                                />
-                                                                <div className="flex-1 min-w-0">
-                                                                    <div className="flex justify-between items-center gap-4">
-                                                                        <h4 className="text-base font-bold text-slate-800 dark:text-dark-text-primary leading-tight group-hover:text-primary dark:group-hover:text-primary transition-colors truncate">
-                                                                            {c.name}
-                                                                        </h4>
-
-                                                                        <div className="flex gap-1">
-                                                                            {c.department && (
-                                                                                <span className="px-2 py-0.5 rounded-md bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary text-xxs font-extrabold border border-primary/20 dark:border-primary/30 uppercase tracking-wide truncate max-w-28 shrink-0">
-                                                                                    {c.department}
-                                                                                </span>
-                                                                            )}
-                                                                            {c.position && (
-                                                                                <span className="px-2 py-0.5 rounded-md bg-secondary-purple/10 dark:bg-secondary-purple/20 text-secondary-purple dark:text-secondary-purple text-xxs font-extrabold border border-secondary-purple/20 dark:border-secondary-purple/30 uppercase tracking-wide truncate max-w-28 shrink-0">
-                                                                                    {c.position}
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-
-                                                                    <div className="flex mt-1.5">
-                                                                        <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-dark-border/50 text-slate-500 dark:text-dark-text-secondary text-xxs font-extrabold border border-slate-200 dark:border-dark-border uppercase tracking-wide truncate max-w-28">
-                                                                            {locationsMap[c.center_id] || c.center_id}
-                                                                        </span>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </motion.div>
-                                            )}
-                                        </AnimatePresence>
-                                    </div>
-                                );
-                            })}
+                    <div className="ui-stack animate-slide-up">
+                        <div className="ui-card">
+                            <div className="ui-stat-strip">
+                                <div className="ui-stat">
+                                    <span className="ui-stat-value">{directory.total}</span>
+                                    <span className="ui-stat-label">Tổng nhân sự</span>
+                                </div>
+                                <div className="ui-stat">
+                                    <span className="ui-stat-value ui-tone-success">
+                                        <span className="ui-stat-dot" aria-hidden="true" />
+                                        {directory.active}
+                                    </span>
+                                    <span className="ui-stat-label">Đang hoạt động</span>
+                                </div>
+                                <div className="ui-stat">
+                                    <span className="ui-stat-value">{directory.groups}</span>
+                                    <span className="ui-stat-label">Phòng ban</span>
+                                </div>
+                            </div>
                         </div>
+
+                        {contactGroups.length === 0 ? (
+                            <div className="ui-empty">
+                                <span className="material-symbols-rounded" aria-hidden="true">group_off</span>
+                                <span className="ui-empty-title">Chưa có nhân sự</span>
+                                <span className="ui-empty-text">Không có ai trong phạm vi chi nhánh đang chọn.</span>
+                            </div>
+                        ) : contactGroups.map((group, index) => {
+                            const isExpanded = expandedGroupId === group.id;
+                            const tone = GROUP_TONES[index % GROUP_TONES.length] ?? 'ui-tone-primary';
+                            return (
+                                <div key={group.id} className="ui-card">
+                                    <button
+                                        type="button"
+                                        className="ui-card-head"
+                                        aria-expanded={isExpanded}
+                                        onClick={() => toggleGroup(group.id)}
+                                    >
+                                        <span className={`ui-tile ${tone}`} aria-hidden="true">
+                                            <span className="material-symbols-rounded">{groupIcon(group.id)}</span>
+                                        </span>
+                                        <span className="ui-card-head-text">
+                                            <span className="ui-card-head-title">{group.title}</span>
+                                        </span>
+                                        <span className="ui-pill ui-pill-primary">{group.contacts.length}</span>
+                                        <span className={`ui-card-head-chevron material-symbols-rounded ${isExpanded ? 'ui-card-head-chevron-open' : ''}`.trim()} aria-hidden="true">expand_more</span>
+                                    </button>
+
+                                    <AnimatePresence initial={false}>
+                                        {isExpanded && (
+                                            <motion.div
+                                                initial={{ height: 0, opacity: 0 }}
+                                                animate={{ height: 'auto', opacity: 1 }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                transition={{ duration: 0.2 }}
+                                                className="overflow-hidden"
+                                            >
+                                                <div className="ui-card-section">
+                                                    {group.contacts.map(c => renderPerson(c))}
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>

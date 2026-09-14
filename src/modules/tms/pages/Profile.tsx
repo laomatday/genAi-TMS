@@ -3,6 +3,7 @@ import { Employee, LocationConfig } from '@/shared/types';
 import { formatDateString, triggerHaptic } from '@/core/utils/helpers';
 import { updateProfileAvatar, changePassword } from '@/modules/tms/services/employee';
 import { APP_INFO, MANAGEMENT_ROLES, TMS_LIMITS, TMS_STORAGE } from '@/shared/constants';
+import { useToast } from '@/shared/contexts/useToast';
 import Avatar from '@/shared/components/common/Avatar';
 import ImageCropper from '@/shared/components/common/ImageCropper';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
@@ -14,6 +15,9 @@ interface Props {
     locations: LocationConfig[];
     locationNames: Record<string, string>;
     contacts: Employee[];
+    /** On-time ratio over the loaded timesheet window. Null when nothing is
+     *  recorded yet — the tile then says so instead of showing a made-up 0%. */
+    punctuality?: { rate: number; sample: number } | null;
     onLogout: () => void;
     onUpdate: (updatedUser: Partial<Employee>) => void;
     onClose: () => void;
@@ -29,34 +33,57 @@ interface ProfileRowProps {
     tone: ProfileTone;
     label: string;
     value?: React.ReactNode;
-    isLink?: boolean;
+    trailing?: React.ReactNode;
     onClick?: () => void;
+    /** Action rows put the action first and the explanation underneath, the
+     *  opposite of a data row where the caption introduces a value. */
+    isAction?: boolean;
     isDestructive?: boolean;
 }
 
-const ProfileRow: React.FC<ProfileRowProps> = ({ icon, tone, label, value, isLink = false, onClick, isDestructive = false }) => {
-    const content = <>
-        <span className={`app-item-icon app-icon-tone-${tone}`}>
-            <span className="material-symbols-rounded" aria-hidden="true">{icon}</span>
-        </span>
-        <span className="profile-row-content">
-            {value ? <small>{label}</small> : null}
-            <strong className={isDestructive ? 'status-tone-danger' : undefined}>{value || label}</strong>
-        </span>
-        {isLink ? <span className="profile-row-chevron material-symbols-rounded" aria-hidden="true">chevron_right</span> : null}
-    </>;
+const ProfileRow: React.FC<ProfileRowProps> = ({ icon, tone, label, value, trailing, onClick, isAction = false, isDestructive = false }) => {
+    const content = (
+        <>
+            <span className={`ui-row-icon ui-tone-${isDestructive ? 'danger' : tone}`} aria-hidden="true">
+                <span className="material-symbols-rounded">{icon}</span>
+            </span>
+            <span className="ui-row-body">
+                <span className="ui-row-label">{label}</span>
+                {value ? <span className="ui-row-value">{value}</span> : null}
+            </span>
+            {trailing ? <span className="ui-row-trail">{trailing}</span> : null}
+        </>
+    );
 
-    if (onClick) return <button type="button" onClick={() => { triggerHaptic('light'); onClick(); }} className="profile-row">{content}</button>;
-    return <div className="profile-row">{content}</div>;
+    const className = `ui-row ${isAction ? 'ui-row-action' : ''} ${isDestructive ? 'ui-row-danger' : ''}`.replace(/\s+/g, ' ').trim();
+
+    if (onClick) {
+        return (
+            <button type="button" onClick={() => { triggerHaptic('light'); onClick(); }} className={className}>
+                {content}
+            </button>
+        );
+    }
+    return <div className={className}>{content}</div>;
 };
 
-const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts, onLogout, onUpdate, onClose, onAlert, setShowImageCropper, onOpenManager }) => {
+/** Whole years, one decimal, from the employment start date. */
+function seniorityYears(joinDate?: string) {
+    if (!joinDate) return null;
+    const start = new Date(`${joinDate.slice(0, 10)}T00:00:00`);
+    if (Number.isNaN(start.getTime())) return null;
+    const years = (Date.now() - start.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+    return years < 0 ? null : years;
+}
+
+const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts, punctuality, onLogout, onUpdate, onClose, onAlert, setShowImageCropper, onOpenManager }) => {
     const [showPwdModal, setShowPwdModal] = useState(false);
     const [loadingPwd, setLoadingPwd] = useState(false);
     const [passData, setPassData] = useState({ old: '', new: '', confirm: '' });
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const profileDialogRef = useModalAccessibility(true, onClose);
     const passwordDialogRef = useModalAccessibility(showPwdModal, () => setShowPwdModal(false), { closeOnEscape: !loadingPwd });
+    const { showToast } = useToast();
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploading, setUploading] = useState(false);
@@ -72,10 +99,9 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
 
     const canManage = useMemo(() => user && user.role && MANAGEMENT_ROLES.includes(user.role), [user]);
 
-    const managerName = useMemo(() => {
+    const manager = useMemo(() => {
         if (!user.direct_manager_id) return null;
-        const mgr = contacts.find(c => c.employee_id === user.direct_manager_id);
-        return mgr ? mgr.name : user.direct_manager_id;
+        return contacts.find(c => c.employee_id === user.direct_manager_id) || null;
     }, [user.direct_manager_id, contacts]);
 
     const userAddress = useMemo(() => {
@@ -83,10 +109,28 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
         return loc?.address || '';
     }, [user.center_id, locations]);
 
+    const homeCenterName = useMemo(
+        () => (user.center_id ? locationNames[user.center_id] || user.center_id : ''),
+        [user.center_id, locationNames],
+    );
+
     const managedLocationNames = useMemo(() => {
         if (!user.managed_locations || !Array.isArray(user.managed_locations) || user.managed_locations.length === 0) return '';
         return user.managed_locations.map(id => locationNames[id] || id).join(', ');
     }, [user.managed_locations, locationNames]);
+
+    const seniority = useMemo(() => seniorityYears(user.join_date), [user.join_date]);
+
+    const handleCopyEmail = async () => {
+        if (!user.email) return;
+        triggerHaptic('light');
+        try {
+            await navigator.clipboard.writeText(user.email);
+            showToast({ title: 'Đã sao chép', body: user.email, type: 'success' });
+        } catch {
+            showToast({ title: 'Không sao chép được', body: 'Trình duyệt đã chặn quyền truy cập clipboard.', type: 'error' });
+        }
+    };
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -192,6 +236,9 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
         }
     };
 
+    const isOnline = user.status === 'Active';
+    const deviceBound = Boolean(user.trusted_device_id);
+
     return (
         <div
             ref={profileDialogRef}
@@ -204,34 +251,38 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
             onTouchMove={onTouchMove}
             onTouchEnd={onTouchEnd}
         >
-
             <div className="fixed top-0 left-0 w-full z-40">
-                <ModalHeader
-                    onClose={() => { triggerHaptic('light'); onClose(); }}
-                    bgClass="bg-transparent border-none"
-                />
+                <ModalHeader title="Hồ sơ cá nhân" onClose={() => { triggerHaptic('light'); onClose(); }} />
             </div>
 
             <div className="employee-page employee-page-profile flex-1 overflow-y-auto no-scrollbar">
-                <div className="animate-fade-in max-w-xl mx-auto w-full">
+                <div className="ui-stack animate-fade-in max-w-xl mx-auto w-full">
 
-                    <div className="app-surface profile-identity-card">
-                        <div className="app-hero-tint" aria-hidden="true"></div>
-                        <div className="absolute top-0 left-0 w-full h-32 overflow-hidden pointer-events-none opacity-10">
-                            <div className="absolute -top-10 -left-10 w-40 h-40 rounded-full border-8 border-primary"></div>
-                            <div className="absolute -bottom-10 -right-10 w-60 h-60 rounded-full border-8 border-primary"></div>
+                    {/* Identity ------------------------------------------------ */}
+                    <section className="profile-hero">
+                        <div className="profile-hero-cover">
+                            <span className="profile-hero-chip">
+                                <span className="material-symbols-rounded" aria-hidden="true">corporate_fare</span>
+                                {APP_INFO.PRODUCT_NAME}
+                            </span>
+                            <span className="profile-hero-chip profile-hero-chip-ghost">{user.employee_id}</span>
                         </div>
 
-                        <div className="relative z-10 flex flex-col items-center">
-                            <div className="relative">
-                                <button type="button" aria-label="Chọn ảnh đại diện" onClick={() => fileInputRef.current?.click()} className="profile-avatar-button group">
-                                    <Avatar
-                                        src={user.avatar_url || user.face_ref_url}
-                                        name={user.name}
-                                        className="w-full h-full rounded-full"
-                                        textSize="text-4xl"
-                                    />
-                                    <span className="profile-avatar-overlay"><span className="material-symbols-rounded" aria-hidden="true">photo_camera</span></span>
+                        <div className="profile-hero-body">
+                            <div className="profile-hero-avatar">
+                                <Avatar
+                                    src={user.avatar_url || user.face_ref_url}
+                                    name={user.name}
+                                    className="w-full h-full rounded-full"
+                                    textSize="text-3xl"
+                                />
+                                <button
+                                    type="button"
+                                    className="profile-hero-camera"
+                                    aria-label="Đổi ảnh đại diện"
+                                    onClick={() => fileInputRef.current?.click()}
+                                >
+                                    <span className="material-symbols-rounded" aria-hidden="true">photo_camera</span>
                                 </button>
                                 <input
                                     type="file"
@@ -241,131 +292,207 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
                                     onChange={handleFileSelect}
                                 />
                                 {uploading && (
-                                    <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-black/50 rounded-full">
-                                        <span className="material-symbols-rounded animate-spin text-primary">progress_activity</span>
+                                    <div className="profile-hero-uploading" role="status">
+                                        <span className="material-symbols-rounded animate-spin" aria-hidden="true">progress_activity</span>
                                     </div>
                                 )}
                             </div>
 
-                            <h2 className="text-2xl font-bold text-slate-800 dark:text-dark-text-primary leading-tight">{user.name}</h2>
+                            <h2 className="profile-hero-name">
+                                {user.name}
+                                {deviceBound ? (
+                                    <span className="material-symbols-rounded profile-hero-verified" title="Thiết bị đã xác thực" aria-label="Thiết bị đã xác thực">verified</span>
+                                ) : null}
+                            </h2>
 
-                            <div className="flex gap-2 flex-wrap justify-center mt-3">
-                                <span className="px-3 py-1.5 bg-primary/10 dark:bg-primary/20 border border-primary/20 dark:border-primary/30 rounded-full text-xxs font-extrabold text-primary dark:text-primary uppercase tracking-wide">{user.department}</span>
-                                <span className="px-3 py-1.5 bg-secondary-purple/10 dark:bg-secondary-purple/20 border border-secondary-purple/20 dark:border-secondary-purple/30 rounded-full text-xxs font-extrabold text-secondary-purple dark:text-secondary-purple uppercase tracking-wide">{user.position}</span>
+                            <div className="profile-hero-tags">
+                                {user.position ? <span className="ui-pill ui-pill-muted">{user.position}</span> : null}
+                                {user.department ? <span className="ui-pill ui-pill-muted">{user.department}</span> : null}
                             </div>
+
+                            <span className={`ui-pill ${isOnline ? 'ui-pill-success' : 'ui-pill-muted'}`}>
+                                <span className="ui-pill-dot" aria-hidden="true" />
+                                {isOnline ? 'Đang hoạt động' : 'Tài khoản tạm ngưng'}
+                                {user.role ? ` • ${user.role}` : ''}
+                            </span>
+                        </div>
+                    </section>
+
+                    {/* Key figures --------------------------------------------- */}
+                    <div className="ui-metrics">
+                        <div className="ui-metric">
+                            <span className="ui-metric-head">
+                                <span>Phép năm</span>
+                                <span className="material-symbols-rounded ui-tone-success" aria-hidden="true">beach_access</span>
+                            </span>
+                            <span className="ui-metric-value">
+                                {user.annual_leave_balance ?? 0}
+                                <span className="ui-metric-unit">ngày</span>
+                            </span>
+                            <span className="ui-metric-foot">Số dư còn lại</span>
+                        </div>
+
+                        <div className="ui-metric">
+                            <span className="ui-metric-head">
+                                <span>Đúng giờ</span>
+                                <span className="material-symbols-rounded ui-tone-primary" aria-hidden="true">timer</span>
+                            </span>
+                            <span className="ui-metric-value ui-tone-primary">
+                                {punctuality ? punctuality.rate.toFixed(1) : '--'}
+                                <span className="ui-metric-unit">%</span>
+                            </span>
+                            <span className="ui-metric-foot">
+                                {punctuality ? `${punctuality.sample} ca gần đây` : 'Chưa có dữ liệu'}
+                            </span>
+                        </div>
+
+                        <div className="ui-metric">
+                            <span className="ui-metric-head">
+                                <span>Thâm niên</span>
+                                <span className="material-symbols-rounded ui-tone-warning" aria-hidden="true">calendar_month</span>
+                            </span>
+                            <span className="ui-metric-value">
+                                {seniority !== null ? seniority.toFixed(1) : '--'}
+                                <span className="ui-metric-unit">năm</span>
+                            </span>
+                            <span className="ui-metric-foot">
+                                {user.join_date ? `Từ ${formatDateString(user.join_date)}` : 'Chưa có ngày vào làm'}
+                            </span>
                         </div>
                     </div>
 
-                    {canManage && (
-                        <>
-                            <h3 className="app-section-title app-section-title-spaced">
-                                <span className="w-5 h-5 shrink-0 aspect-square rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary">
-                                    <span className="material-symbols-rounded text-xs">speed</span>
-                                </span>
-                                Quản trị
-                            </h3>
-                            <div className="app-list-surface profile-section divide-y divide-slate-50 dark:divide-dark-border">
-                                <ProfileRow
-                                    icon="work"
-                                    tone="primary"
-                                    label="Quản lý nhân sự"
-                                    isLink
-                                    onClick={onOpenManager}
-                                />
-                            </div>
-                        </>
+                    {/* Manager workspace --------------------------------------- */}
+                    {canManage && onOpenManager && (
+                        <button type="button" className="ui-banner" onClick={() => { triggerHaptic('light'); onOpenManager(); }}>
+                            <span className="ui-banner-icon" aria-hidden="true">
+                                <span className="material-symbols-rounded">shield_person</span>
+                            </span>
+                            <span className="ui-banner-body">
+                                <span className="ui-banner-title">Không gian quản lý</span>
+                                <span className="ui-banner-sub">Duyệt đơn từ &amp; chấm công đội ngũ</span>
+                            </span>
+                            <span className="ui-banner-flag">{user.role}</span>
+                            <span className="material-symbols-rounded" aria-hidden="true">chevron_right</span>
+                        </button>
                     )}
 
-                    <h3 className="app-section-title app-section-title-spaced">
-                        <span className="w-5 h-5 shrink-0 aspect-square rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary">
-                            <span className="material-symbols-rounded text-xs">work</span>
-                        </span>
-                        Thông tin công việc
-                    </h3>
-                    <div className="app-list-surface profile-section divide-y divide-slate-50 dark:divide-dark-border">
-                        <ProfileRow
-                            icon="account_tree"
-                            tone="primary"
-                            label="Trung tâm phụ trách"
-                            value={managedLocationNames}
-                        />
-                        {userAddress && (
+                    {/* Work ---------------------------------------------------- */}
+                    <div>
+                        <div className="ui-label-row">
+                            <span className="ui-label">Thông tin công việc</span>
+                        </div>
+                        <div className="ui-card ui-card-flush profile-card">
                             <ProfileRow
-                                icon="location_on"
-                                tone="info"
-                                label="Địa chỉ làm việc"
-                                value={userAddress}
+                                icon="account_tree"
+                                tone="primary"
+                                label="Phòng ban & vị trí"
+                                value={[user.department, user.position].filter(Boolean).join(' • ') || 'Chưa cập nhật'}
                             />
-                        )}
-                        <ProfileRow
-                            icon="person"
-                            tone="success"
-                            label="Quản lý trực tiếp"
-                            value={managerName || "Không có"}
-                        />
-                        <ProfileRow
-                            icon="calendar_today"
-                            tone="warning"
-                            label="Ngày tham gia"
-                            value={user.join_date ? formatDateString(user.join_date) : "--"}
-                        />
+                            <ProfileRow
+                                icon="corporate_fare"
+                                tone="info"
+                                label="Trung tâm làm việc"
+                                value={managedLocationNames || homeCenterName || 'Chưa cập nhật'}
+                            />
+                            {userAddress && (
+                                <ProfileRow
+                                    icon="location_on"
+                                    tone="success"
+                                    label="Địa chỉ làm việc"
+                                    value={userAddress}
+                                />
+                            )}
+                            <ProfileRow
+                                icon="supervisor_account"
+                                tone="warning"
+                                label="Quản lý trực tiếp"
+                                value={manager?.name || user.direct_manager_id || 'Không có'}
+                                trailing={manager?.position ? <span className="ui-pill ui-pill-muted">{manager.position}</span> : undefined}
+                            />
+                        </div>
                     </div>
 
-                    <h3 className="app-section-title app-section-title-spaced">
-                        <span className="w-5 h-5 shrink-0 aspect-square rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary">
-                            <span className="material-symbols-rounded text-xs">badge</span>
+                    {/* Contact & device ---------------------------------------- */}
+                    <div>
+                        <div className="ui-label-row">
+                            <span className="ui-label">Liên hệ &amp; thiết bị</span>
+                        </div>
+                        <div className="ui-card ui-card-flush profile-card">
+                            <ProfileRow
+                                icon="alternate_email"
+                                tone="primary"
+                                label="Email công vụ"
+                                value={user.email || 'Chưa cập nhật'}
+                                trailing={user.email ? (
+                                    <button type="button" className="ui-person-action" aria-label="Sao chép email" onClick={handleCopyEmail}>
+                                        <span className="material-symbols-rounded" aria-hidden="true">content_copy</span>
+                                    </button>
+                                ) : undefined}
+                            />
+                            <ProfileRow
+                                icon="call"
+                                tone="success"
+                                label="Số điện thoại"
+                                value={user.phone ? String(user.phone) : 'Chưa cập nhật'}
+                                trailing={user.phone ? (
+                                    <a className="ui-person-action ui-person-action-accent" href={`tel:${user.phone}`} aria-label="Gọi số điện thoại này">
+                                        <span className="material-symbols-rounded" aria-hidden="true">phone_in_talk</span>
+                                    </a>
+                                ) : undefined}
+                            />
+                            <ProfileRow
+                                icon={deviceBound ? 'lock' : 'lock_open'}
+                                tone={deviceBound ? 'success' : 'muted'}
+                                label="Thiết bị tin cậy"
+                                value={deviceBound
+                                    ? `Đã ghép ngày ${user.trusted_device_bound_at ? formatDateString(user.trusted_device_bound_at) : '--'}`
+                                    : 'Chưa ghép thiết bị'}
+                                trailing={(
+                                    <span className={`ui-pill ${deviceBound ? 'ui-pill-success' : 'ui-pill-warning'}`}>
+                                        {deviceBound ? 'An toàn' : 'Chưa bật'}
+                                    </span>
+                                )}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Account ------------------------------------------------- */}
+                    <div>
+                        <div className="ui-label-row">
+                            <span className="ui-label">Tài khoản &amp; bảo mật</span>
+                        </div>
+                        <div className="ui-card ui-card-flush profile-card">
+                            <ProfileRow
+                                icon="key"
+                                tone="warning"
+                                label="Đổi mật khẩu"
+                                value="Cập nhật mật khẩu bảo vệ tài khoản"
+                                isAction
+                                trailing={<span className="material-symbols-rounded" aria-hidden="true">chevron_right</span>}
+                                onClick={() => setShowPwdModal(true)}
+                            />
+                            <ProfileRow
+                                icon="logout"
+                                tone="danger"
+                                label="Đăng xuất tài khoản"
+                                value="Kết thúc phiên làm việc trên thiết bị này"
+                                isAction
+                                isDestructive
+                                trailing={<span className="material-symbols-rounded" aria-hidden="true">power_settings_new</span>}
+                                onClick={() => {
+                                    triggerHaptic('medium');
+                                    setShowLogoutConfirm(true);
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="ui-footer">
+                        <span className="ui-footer-line">
+                            <span className="material-symbols-rounded ui-tone-primary" aria-hidden="true">verified_user</span>
+                            {APP_INFO.PRODUCT_NAME} v{APP_INFO.VERSION}
                         </span>
-                        Thông tin cá nhân
-                    </h3>
-                    <div className="app-list-surface profile-section divide-y divide-slate-50 dark:divide-dark-border">
-                        <ProfileRow
-                            icon="mail"
-                            tone="primary"
-                            label="Email"
-                            value={user.email}
-                        />
-                        <ProfileRow
-                            icon="call"
-                            tone="success"
-                            label="Số điện thoại"
-                            value={user.phone ? String(user.phone) : 'Chưa cập nhật'}
-                        />
-                        <ProfileRow
-                            icon="fingerprint"
-                            tone="muted"
-                            label="Thiết bị tin cậy"
-                            value={user.trusted_device_id ? "Đã kích hoạt" : "Chưa kích hoạt"}
-                        />
-                    </div>
-
-                    <h3 className="app-section-title app-section-title-spaced">
-                        <span className="w-5 h-5 shrink-0 aspect-square rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary">
-                            <span className="material-symbols-rounded text-xs">admin_panel_settings</span>
-                        </span>
-                        Tài khoản
-                    </h3>
-                    <div className="app-list-surface profile-section divide-y divide-slate-50 dark:divide-dark-border">
-                        <ProfileRow
-                            icon="key"
-                            tone="warning"
-                            label="Đổi mật khẩu"
-                            isLink
-                            onClick={() => setShowPwdModal(true)}
-                        />
-                        <ProfileRow
-                            icon="logout"
-                            tone="danger"
-                            label="Đăng xuất"
-                            isDestructive
-                            onClick={() => {
-                                triggerHaptic('medium');
-                                setShowLogoutConfirm(true);
-                            }}
-                        />
-                    </div>
-
-                    <div className="text-center pb-8">
-                        <p className="text-xxs font-extrabold text-slate-300 dark:text-dark-text-secondary/50 uppercase tracking-widest">{APP_INFO.NAME} v{APP_INFO.VERSION}</p>
+                        <span className="ui-footer-sub">Bản quyền thuộc về {APP_INFO.BRAND} · {APP_INFO.DOMAIN}</span>
                     </div>
                 </div>
             </div>

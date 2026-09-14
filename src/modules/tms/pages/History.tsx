@@ -42,10 +42,22 @@ interface HistoryDayItem {
 }
 
 interface ProcessedHistoryData {
-    stats: { workDays: number; lateMins: number; errors: number };
+    stats: { workDays: number; lateMins: number; errors: number; lateDays: number; standardDays: number };
     list: HistoryDayItem[];
     title: string;
     calendarGrid: Array<HistoryDayItem | null>;
+}
+
+/** One tone per day outcome, so the day tag, the status dot and the calendar
+ *  marker for a given day can never disagree about how that day went. */
+function dayTone(item: HistoryDayItem): string {
+    if (item.status === 'Absent' || item.isMissingCheckout) return 'danger';
+    if (item.isLate || item.isEarly) return 'warning';
+    if (item.status === 'Holiday') return 'danger';
+    if (item.status === 'Leave') return 'info';
+    if (item.status === 'Weekend' || item.status === 'Future') return 'muted';
+    if (item.status === 'Half') return 'primary';
+    return 'success';
 }
 
 const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, registerSwipeHandler }) => {
@@ -120,9 +132,9 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
     const locationsMap = useMemo(() => buildLocationNameMap(data), [data]);
 
     const processedData = useMemo<ProcessedHistoryData>(() => {
-        if (!data) return { stats: { workDays: 0, lateMins: 0, errors: 0 }, list: [], title: '', calendarGrid: [] };
+        if (!data) return { stats: { workDays: 0, lateMins: 0, errors: 0, lateDays: 0, standardDays: 0 }, list: [], title: '', calendarGrid: [] };
 
-        const stats = { workDays: 0, lateMins: 0, errors: 0 };
+        const stats = { workDays: 0, lateMins: 0, errors: 0, lateDays: 0, standardDays: 0 };
         const list: HistoryDayItem[] = [];
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -188,6 +200,10 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                 leaveType: '',
                 isHoliday: false,
             };
+
+            const isOffDay = offDays.includes(dayOfWeek);
+            const isPublicHoliday = (data.holidays || []).some(h => h.active !== false && h.from_date <= dateStr && h.to_date >= dateStr);
+            if (!isOffDay && !isPublicHoliday) stats.standardDays += 1;
 
             const existingExplain = data.myExplanations.find(r => r.date === dateStr);
             const isApproved = existingExplain?.status === 'Approved';
@@ -288,6 +304,7 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
 
                         if (totalLate > 0 && dateStr !== toISODateString(today)) {
                             dayItem.isLate = true;
+                            stats.lateDays += 1;
                             dayItem.showExplain = true;
                             if (!dayItem.explainReason) dayItem.explainReason = "[Trễ] ";
                             if (!dayItem.isMissingCheckout) dayItem.dotClass = isApproved ? 'bg-primary' : 'bg-secondary-yellow';
@@ -406,273 +423,278 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
         setViewMode(mode);
     };
 
+    /** Explanations close on the configured lock day of the following month.
+     *  Staff need that date on screen, not buried in an error toast. */
+    const explanationWindow = useMemo(() => {
+        const anchor = viewMode === 'month'
+            ? new Date(viewDate.getFullYear(), viewDate.getMonth(), 1)
+            : viewDate;
+        const configured = data?.systemConfig?.LOCK_DATE ?? TMS_DEFAULT_SYSTEM_CONFIG.LOCK_DATE ?? 1;
+        const nextMonth = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
+        const lastDay = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate();
+        const lockDay = Math.min(lastDay, Math.max(1, Math.floor(configured)));
+        const deadline = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), lockDay);
+        return {
+            label: `${String(deadline.getDate()).padStart(2, '0')}/${String(deadline.getMonth() + 1).padStart(2, '0')}/${deadline.getFullYear()}`,
+            isOpen: new Date() <= new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate() + 1),
+        };
+    }, [data?.systemConfig?.LOCK_DATE, viewDate, viewMode]);
+
+    const standardRatio = stats.standardDays > 0 ? (stats.workDays / stats.standardDays) * 100 : null;
+
     return (
         <PullToRefresh onRefresh={onRefresh} className="page-bg font-sans">
-            <div className="employee-page employee-page-standard history-page animate-fade-in space-y-6">
+            <div className="employee-page employee-page-standard history-page animate-fade-in ui-stack">
 
                 <div className="app-segmented">
-                        <button
-                            type="button"
-                            onClick={() => switchViewMode('week')}
-                            className={`app-segmented-option ${viewMode === 'week' ? 'app-segmented-option-active' : ''}`}
-                        >
-                            Tuần
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => switchViewMode('month')}
-                            className={`app-segmented-option ${viewMode === 'month' ? 'app-segmented-option-active' : ''}`}
-                        >
-                            Tháng
-                        </button>
+                    <button
+                        type="button"
+                        onClick={() => switchViewMode('week')}
+                        className={`app-segmented-option ${viewMode === 'week' ? 'app-segmented-option-active' : ''}`}
+                    >
+                        Tuần này
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => switchViewMode('month')}
+                        className={`app-segmented-option ${viewMode === 'month' ? 'app-segmented-option-active' : ''}`}
+                    >
+                        Tháng này
+                    </button>
                 </div>
 
-                <div className="app-kpi-grid">
-                    <div className="app-kpi-card">
-                        <strong className="status-tone-primary tabular-nums">{stats.workDays}</strong>
-                        <span>Ngày công</span>
-                    </div>
-                    <div className="app-kpi-card">
-                        <strong className="status-tone-warning tabular-nums">{stats.lateMins}</strong>
-                        <span>Phút trễ</span>
-                    </div>
-                    <div className="app-kpi-card">
-                        <strong className="status-tone-danger tabular-nums">{stats.errors}</strong>
-                        <span>Lỗi chấm</span>
-                    </div>
-                </div>
-
-                <div className="app-section-header">
-                    <h3 className="app-section-title">
-                        <span className="material-symbols-rounded" aria-hidden="true">history</span>
-                        {viewMode === 'month' ? 'Nhật ký tháng' : 'Nhật ký tuần'}
-                    </h3>
-
-                    <div className="app-period-control">
-                        <button
-                            type="button"
-                            aria-label="Kỳ trước"
-                            onClick={() => changeDate(-1)}
-                            className="app-period-button"
-                        >
-                            <span className="material-symbols-rounded" aria-hidden="true">chevron_left</span>
-                        </button>
-                        <span className="app-period-label tabular-nums">
-                            {title}
+                {/* Period ------------------------------------------------- */}
+                <section className="ui-card">
+                    <div className="ui-card-head">
+                        <span className="ui-tile ui-tone-primary" aria-hidden="true">
+                            <span className="material-symbols-rounded">event_note</span>
                         </span>
-                        <button
-                            type="button"
-                            aria-label="Kỳ sau"
-                            disabled={isCurrentView}
-                            onClick={() => changeDate(1)}
-                            className="app-period-button"
-                        >
-                            <span className="material-symbols-rounded" aria-hidden="true">chevron_right</span>
-                        </button>
+                        <span className="ui-card-head-text">
+                            <span className="ui-card-head-title">
+                                {viewMode === 'month' ? 'Kỳ công tháng' : 'Kỳ công tuần'} · {title}
+                            </span>
+                            <span className="ui-card-head-sub">
+                                {stats.standardDays} ngày công chuẩn trong kỳ
+                            </span>
+                        </span>
+                        <div className="app-period-control">
+                            <button type="button" className="app-period-button" aria-label="Kỳ trước" onClick={() => changeDate(-1)}>
+                                <span className="material-symbols-rounded" aria-hidden="true">chevron_left</span>
+                            </button>
+                            <button
+                                type="button"
+                                className="app-period-button"
+                                aria-label="Kỳ sau"
+                                disabled={isCurrentView}
+                                onClick={() => changeDate(1)}
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="ui-card-section history-lock">
+                        <span className="history-lock-text">
+                            <span className="material-symbols-rounded" aria-hidden="true">lock_clock</span>
+                            <span>Hạn khóa bảng công: <strong>{explanationWindow.label}</strong></span>
+                        </span>
+                        <span className={`ui-pill ${explanationWindow.isOpen ? 'ui-pill-success' : 'ui-pill-muted'}`}>
+                            {explanationWindow.isOpen ? 'Đang mở' : 'Đã khóa'}
+                        </span>
+                    </div>
+                </section>
+
+                {/* Figures ------------------------------------------------ */}
+                <div className="ui-metrics">
+                    <div className="ui-metric">
+                        <span className="ui-metric-head">
+                            <span>Ngày công</span>
+                            <span className="material-symbols-rounded ui-tone-success" aria-hidden="true">task_alt</span>
+                        </span>
+                        <span className="ui-metric-value">
+                            {stats.workDays}
+                            <span className="ui-metric-unit">/{stats.standardDays}</span>
+                        </span>
+                        <span className="ui-metric-foot">
+                            {standardRatio !== null ? `${standardRatio.toFixed(1)}% chuẩn` : 'Chưa có ngày công chuẩn'}
+                        </span>
+                    </div>
+
+                    <div className="ui-metric">
+                        <span className="ui-metric-head">
+                            <span>Đi trễ</span>
+                            <span className="material-symbols-rounded ui-tone-warning" aria-hidden="true">schedule</span>
+                        </span>
+                        <span className={`ui-metric-value ${stats.lateMins > 0 ? 'ui-tone-warning' : ''}`.trim()}>
+                            {stats.lateMins}
+                            <span className="ui-metric-unit">phút</span>
+                        </span>
+                        <span className="ui-metric-foot">
+                            {stats.lateDays > 0 ? `${stats.lateDays} lượt vi phạm` : 'Không có lượt trễ'}
+                        </span>
+                    </div>
+
+                    <div className={`ui-metric ${stats.errors > 0 ? 'ui-metric-attention' : ''}`.trim()}>
+                        <span className="ui-metric-head">
+                            <span>Lỗi chấm</span>
+                            <span className="material-symbols-rounded ui-tone-danger" aria-hidden="true">error</span>
+                        </span>
+                        <span className={`ui-metric-value ${stats.errors > 0 ? 'ui-tone-danger' : ''}`.trim()}>
+                            {stats.errors}
+                            <span className="ui-metric-unit">lượt</span>
+                        </span>
+                        <span className={`ui-metric-foot ${stats.errors > 0 ? 'ui-tone-danger' : ''}`.trim()}>
+                            {stats.errors > 0 ? 'Cần giải trình' : 'Bảng công sạch'}
+                        </span>
                     </div>
                 </div>
 
+                {/* Month matrix ------------------------------------------- */}
                 {viewMode === 'month' && (
-                    <div className="app-surface history-calendar animate-scale-in">
-                        <div className="grid grid-cols-7 mb-4">
+                    <section className="ui-card ui-card-pad animate-scale-in">
+                        <div className="ui-cal">
                             {["CN", "T2", "T3", "T4", "T5", "T6", "T7"].map((d, i) => (
-                                <div key={i} className="text-center text-xxs font-extrabold text-slate-400 dark:text-dark-text-secondary uppercase tracking-wider">{d}</div>
+                                <div key={d} className={`ui-cal-head ${i === 0 ? 'ui-cal-head-sun' : ''}`.trim()}>{d}</div>
                             ))}
-                        </div>
-                        <div className="grid grid-cols-7 gap-y-3 gap-x-1">
                             {calendarGrid.map((day, idx) => {
-                                if (!day) return <div key={idx} className="h-10"></div>;
+                                if (!day) return <div key={`blank-${idx}`} className="ui-cal-day ui-cal-day-blank" aria-hidden="true" />;
                                 const isSelected = day.date === selectedDate;
+                                const tone = dayTone(day);
                                 return (
                                     <button
                                         type="button"
                                         aria-pressed={isSelected}
-                                        key={idx}
+                                        key={day.date}
                                         onClick={() => { triggerHaptic('light'); setSelectedDate(day.date); }}
-                                        className={`w-full h-10 flex flex-col items-center justify-center relative cursor-pointer rounded-xl transition-all ${isSelected ? 'bg-primary/10 dark:bg-primary/20 ring-2 ring-primary/50 dark:ring-primary/40 text-primary dark:text-primary' : 'hover-surface text-slate-900 dark:text-dark-text-primary'}`}
+                                        className={`ui-cal-day ${day.dayOfWeek === 0 && !isSelected ? 'ui-cal-day-sun' : ''} ${isSelected ? 'ui-cal-day-selected' : ''}`.trim()}
                                     >
-                                        <span className={`text-base font-bold tabular-nums ${day.dayOfWeek === 0 && !isSelected ? 'text-secondary-red dark:text-secondary-red' : ''}`}>{day.dayNum}</span>
-                                        {day.status !== 'Future' && (
-                                            <div className={`w-1.5 h-1.5 rounded-full mt-1 ${day.dotClass}`}></div>
-                                        )}
+                                        <span>{day.dayNum}</span>
+                                        {day.status !== 'Future' ? (
+                                            <span className={`history-cal-dot ui-tone-${tone}`} aria-hidden="true" />
+                                        ) : null}
                                     </button>
                                 );
                             })}
                         </div>
-                    </div>
+                    </section>
                 )}
 
-                {/* THẺ TIMELINE CHUẨN: LIỀN KHỐI (LIST VIEW), GỌN GÀNG MÀ VẪN SHOW TIMELINE */}
+                {/* Day log ------------------------------------------------ */}
                 {displayList.length === 0 ? (
-                    <div className="w-full text-center py-12 text-sm font-bold text-slate-400 dark:text-dark-text-secondary bg-white dark:bg-dark-surface rounded-2xl border border-dashed border-slate-200 dark:border-dark-border mb-12 shadow-xs">
-                        {viewMode === 'month' ? 'Chọn ngày để xem chi tiết' : 'Không có dữ liệu'}
+                    <div className="ui-empty">
+                        <span className="material-symbols-rounded" aria-hidden="true">calendar_today</span>
+                        <span className="ui-empty-title">{viewMode === 'month' ? 'Chọn một ngày để xem chi tiết' : 'Không có dữ liệu trong kỳ'}</span>
                     </div>
                 ) : (
-                    <div className="app-list-surface history-list animate-slide-up divide-y divide-slate-100 dark:divide-dark-border">
-                        {displayList.map((item, idx) => {
+                    <div className="ui-stack">
+                        {displayList.map((item) => {
                             const isExpanded = expandedDate === item.date;
                             const records = item.records ?? [];
+                            const tone = dayTone(item);
+                            const hasError = item.isMissingCheckout || item.status === 'Absent';
 
                             return (
-                                <div key={idx}
-                                    className="w-full hover-surface relative"
-                                >
-                                    {/* --- HEADER THẺ --- */}
+                                <section key={item.date} className={`ui-card ${hasError && !item.isExplained ? 'ui-card-attention' : ''}`.trim()}>
                                     <div
                                         role="button"
                                         tabIndex={0}
                                         aria-expanded={isExpanded}
                                         onClick={() => { triggerHaptic('light'); setExpandedDate(isExpanded ? null : item.date); }}
                                         onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); triggerHaptic('light'); setExpandedDate(isExpanded ? null : item.date); } }}
-                                        className="p-4 sm:p-5 cursor-pointer"
+                                        className="history-day"
                                     >
-                                        <div className="flex items-start justify-between mb-4">
-                                            <div className="flex items-center gap-3.5">
-                                                {/* Khối Ngày - aspect-square rounded-2xl không bao giờ bị méo */}
-                                                <div className="w-12 h-12 shrink-0 aspect-square rounded-2xl bg-gradient-to-b from-slate-50 to-slate-100/80 dark:from-dark-bg/80 dark:to-dark-bg/50 border border-slate-200/60 dark:border-dark-border flex flex-col items-center justify-center shadow-xs">
-                                                    <span className={`history-weekday font-extrabold uppercase leading-none tracking-wide mb-1 ${item.dayOfWeek === 0 ? 'text-secondary-red dark:text-secondary-red' : 'text-slate-400 dark:text-dark-text-secondary'}`}>{getDayName(item.dayOfWeek)}</span>
-                                                    <span className={`text-base font-bold leading-none tabular-nums ${item.dayOfWeek === 0 ? 'text-secondary-red dark:text-secondary-red' : 'text-slate-800 dark:text-dark-text-primary'}`}>{item.dayNum}</span>
-                                                </div>
+                                        <div className="history-day-head">
+                                            <span className={`ui-daytag ui-daytag-toned ui-tone-${tone}`} aria-hidden="true">
+                                                <span className="ui-daytag-dow">{getDayName(item.dayOfWeek)}</span>
+                                                <span className="ui-daytag-num">{item.dayNum}</span>
+                                            </span>
 
-                                                {/* Thông tin Ca */}
-                                                <div>
-                                                    <h4 className="text-base font-bold text-slate-800 dark:text-dark-text-primary leading-tight mb-1">{item.shiftInfo}</h4>
-                                                    <div className="flex items-center gap-2 text-xxs font-bold text-slate-500 dark:text-dark-text-secondary">
-                                                        {item.status !== 'Future' && item.status !== 'Absent' && item.status !== 'Weekend' ? (
-                                                            <span className="flex items-center gap-1.5">
-                                                                <span className="w-4 h-4 shrink-0 aspect-square rounded-full bg-slate-100 dark:bg-dark-border/60 flex items-center justify-center">
-                                                                    <span className="material-symbols-rounded text-xs leading-none">work</span>
-                                                                </span>
-                                                                {item.workHours.toFixed(1)} giờ công
-                                                            </span>
-                                                        ) : (
-                                                            <span className="flex items-center gap-1 uppercase tracking-widest text-xxs">
-                                                                {item.status === 'Absent' ? 'Không có dữ liệu' : (item.status === 'Weekend' ? 'Ngày nghỉ' : 'Chưa đến')}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
+                                            <div className="history-day-title">
+                                                <h4>
+                                                    <span className={`history-day-dot ui-tone-${tone}`} aria-hidden="true" />
+                                                    <span>{item.shiftInfo}</span>
+                                                </h4>
+                                                <p>
+                                                    {item.status !== 'Future' && item.status !== 'Absent' && item.status !== 'Weekend'
+                                                        ? `${item.workHours.toFixed(2)} giờ công${item.lateMins ? ` (-${item.lateMins}p)` : ''}`
+                                                        : item.status === 'Absent' ? 'Không có dữ liệu chấm công'
+                                                            : item.status === 'Weekend' ? 'Không có ca làm việc' : 'Chưa đến'}
+                                                </p>
                                             </div>
 
-                                            {/* Cụm Badges Góc Phải (Xếp chồng) */}
-                                            <div className="flex flex-col items-end gap-1.5 pl-2 shrink-0">
-                                                {item.status === 'Leave' && (
-                                                    <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-secondary-purple/10 dark:bg-secondary-purple/20 text-secondary-purple dark:text-secondary-purple border border-secondary-purple/20 dark:border-secondary-purple/30 text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                        {item.leaveType}
-                                                    </span>
-                                                )}
-                                                {item.status === 'Holiday' && (
-                                                    <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-secondary-red/10 dark:bg-secondary-red/20 text-secondary-red dark:text-secondary-red border border-secondary-red/20 dark:border-secondary-red/30 text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                        Nghỉ Lễ
-                                                    </span>
-                                                )}
-                                                {item.status === 'Weekend' && (
-                                                    <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-slate-100 dark:bg-dark-border/50 text-slate-500 dark:text-dark-text-secondary border border-slate-200 dark:border-dark-border text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                        Nghỉ tuần
-                                                    </span>
-                                                )}
-                                                {item.status === 'Absent' && (
-                                                    <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-secondary-red/10 dark:bg-secondary-red/20 text-secondary-red dark:text-secondary-red border border-secondary-red/20 dark:border-secondary-red/30 text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                        Vắng mặt
-                                                    </span>
-                                                )}
-                                                {item.isMissingCheckout && (
-                                                    <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-secondary-red/10 dark:bg-secondary-red/20 text-secondary-red dark:text-secondary-red border border-secondary-red/20 dark:border-secondary-red/30 text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                        Lỗi Checkout
-                                                    </span>
-                                                )}
-                                                {item.isLate && (
-                                                    <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-secondary-yellow/10 dark:bg-secondary-yellow/20 text-secondary-yellow dark:text-secondary-yellow border border-secondary-yellow/20 dark:border-secondary-yellow/30 text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                        Trễ {item.lateMins}p
-                                                    </span>
-                                                )}
-                                                {item.isEarly && (
-                                                    <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-secondary-yellow/10 dark:bg-secondary-yellow/20 text-secondary-yellow dark:text-secondary-yellow border border-secondary-yellow/20 dark:border-secondary-yellow/30 text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                        Sớm {item.earlyMins}p
-                                                    </span>
-                                                )}
+                                            <div className="history-day-badges">
+                                                {item.status === 'Leave' && <span className="ui-pill ui-pill-info">{item.leaveType}</span>}
+                                                {item.status === 'Holiday' && <span className="ui-pill ui-pill-danger">Nghỉ lễ</span>}
+                                                {item.status === 'Weekend' && <span className="ui-pill ui-pill-muted">Cuối tuần</span>}
+                                                {item.status === 'Absent' && <span className="ui-pill ui-pill-danger">Vắng mặt</span>}
+                                                {item.isMissingCheckout && <span className="ui-pill ui-pill-danger"><span className="ui-pill-dot" aria-hidden="true" />Lỗi ra</span>}
+                                                {item.isLate && <span className="ui-pill ui-pill-warning"><span className="ui-pill-dot" aria-hidden="true" />Trễ {item.lateMins}p</span>}
+                                                {item.isEarly && <span className="ui-pill ui-pill-warning"><span className="ui-pill-dot" aria-hidden="true" />Sớm {item.earlyMins}p</span>}
                                                 {item.status === 'Full' && !item.isLate && !item.isEarly && !item.isMissingCheckout && (
-                                                    <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary border border-primary/20 dark:border-primary/30 text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                        Đúng giờ
-                                                    </span>
+                                                    <span className="ui-pill ui-pill-success"><span className="ui-pill-dot" aria-hidden="true" />Đúng giờ</span>
                                                 )}
                                                 {item.status === 'Half' && !item.isLate && !item.isEarly && !item.isMissingCheckout && (
-                                                    <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-secondary-green/10 dark:bg-secondary-green/20 text-secondary-green dark:text-secondary-green border border-secondary-green/20 dark:border-secondary-green/30 text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                        Nửa ca
-                                                    </span>
+                                                    <span className="ui-pill ui-pill-primary">Nửa ca</span>
                                                 )}
 
-                                                {/* --- ACTION: GIẢI TRÌNH --- */}
                                                 {(item.showExplain || item.explainStatus) && (
                                                     item.explainStatus === 'Approved' ? (
-                                                        <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                            <span className="material-symbols-rounded text-xs leading-none">verified</span>
-                                                            <span>Đã duyệt giải trình</span>
-                                                        </span>
+                                                        <span className="ui-pill ui-pill-success"><span className="material-symbols-rounded" aria-hidden="true">verified</span>Đã duyệt</span>
                                                     ) : item.explainStatus === 'Pending' ? (
-                                                        <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800 text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                            <span className="material-symbols-rounded text-xs leading-none">schedule</span>
-                                                            <span>Chờ duyệt</span>
-                                                        </span>
-                                                    ) : item.explainStatus === 'Rejected' ? (
-                                                        <div className="flex items-center gap-1.5">
-                                                            <span className="inline-flex items-center gap-1 h-6 min-h-0 px-2 rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800 text-xxs font-extrabold uppercase tracking-wider leading-none whitespace-nowrap">
-                                                                <span className="material-symbols-rounded text-xs leading-none">cancel</span>
-                                                                <span>Từ chối</span>
-                                                            </span>
-                                                            <button
-                                                                type="button"
-                                                                onClick={(e) => handleExplainClick(e, item.date, item.explainReason)}
-                                                                className="inline-flex items-center gap-1 h-6 min-h-0 px-2 rounded-full bg-secondary-orange hover:bg-secondary-orange/90 text-white border border-secondary-orange/20 text-xxs font-extrabold active:scale-95 transition-all uppercase tracking-wider leading-none shadow-xs whitespace-nowrap cursor-pointer"
-                                                            >
-                                                                <span>Gửi lại</span>
-                                                            </button>
-                                                        </div>
+                                                        <span className="ui-pill ui-pill-warning"><span className="material-symbols-rounded" aria-hidden="true">schedule</span>Chờ duyệt</span>
                                                     ) : (
                                                         <button
                                                             type="button"
                                                             onClick={(e) => handleExplainClick(e, item.date, item.explainReason)}
-                                                            className="inline-flex items-center gap-1 h-6 min-h-0 px-2.5 rounded-full bg-secondary-orange hover:bg-secondary-orange/90 text-white border border-secondary-orange/20 text-xxs font-extrabold active:scale-95 transition-all uppercase tracking-wider leading-none shadow-xs whitespace-nowrap cursor-pointer"
+                                                            className="history-explain-button"
                                                         >
-                                                            <span className="material-symbols-rounded text-xs leading-none">edit_document</span>
-                                                            <span>Giải trình</span>
+                                                            <span className="material-symbols-rounded" aria-hidden="true">edit_document</span>
+                                                            {item.explainStatus === 'Rejected' ? 'Gửi lại' : 'Giải trình'}
                                                         </button>
                                                     )
                                                 )}
                                             </div>
                                         </div>
 
-                                        {/* --- DÒNG THỜI GIAN (IN/OUT) --- */}
                                         {records.length > 0 && (
-                                            <div className="space-y-2">
+                                            <div className="history-day-timelines">
                                                 {records.map((rec, rIdx) => (
-                                                    <div key={rIdx} className="flex items-center justify-between bg-slate-50 dark:bg-dark-bg/50 rounded-xl p-3 px-4 border border-slate-100 dark:border-dark-border relative overflow-hidden">
-                                                        <div className="flex flex-col z-10">
-                                                            <span className="text-xxs font-extrabold text-slate-400 dark:text-dark-text-secondary uppercase tracking-widest mb-0.5">Vào {records.length > 1 ? rIdx + 1 : ''}</span>
-                                                            <span className="text-base font-bold text-slate-800 dark:text-dark-text-primary font-mono">{rec.time_in}</span>
-                                                        </div>
-
-                                                        <div className="flex-1 flex items-center justify-center px-4 relative z-10">
-                                                            <div className="w-2 h-2 rounded-full bg-slate-300 dark:bg-dark-text-secondary/50 flex-shrink-0"></div>
-                                                            <div className={`flex-1 h-0.5 border-t-2 border-dashed mx-1.5 ${!rec.time_out ? 'border-secondary-red/30 dark:border-secondary-red/30' : 'border-slate-200 dark:border-dark-border'}`}></div>
-                                                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${!rec.time_out ? 'bg-secondary-red dark:bg-secondary-red' : 'bg-slate-300 dark:bg-dark-text-secondary/50'}`}></div>
-                                                        </div>
-
-                                                        <div className="flex flex-col text-right z-10">
-                                                            <span className="text-xxs font-extrabold text-slate-400 dark:text-dark-text-secondary uppercase tracking-widest mb-0.5">Ra {records.length > 1 ? rIdx + 1 : ''}</span>
-                                                            <span className={`text-base font-bold font-mono ${!rec.time_out ? 'text-secondary-red dark:text-secondary-red' : 'text-slate-800 dark:text-dark-text-primary'}`}>
-                                                                {rec.time_out || "--:--"}
+                                                    <div key={`${item.date}-${rIdx}`} className={`ui-timeline ${rec.time_out ? '' : 'ui-timeline-broken'}`.trim()}>
+                                                        <span className="ui-timeline-end">
+                                                            <span className="ui-timeline-label">Vào {records.length > 1 ? rIdx + 1 : ''}</span>
+                                                            <span className="ui-timeline-time">{rec.time_in || '--:--'}</span>
+                                                        </span>
+                                                        <span className="ui-timeline-track" aria-hidden="true">
+                                                            <span className="ui-timeline-node" />
+                                                            <span className="ui-timeline-line" />
+                                                            <span className="ui-timeline-node ui-timeline-node-end" />
+                                                            {!rec.time_out && (
+                                                                <span className="ui-timeline-cross">
+                                                                    <span className="material-symbols-rounded">close</span>
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                        <span className="ui-timeline-end ui-timeline-end-out">
+                                                            <span className="ui-timeline-label">Ra {records.length > 1 ? rIdx + 1 : ''}</span>
+                                                            <span className={`ui-timeline-time ${rec.time_out ? '' : 'ui-timeline-time-missing'}`.trim()}>
+                                                                {rec.time_out || '--:--'}
                                                             </span>
-                                                        </div>
+                                                        </span>
                                                     </div>
                                                 ))}
                                             </div>
                                         )}
+
+                                        {hasError && !item.isExplained && (
+                                            <p className="history-day-hint">
+                                                <span className="material-symbols-rounded" aria-hidden="true">schedule</span>
+                                                Hạn giải trình: {explanationWindow.label}
+                                            </p>
+                                        )}
                                     </div>
 
-                                    {/* --- KHU VỰC MỞ RỘNG (CHI TIẾT ẨN) --- */}
                                     <AnimatePresence initial={false}>
-                                        {isExpanded && (
+                                        {isExpanded && records.length > 0 && (
                                             <motion.div
                                                 initial={{ height: 0, opacity: 0 }}
                                                 animate={{ height: 'auto', opacity: 1 }}
@@ -680,34 +702,28 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                                                 transition={{ duration: 0.2 }}
                                                 className="overflow-hidden"
                                             >
-                                                <div className="bg-slate-50/60 dark:bg-dark-bg/40 border-t border-slate-100 dark:border-dark-border">
-                                                    {records.length > 0 && (
-                                                        <div className="p-4 space-y-4">
-                                                            {records.map((rec, rIdx) => (
-                                                                <div key={rIdx} className="space-y-3 pb-3 border-b border-slate-100 dark:border-dark-border last:border-0 last:pb-0">
-                                                                    <p className="text-xxs font-bold text-primary dark:text-primary uppercase tracking-widest">Lần chấm công {records.length > 1 ? rIdx + 1 : ''}</p>
-
-                                                                    {(rec.center_id) && (
-                                                                        <div className="flex items-center gap-3 text-xs">
-                                                                            <div className="w-8 h-8 shrink-0 aspect-square rounded-full bg-slate-200/80 dark:bg-dark-border/60 flex items-center justify-center text-slate-500 dark:text-dark-text-secondary">
-                                                                                <span className="material-symbols-rounded text-sm leading-none">location_on</span>
-                                                                            </div>
-                                                                            <div className="min-w-0">
-                                                                                <p className="font-extrabold text-slate-400 dark:text-dark-text-secondary uppercase tracking-widest text-xxs mb-0.5">Trung tâm</p>
-                                                                                <p className="font-bold text-slate-700 dark:text-dark-text-primary truncate">{rec.location_name || locationsMap[rec.center_id] || rec.center_id}</p>
-                                                                            </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            ))}
+                                                <div className="ui-card-section">
+                                                    {records.map((rec, rIdx) => (
+                                                        <div key={`detail-${item.date}-${rIdx}`} className="ui-row">
+                                                            <span className="ui-row-icon ui-tone-info" aria-hidden="true">
+                                                                <span className="material-symbols-rounded">location_on</span>
+                                                            </span>
+                                                            <span className="ui-row-body">
+                                                                <span className="ui-row-label">
+                                                                    Lần chấm công {records.length > 1 ? rIdx + 1 : ''} · {rec.checkin_type}
+                                                                </span>
+                                                                <span className="ui-row-value">
+                                                                    {rec.location_name || locationsMap[rec.center_id] || rec.center_id}
+                                                                </span>
+                                                            </span>
                                                         </div>
-                                                    )}
+                                                    ))}
                                                 </div>
                                             </motion.div>
                                         )}
                                     </AnimatePresence>
-                                </div>
-                            )
+                                </section>
+                            );
                         })}
                     </div>
                 )}
@@ -715,4 +731,5 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
         </PullToRefresh>
     );
 };
+
 export default TabHistory;
