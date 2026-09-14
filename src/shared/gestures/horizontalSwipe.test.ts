@@ -10,14 +10,14 @@ import {
 } from './horizontalSwipe';
 
 const options: SwipeOptions = {
-  lockDistancePx: 12,
-  dominanceRatio: 1.25,
-  minDistancePx: 56,
-  viewportRatio: 0.16,
-  maxDistancePx: 104,
+  lockDistancePx: 6,
+  dominanceRatio: 1.3,
+  minDistancePx: 44,
+  viewportRatio: 0.12,
+  maxDistancePx: 88,
   maxDurationMs: 850,
-  minVelocityPxMs: 0.1,
-  flingVelocityPxMs: 0.45,
+  minVelocityPxMs: 0.07,
+  flingVelocityPxMs: 0.32,
   projectionMs: 180,
   longSwipeMultiplier: 1.7,
 };
@@ -33,9 +33,9 @@ describe('horizontal touch gestures', () => {
   });
 
   it('uses a bounded threshold that adapts to the viewport', () => {
-    expect(horizontalSwipeThreshold(320, options)).toBe(56);
-    expect(horizontalSwipeThreshold(600, options)).toBe(96);
-    expect(horizontalSwipeThreshold(1200, options)).toBe(104);
+    expect(horizontalSwipeThreshold(320, options)).toBe(44);
+    expect(horizontalSwipeThreshold(600, options)).toBe(72);
+    expect(horizontalSwipeThreshold(1200, options)).toBe(88);
   });
 
   it('detects deliberate left and right swipes', () => {

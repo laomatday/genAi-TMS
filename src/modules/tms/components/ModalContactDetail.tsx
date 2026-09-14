@@ -5,7 +5,7 @@ import ModalHeader from '@/shared/components/modals/ModalHeader';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { triggerHaptic } from '@/core/utils/helpers';
 import BottomNav, { TabType } from './BottomNav';
-import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
+import { useModalTabSwipe } from '@/modules/tms/hooks/useModalTabSwipe';
 
 interface Props {
     contact: Employee | null;
@@ -46,7 +46,12 @@ const ContactDetailRow: React.FC<ContactDetailRowProps> = ({ icon, tone, label, 
 const ModalContactDetail: React.FC<Props> = ({ contact, isOpen, onClose, locationsMap, empNameMap, locations, onNavigate }) => {
     const activeTab: TabType = 'contacts';
     const dialogRef = useModalAccessibility(isOpen && !!contact, onClose);
-    const swipeBackHandlers = useModalSwipeBack(onClose);
+    const { swipeHandlers: swipeBackHandlers, navigateFromModal } = useModalTabSwipe({
+        activeTab,
+        onClose,
+        onNavigate,
+        surfaceRef: dialogRef,
+    });
 
     const contactAddress = useMemo(() => {
         if (!contact) return '';
@@ -184,10 +189,7 @@ const ModalContactDetail: React.FC<Props> = ({ contact, isOpen, onClose, locatio
 
             <BottomNav
                 activeTab={activeTab}
-                onChange={(t) => {
-                    triggerHaptic('light');
-                    onNavigate(t);
-                }}
+                onChange={navigateFromModal}
             />
         </div>
     );

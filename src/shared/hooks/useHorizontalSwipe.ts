@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type TouchEventHandler } from 'react';
+import { useCallback, useEffect, useRef, type MouseEventHandler, type TouchEventHandler } from 'react';
 import { TMS_LIMITS } from '@/shared/constants';
 import {
   detectHorizontalSwipe,
@@ -31,6 +31,7 @@ interface ActiveGesture {
 }
 
 export interface HorizontalSwipeHandlers {
+  onClickCapture: MouseEventHandler<HTMLElement>;
   onTouchStart: TouchEventHandler<HTMLElement>;
   onTouchMove: TouchEventHandler<HTMLElement>;
   onTouchEnd: TouchEventHandler<HTMLElement>;
@@ -57,6 +58,8 @@ export function useHorizontalSwipe({
   const shouldStartRef = useRef(shouldStart);
   const canSwipeRef = useRef(canSwipe);
   const finishTimerRef = useRef<number | null>(null);
+  const clickSuppressionTimerRef = useRef<number | null>(null);
+  const suppressClickRef = useRef(false);
   onSwipeRef.current = onSwipe;
   shouldStartRef.current = shouldStart;
   canSwipeRef.current = canSwipe;
@@ -66,6 +69,14 @@ export function useHorizontalSwipe({
       window.clearTimeout(finishTimerRef.current);
       finishTimerRef.current = null;
     }
+  }, []);
+
+  const clearClickSuppression = useCallback(() => {
+    if (clickSuppressionTimerRef.current !== null) {
+      window.clearTimeout(clickSuppressionTimerRef.current);
+      clickSuppressionTimerRef.current = null;
+    }
+    suppressClickRef.current = false;
   }, []);
 
   const clearSurface = useCallback((surface?: HTMLElement | null) => {
@@ -90,8 +101,9 @@ export function useHorizontalSwipe({
 
   useEffect(() => () => {
     clearFinishTimer();
+    clearClickSuppression();
     clearSurface(gestureRef.current?.boundary);
-  }, [clearFinishTimer, clearSurface]);
+  }, [clearClickSuppression, clearFinishTimer, clearSurface]);
 
   const onTouchStart = useCallback<TouchEventHandler<HTMLElement>>((event) => {
     if (disabled || event.touches.length !== 1) {
@@ -110,6 +122,7 @@ export function useHorizontalSwipe({
     }
     const start = pointFromTouch(touch, event.timeStamp);
     clearFinishTimer();
+    clearClickSuppression();
     clearSurface(boundary);
     gestureRef.current = {
       start,
@@ -119,7 +132,7 @@ export function useHorizontalSwipe({
       boundary,
       width: boundary.clientWidth || window.innerWidth,
     };
-  }, [clearFinishTimer, clearSurface, disabled, reset]);
+  }, [clearClickSuppression, clearFinishTimer, clearSurface, disabled, reset]);
 
   const onTouchMove = useCallback<TouchEventHandler<HTMLElement>>((event) => {
     const gesture = gestureRef.current;
@@ -145,6 +158,12 @@ export function useHorizontalSwipe({
     if (gesture.axis === 'horizontal') {
       event.preventDefault();
       event.stopPropagation();
+      suppressClickRef.current = true;
+      if (clickSuppressionTimerRef.current !== null) window.clearTimeout(clickSuppressionTimerRef.current);
+      clickSuppressionTimerRef.current = window.setTimeout(
+        clearClickSuppression,
+        TMS_LIMITS.SWIPE_CLICK_SUPPRESSION_MS,
+      );
       const movementX = gesture.last.x - gesture.start.x;
       const direction: HorizontalSwipeDirection = movementX < 0 ? 'left' : 'right';
       const allowed = canSwipeRef.current?.(direction) ?? true;
@@ -152,7 +171,7 @@ export function useHorizontalSwipe({
       gesture.boundary.dataset.swipePhase = 'dragging';
       gesture.boundary.style.setProperty('--swipe-offset-x', `${visualOffset}px`);
     }
-  }, [disabled, reset]);
+  }, [clearClickSuppression, disabled, reset]);
 
   const onTouchEnd = useCallback<TouchEventHandler<HTMLElement>>((event) => {
     const gesture = gestureRef.current;
@@ -218,5 +237,12 @@ export function useHorizontalSwipe({
     if (!accepted) return;
   }, [clearFinishTimer, clearSurface, completeBeforeSwipe, disabled, minDistancePx, reset, viewportRatio]);
 
-  return { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel: reset };
+  const onClickCapture = useCallback<MouseEventHandler<HTMLElement>>((event) => {
+    if (!suppressClickRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    clearClickSuppression();
+  }, [clearClickSuppression]);
+
+  return { onClickCapture, onTouchStart, onTouchMove, onTouchEnd, onTouchCancel: reset };
 }

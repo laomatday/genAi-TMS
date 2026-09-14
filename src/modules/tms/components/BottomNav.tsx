@@ -24,6 +24,12 @@ const NAV_ITEMS: Array<{ name: TabType; icon: string; label: string }> = [
 
 export const EMPLOYEE_NAV_TABS = NAV_ITEMS.map(({ name }) => name);
 
+export function adjacentEmployeeTab(activeTab: TabType, direction: HorizontalSwipeDirection) {
+  const currentIndex = EMPLOYEE_NAV_TABS.indexOf(activeTab);
+  if (currentIndex < 0) return null;
+  return EMPLOYEE_NAV_TABS[currentIndex + (direction === 'left' ? 1 : -1)] ?? null;
+}
+
 const NavItem = ({ name, icon, label, activeTab, onChange }: {
   name: TabType;
   icon: string;

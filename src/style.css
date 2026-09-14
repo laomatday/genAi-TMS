@@ -128,8 +128,8 @@
   --app-page-bottom: calc(var(--app-nav-height) + var(--space-12) + env(safe-area-inset-bottom));
   --app-page-swipe-forward: 100%;
   --app-page-swipe-backward: -100%;
-  --swipe-snap-duration: 220ms;
-  --swipe-commit-duration: 180ms;
+  --swipe-snap-duration: 180ms;
+  --swipe-commit-duration: 150ms;
   --swipe-snap-easing: cubic-bezier(0.22, 1, 0.36, 1);
   --motion-fast: 150ms ease;
   --motion-base: 200ms ease;

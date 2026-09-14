@@ -8,7 +8,7 @@ import { useModalAccessibility } from '@/shared/components/modals/useModalAccess
 import { useListboxNavigation } from '@/shared/components/common/useListboxNavigation';
 import BottomNav, { TabType } from './BottomNav';
 import { TMS_LIMITS } from '@/shared/constants';
-import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
+import { useModalTabSwipe } from '@/modules/tms/hooks/useModalTabSwipe';
 
 interface Props {
     isOpen: boolean;
@@ -65,7 +65,13 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
     const checkoutRef = useRef<HTMLInputElement>(null);
     const initializedForOpenRef = useRef(false);
     const dialogRef = useModalAccessibility(isOpen, onClose, { closeOnEscape: !loading });
-    const swipeBackHandlers = useModalSwipeBack(onClose, loading || confirmDialog.isOpen);
+    const { swipeHandlers: swipeBackHandlers, navigateFromModal } = useModalTabSwipe({
+        activeTab,
+        onClose,
+        onNavigate,
+        surfaceRef: dialogRef,
+        disabled: loading || confirmDialog.isOpen,
+    });
     const dateListbox = useListboxNavigation({
         isOpen: isDropdownOpen,
         optionCount: explainableItems.length,
@@ -484,10 +490,7 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
 
                 <BottomNav
                     activeTab={activeTab}
-                    onChange={(t) => {
-                        triggerHaptic('light');
-                        onNavigate(t);
-                    }}
+                    onChange={navigateFromModal}
                 />
             </div>
 
