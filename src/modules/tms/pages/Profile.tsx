@@ -498,75 +498,91 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
             </div>
 
             {showPwdModal && (
-                <div className="fixed inset-0 z-50 bg-slate-900/60 dark:bg-dark-bg/80 backdrop-blur-sm flex items-center justify-center p-6 animate-fade-in">
-                    <div ref={passwordDialogRef} tabIndex={-1} className="bg-white dark:bg-dark-surface w-full max-w-sm rounded-2xl p-6 border border-slate-100 dark:border-dark-border shadow-2xl animate-scale-in" role="dialog" aria-modal="true" aria-labelledby="profile-password-dialog-title" aria-describedby="profile-password-dialog-description" aria-busy={loadingPwd}>
-                        <div className="text-center mb-6">
-                            <div className="w-16 h-16 bg-secondary-yellow/10 dark:bg-secondary-yellow/20 text-secondary-yellow border border-secondary-yellow/20 dark:border-secondary-yellow/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <span className="material-symbols-rounded text-3xl">lock</span>
+                <div className="confirm-backdrop animate-fade-in">
+                    <section
+                        ref={passwordDialogRef}
+                        tabIndex={-1}
+                        className="confirm-dialog animate-scale-in"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="profile-password-dialog-title"
+                        aria-describedby="profile-password-dialog-description"
+                        aria-busy={loadingPwd}
+                    >
+                        <div className="confirm-content">
+                            <div className="confirm-icon confirm-icon-warning">
+                                <span className="material-symbols-rounded" aria-hidden="true">lock_reset</span>
                             </div>
-                            <h3 id="profile-password-dialog-title" className="text-xl font-bold text-slate-800 dark:text-dark-text-primary">Đổi mật khẩu</h3>
-                            <p id="profile-password-dialog-description" className="text-xs text-slate-500 dark:text-dark-text-secondary font-bold mt-1 uppercase tracking-wide">Cập nhật mật khẩu bảo vệ tài khoản</p>
+                            <h3 id="profile-password-dialog-title">Đổi mật khẩu</h3>
+                            <p id="profile-password-dialog-description" className="confirm-message">
+                                Mật khẩu mới áp dụng cho lần đăng nhập tiếp theo trên mọi thiết bị.
+                            </p>
+
+                            <div className="confirm-form ui-form">
+                                <div className="ui-field">
+                                    <label className="ui-field-label ui-field-label-required" htmlFor="profile-current-password">Mật khẩu hiện tại</label>
+                                    <input
+                                        id="profile-current-password"
+                                        type="password"
+                                        autoComplete="current-password"
+                                        className="ui-control"
+                                        placeholder="••••••••"
+                                        value={passData.old}
+                                        onChange={e => setPassData({ ...passData, old: e.target.value })}
+                                    />
+                                </div>
+
+                                <div className="ui-field">
+                                    <label className="ui-field-label ui-field-label-required" htmlFor="profile-new-password">Mật khẩu mới</label>
+                                    <input
+                                        id="profile-new-password"
+                                        type="password"
+                                        autoComplete="new-password"
+                                        aria-describedby="profile-new-password-hint"
+                                        className="ui-control"
+                                        placeholder="••••••••"
+                                        value={passData.new}
+                                        onChange={e => setPassData({ ...passData, new: e.target.value })}
+                                    />
+                                    <span id="profile-new-password-hint" className="ui-field-foot">
+                                        <span>Ít nhất 6 ký tự.</span>
+                                    </span>
+                                </div>
+
+                                <div className="ui-field">
+                                    <label className="ui-field-label ui-field-label-required" htmlFor="profile-confirm-password">Xác nhận mật khẩu</label>
+                                    <input
+                                        id="profile-confirm-password"
+                                        type="password"
+                                        autoComplete="new-password"
+                                        className={`ui-control ${passData.confirm && passData.confirm !== passData.new ? 'ui-control-invalid' : ''}`.trim()}
+                                        placeholder="••••••••"
+                                        value={passData.confirm}
+                                        onChange={e => setPassData({ ...passData, confirm: e.target.value })}
+                                    />
+                                    {passData.confirm && passData.confirm !== passData.new ? (
+                                        <p className="ui-field-error">
+                                            <span className="material-symbols-rounded" aria-hidden="true">error</span>
+                                            Hai mật khẩu chưa khớp nhau.
+                                        </p>
+                                    ) : null}
+                                </div>
+                            </div>
                         </div>
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="input-label" htmlFor="profile-current-password">Mật khẩu hiện tại</label>
-                                <input
-                                    id="profile-current-password"
-                                    type="password"
-                                    autoComplete="current-password"
-                                    className="input-field"
-                                    placeholder="••••••••"
-                                    value={passData.old}
-                                    onChange={e => setPassData({ ...passData, old: e.target.value })}
-                                />
-                            </div>
-                            <div>
-                                <label className="input-label" htmlFor="profile-new-password">Mật khẩu mới</label>
-                                <input
-                                    id="profile-new-password"
-                                    type="password"
-                                    autoComplete="new-password"
-                                    aria-describedby="profile-new-password-hint"
-                                    className="input-field"
-                                    placeholder="••••••••"
-                                    value={passData.new}
-                                    onChange={e => setPassData({ ...passData, new: e.target.value })}
-                                />
-                                <p id="profile-new-password-hint" className="mt-1.5 text-xs text-slate-500 dark:text-dark-text-secondary">Ít nhất 6 ký tự.</p>
-                            </div>
-                            <div>
-                                <label className="input-label" htmlFor="profile-confirm-password">Xác nhận mật khẩu</label>
-                                <input
-                                    id="profile-confirm-password"
-                                    type="password"
-                                    autoComplete="new-password"
-                                    className="input-field"
-                                    placeholder="••••••••"
-                                    value={passData.confirm}
-                                    onChange={e => setPassData({ ...passData, confirm: e.target.value })}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex gap-3 mt-8">
-                            <button
-                                type="button"
-                                onClick={() => setShowPwdModal(false)}
-                                className="flex-1 py-3.5 bg-slate-100 dark:bg-dark-border/50 text-slate-600 dark:text-dark-text-primary font-bold text-sm rounded-2xl hover:bg-slate-200 dark:hover:bg-dark-border transition-colors uppercase tracking-wide cursor-pointer"
-                            >
+                        <div className="confirm-actions">
+                            <button type="button" onClick={() => setShowPwdModal(false)} disabled={loadingPwd} className="ui-button ui-button-quiet">
                                 Hủy
                             </button>
-                            <button
-                                type="button"
-                                onClick={handleUpdatePassword}
-                                disabled={loadingPwd}
-                                className="app-interactive-card flex-1 py-3.5 bg-primary text-neutral-white font-bold text-sm rounded-2xl hover:bg-primary/90 transition-all disabled:opacity-70 disabled:active:scale-100 uppercase tracking-wide flex items-center justify-center gap-2 cursor-pointer"
-                            >
-                                {loadingPwd ? <span className="material-symbols-rounded animate-spin">progress_activity</span> : 'Lưu thay đổi'}
+                            <button type="button" onClick={handleUpdatePassword} disabled={loadingPwd} className="ui-cta">
+                                {loadingPwd ? (
+                                    <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span>
+                                ) : (
+                                    'Lưu thay đổi'
+                                )}
                             </button>
                         </div>
-                    </div>
+                    </section>
                 </div>
             )}
 

@@ -9,7 +9,7 @@ const PORTAL_OPTIONS = [
     icon: 'schedule',
     eyebrow: 'Cá nhân',
     title: 'Chấm công',
-    description: 'Chấm công, xem lịch sử và gửi yêu cầu cá nhân.',
+    description: 'Chấm công, xem lịch sử và gửi đề xuất cá nhân.',
     tone: 'attendance',
   },
   {

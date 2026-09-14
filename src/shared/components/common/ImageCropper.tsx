@@ -108,9 +108,9 @@ export default function ImageCropper({ imageSrc, onCancel, onCropComplete }: Pro
   } as CSSProperties : undefined;
 
   return (
-    <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-50 bg-neutral-black/95 dark:bg-dark-bg/95 backdrop-blur-md flex flex-col animate-fade-in touch-none" role="dialog" aria-modal="true" aria-labelledby="image-crop-title" aria-busy={isUploading}>
-      <div className="flex-1 flex flex-col items-center justify-center relative w-full">
-        <h2 id="image-crop-title" className="text-neutral-white font-black text-xl absolute top-20 pointer-events-none">Cắt ảnh đại diện</h2>
+    <div ref={dialogRef} tabIndex={-1} className="crop-screen animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="image-crop-title" aria-busy={isUploading}>
+      <div className="crop-stage">
+        <h2 id="image-crop-title" className="crop-title">Cắt ảnh đại diện</h2>
         <div className="image-crop-viewport relative z-20">
           <div
             className="absolute inset-0 z-30 cursor-move"
@@ -119,7 +119,7 @@ export default function ImageCropper({ imageSrc, onCancel, onCropComplete }: Pro
             onPointerUp={handlePointerEnd}
             onPointerCancel={handlePointerEnd}
           />
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
+          <div className="crop-frame">
             <img
               ref={imageRef}
               src={imageSrc}
@@ -133,16 +133,16 @@ export default function ImageCropper({ imageSrc, onCancel, onCropComplete }: Pro
         </div>
 
         {isUploading ? (
-          <div className="absolute inset-0 z-40 bg-neutral-black/70 flex flex-col items-center justify-center backdrop-blur-sm">
-            <span className="material-symbols-rounded text-primary text-5xl animate-spin">progress_activity</span>
-            <p className="text-neutral-white font-bold tracking-widest uppercase mt-4">Đang tải ảnh lên...</p>
+          <div className="crop-uploading">
+            <span className="material-symbols-rounded ui-spin crop-uploading-icon" aria-hidden="true">progress_activity</span>
+            <p className="crop-uploading-text">Đang tải ảnh lên…</p>
           </div>
         ) : null}
       </div>
 
-      <div className="bg-neutral-white dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border pb-safe pt-6 px-6 z-40 w-full rounded-t-xl">
-        <label className="flex items-center gap-4 justify-center mb-6 px-2">
-          <span className="material-symbols-rounded text-slate-400 dark:text-dark-text-secondary text-xl">image</span>
+      <div className="crop-panel">
+        <label className="crop-zoom">
+          <span className="material-symbols-rounded crop-zoom-small" aria-hidden="true">image</span>
           <span className="sr-only">Thu phóng ảnh</span>
           <input
             type="range"
@@ -152,16 +152,16 @@ export default function ImageCropper({ imageSrc, onCancel, onCropComplete }: Pro
             value={zoom}
             disabled={isUploading}
             onChange={(event) => setZoom(Number(event.target.value))}
-            className="w-full h-1.5 bg-slate-200 dark:bg-dark-border rounded-lg appearance-none cursor-pointer accent-primary disabled:opacity-50"
+            className="crop-zoom-range"
           />
-          <span className="material-symbols-rounded text-neutral-black dark:text-dark-text-primary text-3xl">image</span>
+          <span className="material-symbols-rounded crop-zoom-large" aria-hidden="true">image</span>
         </label>
-        <div className="flex gap-4 mb-4">
-          <button type="button" onClick={onCancel} disabled={isUploading} className="flex-1 py-4 bg-slate-100 dark:bg-dark-border/50 hover:dark:bg-dark-border text-slate-600 dark:text-dark-text-primary rounded-xl font-extrabold text-base active:scale-95 transition-all disabled:opacity-50 uppercase tracking-widest">
+        <div className="crop-actions">
+          <button type="button" onClick={onCancel} disabled={isUploading} className="ui-button ui-button-quiet">
             Hủy
           </button>
-          <button type="button" onClick={() => void handleConfirmCrop()} disabled={!imageLoaded || isUploading} className="flex-1 py-4 bg-primary text-neutral-white rounded-xl font-extrabold text-base active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-3 uppercase tracking-widest shadow-lg shadow-primary/30">
-            {isUploading ? <span className="material-symbols-rounded animate-spin">progress_activity</span> : 'Lưu ảnh'}
+          <button type="button" onClick={() => void handleConfirmCrop()} disabled={!imageLoaded || isUploading} className="ui-cta">
+            {isUploading ? <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span> : 'Lưu ảnh'}
           </button>
         </div>
       </div>

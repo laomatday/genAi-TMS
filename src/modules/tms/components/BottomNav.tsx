@@ -12,11 +12,13 @@ interface Props {
   onChange: (tab: TabType) => void;
 }
 
+/** Labels must match the header title for the same tab (see TAB_IDENTITY in
+ *  Header.tsx) — they are the accessible name for an icon-only control. */
 const NAV_ITEMS: Array<{ name: TabType; icon: string; label: string }> = [
   { name: 'home', icon: 'home', label: 'Trang chủ' },
-  { name: 'history', icon: 'history', label: 'Công' },
-  { name: 'requests', icon: 'description', label: 'Yêu cầu' },
-  { name: 'calendar', icon: 'calendar_month', label: 'Lịch' },
+  { name: 'history', icon: 'history', label: 'Chấm công' },
+  { name: 'requests', icon: 'description', label: 'Đề xuất' },
+  { name: 'calendar', icon: 'calendar_month', label: 'Lịch làm việc' },
   { name: 'contacts', icon: 'group', label: 'Danh bạ' },
 ];
 
@@ -38,7 +40,7 @@ const NavItem = ({ name, icon, label, activeTab, onChange }: {
       aria-current={isActive ? 'page' : undefined}
       title={label}
       onClick={() => onChange(name)}
-      className={`app-nav-item flex flex-col items-center justify-center gap-0.5 ${isActive ? 'app-nav-item-selected' : ''}`.trim()}
+      className={`app-nav-item ${isActive ? 'app-nav-item-selected' : ''}`.trim()}
     >
       <span className="app-nav-icon">
         {isActive && (
@@ -50,14 +52,6 @@ const NavItem = ({ name, icon, label, activeTab, onChange }: {
           />
         )}
         <span className="material-symbols-rounded" aria-hidden="true">{icon}</span>
-      </span>
-      <span
-        className={`max-w-[4.25rem] truncate text-[10px] font-semibold leading-none transition-colors lg:hidden ${
-          isActive ? 'text-primary' : 'text-slate-500 dark:text-slate-400'
-        }`}
-        aria-hidden="true"
-      >
-        {label}
       </span>
     </button>
   );

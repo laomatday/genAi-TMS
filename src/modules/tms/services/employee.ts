@@ -574,8 +574,8 @@ export async function submitRequest(input: SubmitRequestInput) {
       },
     });
     if (error) throw error;
-    if (!data || typeof data !== 'object' || (data as DataRow).ok !== true) throw new Error('Không gửi được yêu cầu.');
-    return ok('Gửi yêu cầu thành công!');
+    if (!data || typeof data !== 'object' || (data as DataRow).ok !== true) throw new Error('Không gửi được đề xuất.');
+    return ok('Gửi đề xuất thành công!');
   } catch (error) {
     return err(error);
   }
@@ -607,7 +607,7 @@ async function requestRevision(id: string) {
     .eq('id', id)
     .maybeSingle();
   if (error) throw error;
-  if (!data) throw new Error('Yêu cầu không còn tồn tại hoặc ngoài phạm vi của bạn.');
+  if (!data) throw new Error('Đề xuất không còn tồn tại hoặc ngoài phạm vi của bạn.');
   return numberValue(data.revision, 0);
 }
 
@@ -618,13 +618,13 @@ async function cancelRequest(id: string) {
     p_args: { id, revision },
   });
   if (error) throw error;
-  if (!data || typeof data !== 'object' || (data as DataRow).ok !== true) throw new Error('Không hủy được yêu cầu.');
+  if (!data || typeof data !== 'object' || (data as DataRow).ok !== true) throw new Error('Không thu hồi được đề xuất.');
 }
 
 export async function deleteRequest(id: string) {
   try {
     await cancelRequest(id);
-    return ok('Đã hủy yêu cầu!');
+    return ok('Đã thu hồi đề xuất!');
   } catch (error) {
     return err(error);
   }
@@ -633,7 +633,7 @@ export async function deleteRequest(id: string) {
 export async function deleteExplanation(id: string) {
   try {
     await cancelRequest(id);
-    return ok('Đã hủy giải trình!');
+    return ok('Đã thu hồi giải trình!');
   } catch (error) {
     return err(error);
   }
@@ -647,7 +647,7 @@ async function reviewRequest(id: string, status: DecisionStatus, note: string) {
     p_args: { id, revision, decision, note },
   });
   if (error) throw error;
-  if (!data || typeof data !== 'object' || (data as DataRow).ok !== true) throw new Error('Không xử lý được yêu cầu.');
+  if (!data || typeof data !== 'object' || (data as DataRow).ok !== true) throw new Error('Không xử lý được đề xuất.');
 }
 
 export async function processRequest(id: string, status: DecisionStatus, note: string) {

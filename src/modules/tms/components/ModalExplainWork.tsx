@@ -25,33 +25,24 @@ interface ExplanationFormErrors {
     reason?: string;
 }
 
-const ReasonBadge = ({ reason }: { reason: string }) => {
-    let variantClass = 'badge-secondary';
-    if (reason.includes('Vắng') || reason.includes('Quên') || reason.includes('vi phạm')) {
-        variantClass = 'badge-error';
-    } else if (reason.includes('Trễ')) {
-        variantClass = 'badge-warning';
-    } else if (reason.includes('sớm') || reason.includes('lễ') || reason.includes('phép')) {
-        variantClass = 'badge-info';
-    }
+const REASON_MAX_LENGTH = 500;
 
-    return (
-        <span className={`badge ${variantClass}`}>
-            {reason}
-        </span>
-    );
-};
+/** An attendance flag carries its severity in its wording; the pill tone follows. */
+function flagTone(reason: string) {
+    if (reason.includes('Vắng') || reason.includes('Quên') || reason.includes('vi phạm')) return 'danger';
+    if (reason.includes('Trễ')) return 'warning';
+    if (reason.includes('sớm') || reason.includes('lễ') || reason.includes('phép')) return 'info';
+    return 'muted';
+}
 
-const ReasonDisplay = ({ reasons }: { reasons: string }) => {
-    const reasonList = reasons.split(', ').map(r => r.trim());
-    return (
-        <div className="flex items-center gap-2 flex-wrap">
-            {reasonList.map((reason, index) => (
-                <ReasonBadge key={index} reason={reason} />
-            ))}
-        </div>
-    );
-};
+const ReasonDisplay = ({ reasons }: { reasons: string }) => (
+    <>
+        {reasons.split(', ').map((reason, index) => {
+            const label = reason.trim();
+            return <span key={`${label}-${index}`} className={`ui-pill ui-pill-${flagTone(label)}`}>{label}</span>;
+        })}
+    </>
+);
 
 const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert, initialData, explainableItems, onNavigate, data }) => {
     const [selectedDate, setSelectedDate] = useState(initialData?.date || '');
@@ -230,13 +221,19 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
     if (!isOpen) return null;
 
     const selectedItem = selectedDate ? explainableItems.find(i => i.date === selectedDate) : null;
+    const firstError = formErrors.date || formErrors.reason || '';
+    const quotaTone = monthExplanationsCount >= maxPerMonth
+        ? 'ui-field-foot-danger'
+        : monthExplanationsCount >= maxPerMonth - 1
+            ? 'ui-field-foot-warning'
+            : '';
 
     return (
         <>
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="app-modal-screen animate-slide-up transition-colors duration-300"
+                className="app-modal-screen app-modal-screen-solid animate-slide-up transition-colors duration-300"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="explain-work-title"
@@ -244,148 +241,174 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
             >
                 <div className="app-modal-header-layer">
                     <ModalHeader
+                        title="Giải trình công"
+                        subtitle={`Còn ${Math.max(0, maxPerMonth - monthExplanationsCount)}/${maxPerMonth} lượt trong tháng`}
                         onClose={() => { triggerHaptic('light'); onClose(); }}
-                        bgClass="bg-transparent border-none"
                     />
                 </div>
 
-                <div className="app-modal-content no-scrollbar"
+                <div
+                    className="app-modal-content no-scrollbar"
                     onTouchStart={onTouchStart}
                     onTouchMove={onTouchMove}
-                    onTouchEnd={onTouchEnd}>
-                    <div className="animate-fade-in mt-4">
-                        <div className="app-surface app-form-hero">
-                            <div className="app-hero-tint app-hero-tint-warning" aria-hidden="true"></div>
+                    onTouchEnd={onTouchEnd}
+                >
+                    <div className="ui-stack animate-fade-in">
+                        {/* What this sheet is for ------------------------- */}
+                        <section className="ui-sheet-hero ui-sheet-hero-teal">
+                            <span className="ui-sheet-hero-icon" aria-hidden="true">
+                                <span className="material-symbols-rounded">edit_document</span>
+                            </span>
+                            <span className="ui-sheet-hero-body">
+                                <span id="explain-work-title" className="ui-sheet-hero-title">Bổ sung dữ liệu chấm công</span>
+                                <span className="ui-sheet-hero-sub">Chọn ngày bị đánh dấu lỗi và nêu lý do để quản lý đối soát.</span>
+                            </span>
+                        </section>
 
-                            <div className="relative z-10 flex flex-col items-center">
-                                <div className="w-28 h-28 rounded-full p-1.5 bg-white dark:bg-dark-surface mb-4 mt-2 relative transition-colors">
-                                    <div className="w-full h-full rounded-full bg-secondary-orange/10 dark:bg-secondary-orange/20 flex items-center justify-center border border-secondary-orange/20 dark:border-secondary-orange/30 text-secondary-orange dark:text-secondary-orange">
-                                        <span className="material-symbols-rounded text-5xl ml-1">edit_document</span>
-                                    </div>
-                                </div>
-                                <h2 id="explain-work-title" className="text-2xl font-black text-slate-900 dark:text-dark-text-primary leading-tight">Giải Trình Công</h2>
-                                <p className="text-xs text-slate-500 dark:text-dark-text-secondary font-bold mt-2 uppercase tracking-wide">Bổ sung thông tin chấm công</p>
+                        {/* The form --------------------------------------- */}
+                        <div>
+                            <div className="ui-label-row">
+                                <span className="ui-label">Thông tin giải trình</span>
+                                <span className="ui-label">{explainableItems.length} ngày cần xử lý</span>
                             </div>
-                        </div>
 
-                        <h3 className="app-section-title app-section-title-spaced">
-                            <span className="material-symbols-rounded" aria-hidden="true">fact_check</span>
-                            Thông tin chi tiết
-                        </h3>
+                            <section className="ui-card ui-card-form ui-card-pad">
+                                <p className="sr-only" role="alert" aria-live="assertive">{firstError}</p>
 
-                        <div className="app-surface app-form-card space-y-6">
-                            <p className="sr-only" role="alert" aria-live="assertive">
-                                {formErrors.date || formErrors.reason || ''}
-                            </p>
+                                <div className="ui-form">
+                                    <div className="ui-field">
+                                        <label className="ui-field-label ui-field-label-required" htmlFor="explain-date-trigger">Ngày cần giải trình</label>
+                                        <button
+                                            ref={dateListbox.triggerRef}
+                                            id="explain-date-trigger"
+                                            type="button"
+                                            onClick={() => { triggerHaptic('light'); setIsDropdownOpen((open) => !open); }}
+                                            onKeyDown={dateListbox.handleTriggerKeyDown}
+                                            className={`ui-control ${formErrors.date ? 'ui-control-invalid' : ''}`.trim()}
+                                            aria-haspopup="listbox"
+                                            aria-expanded={isDropdownOpen}
+                                            aria-controls="explain-date-options"
+                                            aria-invalid={!!formErrors.date}
+                                            aria-describedby={formErrors.date ? 'explain-date-error' : undefined}
+                                            data-modal-escape-layer={isDropdownOpen ? 'true' : undefined}
+                                        >
+                                            {selectedItem ? (
+                                                <>
+                                                    <span className="ui-control-value">{formatDateString(selectedDate)}</span>
+                                                    <span className="ui-control-flags"><ReasonDisplay reasons={selectedItem.explainReason} /></span>
+                                                </>
+                                            ) : (
+                                                <span className="ui-control-value ui-control-placeholder">Chọn ngày…</span>
+                                            )}
+                                            <span className={`material-symbols-rounded ui-control-chevron ${isDropdownOpen ? 'ui-control-chevron-open' : ''}`.trim()} aria-hidden="true">expand_more</span>
+                                        </button>
 
-                            <div className="relative">
-                                <label className="input-label" htmlFor="explain-date-trigger">Chọn ngày cần giải trình</label>
-                                <button
-                                    ref={dateListbox.triggerRef}
-                                    id="explain-date-trigger"
-                                    type="button"
-                                    onClick={() => { triggerHaptic('light'); setIsDropdownOpen((open) => !open); }}
-                                    onKeyDown={dateListbox.handleTriggerKeyDown}
-                                    className={`button-select justify-between w-full cursor-pointer ${formErrors.date ? 'border-secondary-red' : ''}`}
-                                    aria-haspopup="listbox"
-                                    aria-expanded={isDropdownOpen}
-                                    aria-controls="explain-date-options"
-                                    aria-invalid={!!formErrors.date}
-                                    aria-describedby={formErrors.date ? 'explain-date-error' : undefined}
-                                    data-modal-escape-layer={isDropdownOpen ? 'true' : undefined}
-                                >
-                                    <div className="text-left flex-1 flex items-center gap-3">
-                                        {selectedItem ? (
-                                            <>
-                                                <ReasonDisplay reasons={selectedItem.explainReason} />
-                                                <span className="app-detail-text block text-slate-900 dark:text-dark-text-primary font-bold ml-auto">
-                                                    {formatDateString(selectedDate)}
-                                                </span>
-                                            </>
-                                        ) : (
-                                            <span className="app-detail-text text-slate-400 dark:text-dark-text-secondary">Chọn ngày...</span>
+                                        {formErrors.date ? (
+                                            <p id="explain-date-error" className="ui-field-error">
+                                                <span className="material-symbols-rounded" aria-hidden="true">error</span>
+                                                {formErrors.date}
+                                            </p>
+                                        ) : selectedDate ? (
+                                            <span className="ui-field-foot">
+                                                <span className={quotaTone}>Hạn mức tháng {selectedDate.slice(5, 7)}: {monthExplanationsCount}/{maxPerMonth} đơn</span>
+                                                {isPastMonthSelected ? <span className="ui-field-foot-warning">Tháng trước · hạn chót ngày {lockDate}</span> : null}
+                                            </span>
+                                        ) : null}
+
+                                        {isDropdownOpen && (
+                                            <div
+                                                id="explain-date-options"
+                                                role="listbox"
+                                                aria-label="Ngày cần giải trình"
+                                                data-modal-escape-layer="true"
+                                                className="ui-menu animate-fade-in"
+                                            >
+                                                {explainableItems.length === 0 ? (
+                                                    <p className="ui-menu-empty">Không có ngày nào cần giải trình</p>
+                                                ) : (
+                                                    explainableItems.map((item, index) => {
+                                                        const isSelected = selectedDate === item.date;
+                                                        return (
+                                                            <button
+                                                                ref={dateListbox.registerOption(index)}
+                                                                type="button"
+                                                                key={item.date}
+                                                                role="option"
+                                                                aria-selected={isSelected}
+                                                                onClick={() => handleDateSelect(item.date, item.explainReason || '')}
+                                                                onKeyDown={(event) => dateListbox.handleOptionKeyDown(event, index)}
+                                                                className={`ui-menu-item ${isSelected ? 'ui-menu-item-active' : ''}`.trim()}
+                                                            >
+                                                                <span className="ui-menu-item-date">{formatDateString(item.date)}</span>
+                                                                <span className="ui-menu-item-flags">
+                                                                    <ReasonDisplay reasons={item.explainReason} />
+                                                                </span>
+                                                                {isSelected ? <span className="material-symbols-rounded" aria-hidden="true">check</span> : null}
+                                                            </button>
+                                                        );
+                                                    })
+                                                )}
+                                            </div>
                                         )}
                                     </div>
-                                    <span className={`material-symbols-rounded text-slate-400 dark:text-dark-text-secondary text-xl transition-transform duration-200 ml-3 ${isDropdownOpen ? 'rotate-180' : ''}`} aria-hidden="true">expand_more</span>
-                                </button>
-                                {formErrors.date ? <p id="explain-date-error" className="mt-1.5 text-xs font-semibold text-secondary-red">{formErrors.date}</p> : null}
 
-                                {selectedDate && (
-                                    <div className="mt-2 flex items-center justify-between text-xxs font-semibold">
-                                        <span className={monthExplanationsCount >= maxPerMonth ? 'text-secondary-red font-bold' : monthExplanationsCount >= maxPerMonth - 1 ? 'text-secondary-yellow font-bold' : 'text-slate-400 dark:text-dark-text-secondary'}>
-                                            Hạn mức tháng {selectedDate.slice(5, 7)}: {monthExplanationsCount}/{maxPerMonth} đơn
-                                        </span>
-                                        {isPastMonthSelected && (
-                                            <span className="text-secondary-yellow dark:text-secondary-yellow font-bold">
-                                                (Tháng trước · Hạn chót ngày {lockDate})
+                                    <div className="ui-field">
+                                        <label className="ui-field-label ui-field-label-required" htmlFor="explain-reason-textarea">Lý do giải trình</label>
+                                        <textarea
+                                            ref={reasonRef}
+                                            id="explain-reason-textarea"
+                                            required
+                                            maxLength={REASON_MAX_LENGTH}
+                                            className={`ui-control ${formErrors.reason ? 'ui-control-invalid' : ''}`.trim()}
+                                            placeholder="Mô tả điều đã xảy ra trong ngày này…"
+                                            value={reason}
+                                            onChange={e => {
+                                                setReason(e.target.value);
+                                                setFormErrors((current) => ({ ...current, reason: undefined }));
+                                            }}
+                                            aria-invalid={!!formErrors.reason}
+                                            aria-describedby={formErrors.reason ? 'explain-reason-error' : undefined}
+                                        />
+                                        {formErrors.reason ? (
+                                            <p id="explain-reason-error" className="ui-field-error">
+                                                <span className="material-symbols-rounded" aria-hidden="true">error</span>
+                                                {formErrors.reason}
+                                            </p>
+                                        ) : (
+                                            <span className="ui-field-foot">
+                                                <span>Nội dung này đi kèm đơn khi quản lý duyệt.</span>
+                                                <span>{reason.length}/{REASON_MAX_LENGTH}</span>
                                             </span>
                                         )}
                                     </div>
-                                )}
-
-                                {isDropdownOpen && (
-                                    <div id="explain-date-options" role="listbox" aria-label="Ngày cần giải trình" data-modal-escape-layer="true" className="gemini-dropdown-menu app-dropdown-offset absolute left-0 w-full animate-fade-in p-2 space-y-1 max-h-64 overflow-y-auto custom-scrollbar">
-                                        {explainableItems.length === 0 ? (
-                                            <div className="p-4 text-center text-xs text-slate-400 dark:text-dark-text-secondary font-bold uppercase tracking-widest">Không có ngày nào cần giải trình</div>
-                                        ) : (
-                                            explainableItems.map((item, index) => (
-                                                <button
-                                                    ref={dateListbox.registerOption(index)}
-                                                    type="button"
-                                                    key={item.date}
-                                                    role="option"
-                                                    aria-selected={selectedDate === item.date}
-                                                    onClick={() => handleDateSelect(item.date, item.explainReason || '')}
-                                                    onKeyDown={(event) => dateListbox.handleOptionKeyDown(event, index)}
-                                                    className={`gemini-dropdown-item ${selectedDate === item.date ? 'gemini-dropdown-item-active' : ''}`}
-                                                >
-                                                    <div className="flex-1 flex items-center gap-3">
-                                                        <ReasonDisplay reasons={item.explainReason} />
-                                                        <span className={`app-detail-text ml-auto ${selectedDate === item.date ? 'font-bold text-primary dark:text-primary' : 'font-medium text-slate-800 dark:text-dark-text-primary'}`}>
-                                                            {formatDateString(item.date)}
-                                                        </span>
-                                                    </div>
-                                                    {selectedDate === item.date && (
-                                                        <span className="material-symbols-rounded text-primary dark:text-primary ml-3 text-lg" aria-hidden="true">check</span>
-                                                    )}
-                                                </button>
-                                            ))
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-
-                            <div>
-                                <label className="input-label" htmlFor="explain-reason-textarea">Lý do giải trình</label>
-                                <textarea
-                                    ref={reasonRef}
-                                    id="explain-reason-textarea"
-                                    required
-                                    className="textarea-field h-32 resize-none"
-                                    placeholder="Nhập lý do chi tiết..."
-                                    value={reason}
-                                    onChange={e => {
-                                        setReason(e.target.value);
-                                        setFormErrors((current) => ({ ...current, reason: undefined }));
-                                    }}
-                                    aria-invalid={!!formErrors.reason}
-                                    aria-describedby={formErrors.reason ? 'explain-reason-error' : undefined}
-                                ></textarea>
-                                {formErrors.reason ? <p id="explain-reason-error" className="mt-1.5 text-xs font-semibold text-secondary-red">{formErrors.reason}</p> : null}
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={handlePreSubmit}
-                                disabled={loading}
-                                className="app-submit-button"
-                            >
-                                {loading ? <span className="material-symbols-rounded animate-spin">progress_activity</span> : <>Gửi giải trình <span className="material-symbols-rounded text-base">send</span></>}
-                            </button>
-
+                                </div>
+                            </section>
                         </div>
+
+                        {/* Deadline --------------------------------------- */}
+                        <p className={`ui-note ${isPastMonthSelected ? 'ui-note-warning' : ''}`.trim()}>
+                            <span className="material-symbols-rounded" aria-hidden="true">{isPastMonthSelected ? 'schedule' : 'info'}</span>
+                            <span>
+                                {isPastMonthSelected
+                                    ? `Đơn cho tháng trước phải gửi trước ngày ${lockDate} hàng tháng, nếu không bảng công sẽ bị khoá.`
+                                    : `Bảng công tháng chốt vào ngày ${lockDate}. Mỗi tháng gửi tối đa ${maxPerMonth} đơn giải trình.`}
+                            </span>
+                        </p>
+
+                        {/* Submit ----------------------------------------- */}
+                        <button type="button" onClick={handlePreSubmit} disabled={loading} className="ui-cta">
+                            {loading ? (
+                                <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span>
+                            ) : (
+                                <>
+                                    <span className="material-symbols-rounded" aria-hidden="true">send</span>
+                                    Gửi giải trình
+                                </>
+                            )}
+                        </button>
                     </div>
                 </div>
+
                 <BottomNav
                     activeTab={activeTab}
                     onChange={(t) => {
@@ -398,10 +421,9 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
             <ConfirmDialog
                 isOpen={confirmDialog.isOpen}
                 title="Gửi giải trình?"
-                message={confirmDialog.isPastMonth ?
-                    <span className="text-secondary-red font-bold flex items-center gap-1"><span className="material-symbols-rounded text-base">warning</span> Bạn đang giải trình cho tháng trước. Đơn này có thể bị tính là trễ hạn.</span>
-                    :
-                    <span>Hệ thống sẽ ghi nhận giải trình của bạn cho ngày <span className="text-neutral-black dark:text-dark-text-primary font-bold"> {formatDateString(selectedDate)}</span>.</span>
+                message={confirmDialog.isPastMonth
+                    ? <>Bạn đang giải trình cho <strong>tháng trước</strong>. Đơn này có thể bị tính là trễ hạn.</>
+                    : <>Hệ thống sẽ ghi nhận giải trình của bạn cho ngày <strong>{formatDateString(selectedDate)}</strong>.</>
                 }
                 confirmLabel="Xác nhận gửi"
                 onConfirm={handleSubmitExplanation}

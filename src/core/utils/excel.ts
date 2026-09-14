@@ -16,9 +16,29 @@ export interface ImportedExcelRow {
   values: ReadonlyMap<string, ExcelValue>;
 }
 
-const HEADER_BACKGROUND = '#233f98';
-const HEADER_TEXT = '#ffffff';
-const CELL_BORDER = '#d8e0ec';
+/** A workbook cannot read CSS, so the palette is resolved from the brand tokens
+ *  in style.css. Only theme-independent tokens are read, so an export never
+ *  comes out tinted by whichever theme the viewer happened to have open.
+ *
+ *  Resolved on first use rather than at import time: the stylesheet is guaranteed
+ *  to be applied by the time someone triggers an export, but not necessarily when
+ *  this module is first evaluated. */
+const brandHexCache = new Map<string, string>();
+
+function brandHex(token: string) {
+  const cached = brandHexCache.get(token);
+  if (cached) return cached;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  if (!/^#[0-9a-fA-F]{6}$/.test(value)) {
+    throw new Error(`Thiếu token màu ${token} trong style.css — không thể xuất file.`);
+  }
+  brandHexCache.set(token, value);
+  return value;
+}
+
+const headerBackground = () => brandHex('--brand-navy');
+const headerText = () => brandHex('--color-on-dark');
+const cellBorder = () => brandHex('--brand-ice');
 
 function normalizeHeader(value: unknown) {
   return String(value ?? '')
@@ -33,7 +53,7 @@ function normalizeHeader(value: unknown) {
 
 function excelCell(value: ExcelValue, column: ExcelColumn<unknown>): Cell {
   const shared: Partial<CellObject> = {
-    borderColor: CELL_BORDER,
+    borderColor: cellBorder(),
     bottomBorderStyle: 'thin',
     alignVertical: 'center',
     align: column.align,
@@ -62,8 +82,8 @@ export async function exportExcel<Row>({
     value: column.header,
     type: String,
     fontWeight: 'bold',
-    textColor: HEADER_TEXT,
-    backgroundColor: HEADER_BACKGROUND,
+    textColor: headerText(),
+    backgroundColor: headerBackground(),
     alignVertical: 'center',
     wrap: true,
     height: 30,

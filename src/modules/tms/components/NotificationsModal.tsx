@@ -95,126 +95,104 @@ const NotificationsModal: React.FC<Props> = ({ data, user, onSwitchTab, onRefres
         return `${f} - ${t}`;
     };
 
+    const totalRead = myNotifications.reduce((acc, g) => acc + g.items.length, 0);
+
     return (
         <PullToRefresh onRefresh={onRefresh} className="page-bg flex flex-col font-sans overflow-y-auto h-full">
             <div className="employee-page employee-page-standard notifications-page animate-fade-in">
+                <div className="ui-stack ui-stack-lg">
+                    {/* Work waiting on you ---------------------------------- */}
+                    {pendingCount > 0 && (
+                        <button
+                            type="button"
+                            onClick={() => { onSwitchTab('manager'); }}
+                            className="ui-banner animate-slide-up"
+                            aria-label={`Mở ${pendingCount} đề xuất đang chờ duyệt`}
+                        >
+                            <span className="ui-banner-icon" aria-hidden="true">
+                                <span className="material-symbols-rounded">fact_check</span>
+                            </span>
+                            <span className="ui-banner-body">
+                                <span className="ui-banner-title">{pendingCount} đề xuất chờ bạn duyệt</span>
+                                <span className="ui-banner-sub">Đơn nghỉ phép và giải trình của nhân sự bạn quản lý</span>
+                            </span>
+                            <span className="ui-banner-flag">Xử lý</span>
+                        </button>
+                    )}
 
-                {pendingCount > 0 && (
-                    <button
-                        type="button"
-                        onClick={() => { onSwitchTab('manager'); }}
-                        className="app-surface notification-attention app-interactive-card group animate-slide-up w-full text-left"
-                        aria-label={`Mở ${pendingCount} yêu cầu đang chờ duyệt`}
-                    >
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 dark:bg-primary/20 rounded-full blur-3xl pointer-events-none -mr-10 -mt-10 opacity-60"></div>
-
-                        <div className="relative z-10 flex items-center justify-between">
-                            <div>
-                                <div className="flex items-center gap-2 mb-2">
-                                    <span className="relative flex h-2.5 w-2.5">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary-red/50 opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-secondary-red"></span>
-                                    </span>
-                                    <span className="text-xxs font-extrabold uppercase tracking-wider text-primary dark:text-primary bg-primary/10 dark:bg-primary/20 px-2 py-0.5 rounded-md border border-primary/20 dark:border-primary/30">Cần duyệt ngay</span>
-                                </div>
-
-                                <div className="flex items-baseline gap-1.5">
-                                    <h3 className="text-4xl font-black text-slate-800 dark:text-dark-text-primary  leading-none tabular-nums">{pendingCount}</h3>
-                                    <span className="text-sm font-bold text-slate-400 dark:text-dark-text-secondary uppercase tracking-wide">Yêu cầu</span>
-                                </div>
-                                <p className="text-slate-500 dark:text-dark-text-secondary text-xs font-medium mt-1 group-hover:text-primary dark:group-hover:text-primary transition-colors">
-                                    Đang chờ bạn xử lý
-                                </p>
-                            </div>
-
-                            <div className="w-14 h-14 bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary rounded-xl flex items-center justify-center text-xl border border-primary/20 dark:border-primary/30 group-hover:bg-primary dark:group-hover:bg-primary group-hover:text-white transition-all duration-300">
-                                <span className="material-symbols-rounded group-hover:translate-x-1 transition-transform">arrow_right_alt</span>
-                            </div>
-                        </div>
-                    </button>
-                )}
-
-                <div className="space-y-8">
+                    {/* Your own decisions ----------------------------------- */}
                     {myNotifications.length === 0 && pendingCount === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-20 text-slate-400 dark:text-dark-text-secondary/60 opacity-60 animate-fade-in">
-                            <div className="w-24 h-24 bg-slate-100 dark:bg-dark-surface rounded-full flex items-center justify-center mb-4 border border-slate-200 dark:border-dark-border">
-                                <span className="material-symbols-rounded text-4xl text-slate-300 dark:text-dark-text-secondary">notifications_off</span>
-                            </div>
-                            <p className="text-sm font-bold text-slate-500 dark:text-dark-text-secondary uppercase tracking-wide">Không có thông báo mới</p>
+                        <div className="ui-empty">
+                            <span className="material-symbols-rounded" aria-hidden="true">notifications_off</span>
+                            <span className="ui-empty-title">Không có thông báo mới</span>
+                            <span className="ui-empty-text">Kết quả duyệt đơn của bạn sẽ hiển thị tại đây.</span>
                         </div>
                     ) : (
                         <>
                             {myNotifications.length > 0 && (
-                                <div className="flex items-center justify-between px-2 mb-2">
-                                    <h4 className="text-xs font-black text-primary dark:text-primary uppercase tracking-widest animate-slide-up">Các đơn đã duyệt</h4>
-                                    <span className="text-xxs font-bold text-slate-400 dark:text-dark-text-secondary bg-slate-100 dark:bg-dark-border/50 px-2 py-0.5 rounded-full">
-                                        {myNotifications.reduce((acc, g) => acc + g.items.length, 0)} thông báo
-                                    </span>
+                                <div className="ui-label-row">
+                                    <span className="ui-label">Đơn đã được xử lý</span>
+                                    <span className="ui-pill ui-pill-muted">{totalRead} thông báo</span>
                                 </div>
                             )}
 
                             {myNotifications.map((group) => (
-                                <div key={group.date} className="space-y-3">
-                                    <div className="flex items-center gap-3 px-2">
-                                        <span className="text-xxs font-black text-slate-400 dark:text-dark-text-secondary uppercase tracking-widest">{formatDateString(group.date)}</span>
-                                        <div className="h-px flex-1 bg-slate-100 dark:bg-dark-border/30"></div>
+                                <div key={group.date}>
+                                    <div className="ui-daysep">
+                                        <span className="ui-label">{formatDateString(group.date)}</span>
                                     </div>
 
-                                    <div className="app-list-surface divide-y divide-slate-50 dark:divide-dark-border">
+                                    <section className="ui-card ui-card-flush">
                                         {group.items.map((item) => {
                                             const isApproved = item.status === 'Approved';
                                             const isRequest = item.category === 'leave';
                                             const statusTone = isApproved ? 'success' : 'danger';
-                                            const statusIcon = isApproved ? 'check_circle' : 'cancel';
-
-                                            let iconTone = 'muted';
-                                            if (isRequest) {
-                                                if (item.type.includes('Nghỉ phép')) iconTone = 'primary';
-                                                else if (item.type.includes('Nghỉ ốm')) iconTone = 'danger';
-                                                else if (item.type.includes('Công tác')) iconTone = 'info';
-                                                else iconTone = 'primary';
-                                            } else {
-                                                iconTone = 'warning';
-                                            }
+                                            const type = isRequest ? item.type : 'Giải trình';
+                                            const icon = !isRequest
+                                                ? 'edit_document'
+                                                : type.includes('Nghỉ phép') ? 'beach_access'
+                                                    : type.includes('Công tác') ? 'flight_takeoff'
+                                                        : type.includes('Nghỉ ốm') ? 'medical_services'
+                                                            : type.includes('Làm việc tại nhà') ? 'home_work'
+                                                                : 'description';
+                                            const tone = !isRequest
+                                                ? 'info'
+                                                : type.includes('Nghỉ ốm') ? 'danger'
+                                                    : type.includes('Công tác') ? 'info'
+                                                        : type.includes('Làm việc tại nhà') ? 'success'
+                                                            : 'primary';
 
                                             return (
-                                                <div key={item.id} className="p-5 active:bg-slate-50 dark:active:bg-dark-border/50 transition-colors">
-                                                    <div className="flex gap-4">
-                                                        <div className={`app-item-icon app-icon-tone-${iconTone}`}>
-                                                            <span className="material-symbols-rounded">{isRequest ? (item.type.includes('Nghỉ phép') ? 'beach_access' : item.type.includes('Công tác') ? 'flight_takeoff' : item.type.includes('Nghỉ ốm') ? 'local_hospital' : 'description') : 'edit_document'}</span>
-                                                        </div>
-
-                                                        <div className="flex-1 min-w-0 pt-0.5">
-                                                            <div className="flex justify-between items-start gap-2 mb-1">
-                                                                <h4 className="font-black text-slate-800 dark:text-dark-text-primary text-sm leading-tight">
-                                                                    {isRequest ? item.type : 'Giải trình công'}
-                                                                </h4>
-                                                                <div className={`request-status status-tone-${statusTone}`}>
-                                                                    <span className="material-symbols-rounded text-base">{statusIcon}</span>
-                                                                    {isApproved ? 'ĐÃ DUYỆT' : 'TỪ CHỐI'}
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="flex items-center gap-2 text-xs font-bold text-slate-400 dark:text-dark-text-secondary font-mono">
-                                                                <span className="material-symbols-rounded text-base">calendar_month</span>
-                                                                {renderDateRange(item.category === 'leave' ? item.from_date : item.date, item.category === 'leave' ? item.to_date : undefined)}
-                                                            </div>
-                                                        </div>
+                                                <article key={item.id} className="notice-item">
+                                                    <div className="notice-head">
+                                                        <span className={`ui-tile ui-tile-soft ui-tone-${tone}`} aria-hidden="true">
+                                                            <span className="material-symbols-rounded">{icon}</span>
+                                                        </span>
+                                                        <span className="notice-title">
+                                                            <span className="notice-name">{isRequest ? item.type : 'Giải trình công'}</span>
+                                                            <span className="notice-date">
+                                                                {renderDateRange(
+                                                                    item.category === 'leave' ? item.from_date : item.date,
+                                                                    item.category === 'leave' ? item.to_date : undefined,
+                                                                )}
+                                                            </span>
+                                                        </span>
+                                                        <span className={`ui-pill ui-pill-${statusTone}`}>
+                                                            <span className="material-symbols-rounded" aria-hidden="true">{isApproved ? 'check_circle' : 'cancel'}</span>
+                                                            {isApproved ? 'Đã duyệt' : 'Từ chối'}
+                                                        </span>
                                                     </div>
 
                                                     {item.manager_note && (
-                                                        <div className={`notification-note notification-note-${statusTone}`}>
-                                                            <span className="material-symbols-rounded text-base mt-0.5">comment</span>
-                                                            <div>
-                                                                <span className="font-black opacity-60 uppercase block mb-0.5 text-xxs tracking-wider">Phản hồi quản lý:</span>
-                                                                {item.manager_note}
-                                                            </div>
-                                                        </div>
+                                                        <p className={`ui-note ${isApproved ? '' : 'ui-note-danger'}`.trim()}>
+                                                            <span className="material-symbols-rounded" aria-hidden="true">forum</span>
+                                                            <span><strong>Phản hồi quản lý: </strong>{item.manager_note}</span>
+                                                        </p>
                                                     )}
-                                                </div>
+                                                </article>
                                             );
                                         })}
-                                    </div>
+                                    </section>
                                 </div>
                             ))}
                         </>

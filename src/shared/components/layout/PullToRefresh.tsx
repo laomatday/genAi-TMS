@@ -115,7 +115,7 @@ export default function PullToRefresh({
         type="button"
         onClick={() => void runRefresh()}
         disabled={isRefreshing}
-        className="hidden lg:inline-flex fixed right-6 bottom-6 z-30 min-h-11 items-center gap-2 rounded-full border border-slate-200 dark:border-dark-border bg-white/90 dark:bg-dark-surface/90 px-4 py-2 text-xs font-bold text-slate-600 dark:text-dark-text-primary shadow-md backdrop-blur hover:bg-white dark:hover:bg-dark-surface disabled:opacity-60"
+        className="refresh-fab"
         aria-label={isRefreshing ? 'Đang làm mới dữ liệu' : 'Làm mới dữ liệu'}
         title="Làm mới dữ liệu"
       >

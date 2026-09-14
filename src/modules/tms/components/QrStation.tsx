@@ -205,7 +205,7 @@ export default function QrStation({
           <p className="eyebrow">Trạm chấm công</p>
           <h1>{branchName || user.center_id || 'Chưa gán chi nhánh'}</h1>
           {!isOnline ? (
-            <div className="inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-2 text-xs font-bold text-amber-900 dark:bg-amber-950 dark:text-amber-100" role="status">
+            <div className="ui-pill ui-pill-warning station-offline-pill" role="status">
               <span className="material-symbols-rounded text-base" aria-hidden="true">wifi_off</span>
               Ngoại tuyến · QR đã tạm khóa
             </div>

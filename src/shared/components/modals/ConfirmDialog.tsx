@@ -20,8 +20,8 @@ const ConfirmDialog = ({isOpen,title,message,confirmLabel='Xác nhận',cancelLa
         <div id={messageId} className="confirm-message">{message}</div>
       </div>
       <div className={`confirm-actions ${single?'confirm-actions-single':''}`}>
-        {!single&&<button type="button" onClick={onCancel} disabled={isLoading} className="btn btn-secondary btn-md">{cancelLabel}</button>}
-        <button type="button" onClick={onConfirm} disabled={isLoading} className={`btn ${type==='danger'||type==='error'?'btn-danger':'btn-primary'} btn-md`}>{isLoading&&<span className="material-symbols-rounded animate-spin" aria-hidden="true">progress_activity</span>}{confirmLabel}</button>
+        {!single&&<button type="button" onClick={onCancel} disabled={isLoading} className="ui-button ui-button-quiet">{cancelLabel}</button>}
+        <button type="button" onClick={onConfirm} disabled={isLoading} className={type==='danger'||type==='error'?'ui-button ui-button-danger':'ui-cta'}>{isLoading&&<span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span>}{confirmLabel}</button>
       </div>
     </section>
   </div>;

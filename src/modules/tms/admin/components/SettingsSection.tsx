@@ -170,7 +170,7 @@ function SystemSettings({ data, busy, onRun }: { data: AdminData; busy: boolean;
                 value={config.MAX_EXPLANATIONS_PER_MONTH || 5}
                 onChange={(event) => setConfig((current) => ({ ...current, MAX_EXPLANATIONS_PER_MONTH: Number(event.target.value) }))}
               />
-              <small style={{ color: 'var(--admin-faint, #64748b)', fontSize: '12px', marginTop: '2px', lineHeight: 1.4 }}>
+              <small style={{ color: 'var(--admin-faint, var(--color-text-muted))', fontSize: '12px', marginTop: '2px', lineHeight: 1.4 }}>
                 Hạn mức tối đa mỗi nhân viên được gửi giải trình trong 1 tháng (ví dụ: 3, 5, 10 đơn).
               </small>
             </label>
@@ -183,7 +183,7 @@ function SystemSettings({ data, busy, onRun }: { data: AdminData; busy: boolean;
                 value={config.LOCK_DATE || 1}
                 onChange={(event) => setConfig((current) => ({ ...current, LOCK_DATE: Number(event.target.value) }))}
               />
-              <small style={{ color: 'var(--admin-faint, #64748b)', fontSize: '12px', marginTop: '2px', lineHeight: 1.4 }}>
+              <small style={{ color: 'var(--admin-faint, var(--color-text-muted))', fontSize: '12px', marginTop: '2px', lineHeight: 1.4 }}>
                 Hạn chót trong tháng hiện tại để gửi giải trình cho công tháng trước (mặc định ngày 5).
               </small>
             </label>

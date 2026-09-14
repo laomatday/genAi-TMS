@@ -297,7 +297,7 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
                                                                 onClick={() => setDeleteConfirm({ id: item.id, type: item.itemType })}
                                                             >
                                                                 <span className="material-symbols-rounded" aria-hidden="true">undo</span>
-                                                                Thu hồi đơn
+                                                                Thu hồi
                                                             </button>
                                                         )}
                                                     </div>
@@ -353,8 +353,8 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
 
             <ConfirmDialog
                 isOpen={!!deleteConfirm}
-                title="Thu hồi đơn?"
-                message="Đơn sẽ bị xoá khỏi hàng đợi duyệt. Hành động này không thể hoàn tác."
+                title="Thu hồi đề xuất?"
+                message="Đề xuất sẽ bị xoá khỏi hàng đợi duyệt. Hành động này không thể hoàn tác."
                 confirmLabel="Thu hồi"
                 onConfirm={handleDelete}
                 onCancel={() => setDeleteConfirm(null)}

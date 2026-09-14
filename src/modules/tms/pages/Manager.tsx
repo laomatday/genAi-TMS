@@ -117,7 +117,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
 
     const item = [...approvals, ...explanationApprovals].find(a => a.id === docId);
     if (!item) {
-      onAlert('Lỗi', 'Yêu cầu không còn tồn tại. Vui lòng tải lại dữ liệu.', 'error');
+      onAlert('Lỗi', 'Đề xuất không còn tồn tại. Vui lòng tải lại dữ liệu.', 'error');
       await onRefresh();
       return;
     }
@@ -145,7 +145,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
     setProcessing(null);
 
     if (res.success) {
-      onAlert("Thành công", "Đã duyệt yêu cầu.", "success");
+      onAlert("Thành công", "Đã duyệt đề xuất.", "success");
       onRefresh();
     } else {
       onAlert("Lỗi", res.message || "Có lỗi xảy ra", "error");
@@ -159,7 +159,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
     const item = [...approvals, ...explanationApprovals].find(a => a.id === docId);
     if (!item) {
       setRejectModal({ ...rejectModal, isOpen: false });
-      onAlert('Lỗi', 'Yêu cầu không còn tồn tại. Vui lòng tải lại dữ liệu.', 'error');
+      onAlert('Lỗi', 'Đề xuất không còn tồn tại. Vui lòng tải lại dữ liệu.', 'error');
       await onRefresh();
       return;
     }
@@ -188,7 +188,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
     setRejectModal({ ...rejectModal, isOpen: false });
 
     if (res.success) {
-      onAlert("Thành công", "Đã từ chối yêu cầu.", "success");
+      onAlert("Thành công", "Đã từ chối đề xuất.", "success");
       onRefresh();
     } else {
       onAlert("Lỗi", res.message || "Có lỗi xảy ra", "error");
@@ -217,7 +217,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
 
   return (
     <PullToRefresh onRefresh={onRefresh} className="page-bg font-sans">
-      <div className="employee-page employee-page-standard manager-page animate-fade-in space-y-8">
+      <div className="employee-page employee-page-standard manager-page animate-fade-in">
         <ModalListRequest
           processing={processing}
           handleAction={handleAction}
@@ -231,30 +231,49 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
       </div>
 
       {rejectModal.isOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900 dark:bg-dark-bg flex items-center justify-center p-6 animate-fade-in">
-          <div ref={rejectDialogRef} tabIndex={-1} className="bg-white dark:bg-dark-surface rounded-xl w-full max-w-sm p-6 animate-scale-in shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="reject-request-title" aria-describedby="reject-request-description" aria-busy={!!processing}>
-            <div className="text-center mb-6">
-              <div className="w-14 h-14 bg-secondary-red/10 dark:bg-secondary-red/20 text-secondary-red dark:text-secondary-red rounded-full flex items-center justify-center mx-auto mb-4 border border-secondary-red/20 dark:border-secondary-red/30">
-                <span className="material-symbols-rounded text-2xl">warning</span>
+        <div className="confirm-backdrop animate-fade-in">
+          <section
+            ref={rejectDialogRef}
+            tabIndex={-1}
+            className="confirm-dialog animate-scale-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reject-request-title"
+            aria-describedby="reject-request-description"
+            aria-busy={!!processing}
+          >
+            <div className="confirm-content">
+              <div className="confirm-icon confirm-icon-danger">
+                <span className="material-symbols-rounded" aria-hidden="true">block</span>
               </div>
-              <h3 id="reject-request-title" className="text-lg font-extrabold text-slate-800 dark:text-dark-text-primary ">Từ chối yêu cầu?</h3>
-              <p id="reject-request-description" className="text-sm text-slate-500 dark:text-dark-text-secondary mt-1">Nhập lý do để nhân viên biết nguyên nhân.</p>
+              <h3 id="reject-request-title">Từ chối đề xuất?</h3>
+              <p id="reject-request-description" className="confirm-message">
+                Nhân viên sẽ thấy lý do bạn ghi ở đây, nên hãy nêu cụ thể.
+              </p>
+
+              <div className="confirm-form ui-field">
+                <label className="ui-field-label ui-field-label-required" htmlFor="reject-request-reason">Lý do từ chối</label>
+                <textarea
+                  id="reject-request-reason"
+                  className="ui-control"
+                  maxLength={500}
+                  placeholder="Ví dụ: thiếu giấy tờ bệnh viện, trùng lịch trực…"
+                  value={rejectModal.reason}
+                  onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
+                />
+                <span className="ui-field-foot">
+                  <span>Lý do được đính kèm vào đơn.</span>
+                  <span>{rejectModal.reason.length}/500</span>
+                </span>
+              </div>
             </div>
 
-            <label htmlFor="reject-request-reason" className="sr-only">Lý do từ chối</label>
-            <textarea
-              id="reject-request-reason"
-              className="textarea-field h-24 resize-none mb-4"
-              placeholder="Lý do từ chối..."
-              value={rejectModal.reason}
-              onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
-            ></textarea>
-
-            <div className="flex gap-3">
+            <div className="confirm-actions">
               <button
                 type="button"
                 onClick={() => setRejectModal({ ...rejectModal, isOpen: false })}
-                className="flex-1 py-4 rounded-xl bg-slate-100 dark:bg-dark-border/50 text-slate-600 dark:text-dark-text-primary text-base font-extrabold hover:bg-slate-200 dark:hover:bg-dark-border transition-colors uppercase tracking-widest"
+                disabled={!!processing}
+                className="ui-button ui-button-quiet"
               >
                 Hủy
               </button>
@@ -262,12 +281,16 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
                 type="button"
                 onClick={submitRejection}
                 disabled={!rejectModal.reason.trim() || !!processing}
-                className="flex-1 py-4 rounded-xl bg-secondary-red text-neutral-white text-base font-extrabold hover:bg-secondary-red/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-widest shadow-md shadow-secondary-red/20 flex items-center justify-center gap-2"
+                className="ui-button ui-button-danger"
               >
-                {processing ? <span className="material-symbols-rounded animate-spin">progress_activity</span> : 'Xác nhận'}
+                {processing ? (
+                  <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span>
+                ) : (
+                  'Xác nhận từ chối'
+                )}
               </button>
             </div>
-          </div>
+          </section>
         </div>
       )}
     </PullToRefresh>

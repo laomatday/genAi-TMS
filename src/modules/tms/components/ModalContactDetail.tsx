@@ -19,25 +19,28 @@ interface Props {
 
 interface ContactDetailRowProps {
     icon: string;
-    tone: 'primary' | 'info' | 'success';
+    tone: 'primary' | 'info' | 'success' | 'warning';
     label: string;
     value: string;
     href?: string;
 }
 
 const ContactDetailRow: React.FC<ContactDetailRowProps> = ({ icon, tone, label, value, href }) => {
-    const content = <>
-        <span className={`app-item-icon app-icon-tone-${tone}`}>
-            <span className="material-symbols-rounded" aria-hidden="true">{icon}</span>
-        </span>
-        <span className="profile-row-content">
-            <small>{label}</small>
-            <strong>{value || label}</strong>
-        </span>
-    </>;
+    const content = (
+        <>
+            <span className={`ui-row-icon ui-tone-${tone}`} aria-hidden="true">
+                <span className="material-symbols-rounded">{icon}</span>
+            </span>
+            <span className="ui-row-body">
+                <span className="ui-row-label">{label}</span>
+                <span className="ui-row-value">{value || '—'}</span>
+            </span>
+            {href ? <span className="material-symbols-rounded ui-row-trail" aria-hidden="true">chevron_right</span> : null}
+        </>
+    );
 
-    if (href) return <a href={href} className="profile-row">{content}</a>;
-    return <div className="profile-row">{content}</div>;
+    if (href) return <a href={href} className="ui-row">{content}</a>;
+    return <div className="ui-row">{content}</div>;
 };
 
 const ModalContactDetail: React.FC<Props> = ({ contact, isOpen, onClose, locationsMap, empNameMap, locations, onNavigate }) => {
@@ -84,6 +87,8 @@ const ModalContactDetail: React.FC<Props> = ({ contact, isOpen, onClose, locatio
         }
     };
 
+    const shortId = contact.employee_id ? String(contact.employee_id) : '';
+
     return (
         <div
             ref={dialogRef}
@@ -95,8 +100,9 @@ const ModalContactDetail: React.FC<Props> = ({ contact, isOpen, onClose, locatio
         >
             <div className="app-modal-header-layer app-contact-header-layer">
                 <ModalHeader
+                    title="Hồ sơ nhân sự"
+                    subtitle={contact.department || undefined}
                     onClose={() => { triggerHaptic('light'); onClose(); }}
-                    bgClass="bg-transparent border-none"
                 />
             </div>
 
@@ -106,81 +112,105 @@ const ModalContactDetail: React.FC<Props> = ({ contact, isOpen, onClose, locatio
                 onTouchMove={onTouchMove}
                 onTouchEnd={onTouchEnd}
             >
-                <div className="animate-fade-in mt-4">
-                    <div className="app-surface profile-identity-card">
-                        <div className="app-hero-tint" aria-hidden="true"></div>
-                        <div className="absolute top-0 left-0 w-full h-32 overflow-hidden pointer-events-none opacity-10">
-                            <div className="contact-decor-ring contact-decor-ring-small"></div>
-                            <div className="contact-decor-ring contact-decor-ring-large"></div>
+                <div className="ui-stack ui-stack-lg animate-fade-in">
+                    {/* Identity ------------------------------------------- */}
+                    <section className="profile-hero">
+                        <div className="profile-hero-cover">
+                            <span className="profile-hero-chip">
+                                <span className="material-symbols-rounded" aria-hidden="true">badge</span>
+                                {contact.position || 'Nhân viên'}
+                            </span>
+                            {shortId ? <span className="profile-hero-chip profile-hero-chip-ghost">{shortId}</span> : null}
                         </div>
 
-                        <div className="relative z-10 flex flex-col items-center">
-                            <div className="w-32 h-32 rounded-full p-1.5 bg-neutral-white dark:bg-dark-surface mb-4 mt-2 relative overflow-hidden transition-colors">
+                        <div className="profile-hero-body">
+                            <div className="profile-hero-avatar">
                                 <Avatar
                                     src={contact.avatar_url || contact.face_ref_url}
                                     name={contact.name}
-                                    className="w-full h-full"
-                                    textSize="text-4xl"
+                                    className="w-full h-full rounded-full"
+                                    textSize="text-3xl"
                                 />
                             </div>
-                            <h2 id="contact-detail-title" className="text-2xl font-black text-neutral-black dark:text-dark-text-primary  leading-tight">{contact.name}</h2>
-
-                            <div className="mt-3 flex gap-2 flex-wrap justify-center">
-                                <span className="px-3 py-1.5 bg-primary/10 dark:bg-primary/20 border border-primary/20 dark:border-primary/30 rounded-lg text-xxs font-extrabold text-primary dark:text-primary uppercase tracking-wide">{contact.department}</span>
-                                <span className="px-3 py-1.5 bg-secondary-purple/10 dark:bg-secondary-purple/20 border border-secondary-purple/20 dark:border-secondary-purple/30 rounded-lg text-xxs font-extrabold text-secondary-purple dark:text-secondary-purple uppercase tracking-wide">{contact.position}</span>
+                            <h2 id="contact-detail-title" className="profile-hero-name">{contact.name}</h2>
+                            <div className="profile-hero-tags">
+                                {contact.department ? <span className="ui-pill ui-pill-primary">{contact.department}</span> : null}
+                                {contact.position ? <span className="ui-pill ui-pill-info">{contact.position}</span> : null}
                             </div>
                         </div>
+                    </section>
+
+                    {/* Reach them ----------------------------------------- */}
+                    <div className="ui-chips">
+                        {contact.phone ? (
+                            <a className="ui-chip" href={`tel:${contact.phone}`} onClick={() => triggerHaptic('light')}>
+                                <span className="material-symbols-rounded" aria-hidden="true">call</span>
+                                Gọi điện
+                            </a>
+                        ) : null}
+                        {contact.email ? (
+                            <a className="ui-chip" href={`mailto:${contact.email}`} onClick={() => triggerHaptic('light')}>
+                                <span className="material-symbols-rounded" aria-hidden="true">mail</span>
+                                Gửi email
+                            </a>
+                        ) : null}
+                        {contact.phone ? (
+                            <a className="ui-chip" href={`sms:${contact.phone}`} onClick={() => triggerHaptic('light')}>
+                                <span className="material-symbols-rounded" aria-hidden="true">chat</span>
+                                Nhắn tin
+                            </a>
+                        ) : null}
                     </div>
 
-                    <h3 className="app-section-title app-section-title-spaced">
-                        <span className="material-symbols-rounded" aria-hidden="true">work</span> Thông tin công việc
-                    </h3>
-                    <div className="app-list-surface profile-section divide-y divide-slate-50 dark:divide-dark-border">
-                        <ContactDetailRow
-                            icon="account_tree"
-                            tone="primary"
-                            label="Trung tâm phụ trách"
-                            value={managedLocationNames}
-                        />
-                        {contactAddress && (
-                            <ContactDetailRow
-                                icon="location_on"
-                                tone="info"
-                                label="Địa chỉ làm việc"
-                                value={contactAddress}
-                            />
-                        )}
-                        {contact.direct_manager_id && empNameMap[contact.direct_manager_id] && (
-                            <ContactDetailRow
-                                icon="person"
-                                tone="success"
-                                label="Quản lý trực tiếp"
-                                value={empNameMap[contact.direct_manager_id] || contact.direct_manager_id}
-                            />
-                        )}
+                    {/* Work ----------------------------------------------- */}
+                    <div>
+                        <div className="ui-label-row"><span className="ui-label">Thông tin công việc</span></div>
+                        <section className="ui-card ui-card-flush">
+                            {managedLocationNames ? (
+                                <ContactDetailRow icon="account_tree" tone="primary" label="Trung tâm phụ trách" value={managedLocationNames} />
+                            ) : null}
+                            {contactAddress ? (
+                                <ContactDetailRow icon="location_on" tone="info" label="Địa chỉ làm việc" value={contactAddress} />
+                            ) : null}
+                            {contact.direct_manager_id && empNameMap[contact.direct_manager_id] ? (
+                                <ContactDetailRow
+                                    icon="supervisor_account"
+                                    tone="success"
+                                    label="Quản lý trực tiếp"
+                                    value={empNameMap[contact.direct_manager_id] || contact.direct_manager_id}
+                                />
+                            ) : null}
+                            {!managedLocationNames && !contactAddress && !contact.direct_manager_id ? (
+                                <ContactDetailRow icon="work" tone="primary" label="Phòng ban" value={contact.department || ''} />
+                            ) : null}
+                        </section>
                     </div>
 
-                    <h3 className="app-section-title app-section-title-spaced">
-                        <span className="material-symbols-rounded" aria-hidden="true">contacts</span> Thông tin liên hệ
-                    </h3>
-                    <div className="app-list-surface profile-section divide-y divide-slate-50 dark:divide-dark-border">
-                        <ContactDetailRow
-                            icon="mail"
-                            tone="primary"
-                            label="Email"
-                            value={contact.email || ''}
-                            href={contact.email ? `mailto:${contact.email}` : undefined}
-                        />
-                        {contact.phone ? <ContactDetailRow
-                            icon="call"
-                            tone="success"
-                            label="Số điện thoại"
-                            value={String(contact.phone)}
-                            href={`tel:${contact.phone}`}
-                        /> : null}
+                    {/* Contact -------------------------------------------- */}
+                    <div>
+                        <div className="ui-label-row"><span className="ui-label">Thông tin liên hệ</span></div>
+                        <section className="ui-card ui-card-flush">
+                            <ContactDetailRow
+                                icon="alternate_email"
+                                tone="primary"
+                                label="Email công vụ"
+                                value={contact.email || ''}
+                                href={contact.email ? `mailto:${contact.email}` : undefined}
+                            />
+                            {contact.phone ? (
+                                <ContactDetailRow
+                                    icon="call"
+                                    tone="success"
+                                    label="Số điện thoại"
+                                    value={String(contact.phone)}
+                                    href={`tel:${contact.phone}`}
+                                />
+                            ) : null}
+                        </section>
                     </div>
                 </div>
             </div>
+
             <BottomNav
                 activeTab={activeTab}
                 onChange={(t) => {

@@ -28,7 +28,7 @@ const HighlightText: React.FC<{ text: string; highlight: string }> = ({ text, hi
         <span>
             {parts.map((part, index) =>
                 part.toLowerCase() === highlight.toLowerCase() ? (
-                    <span key={`${part}-${index}`} className="bg-yellow-200 dark:bg-yellow-900/50 text-neutral-black dark:text-white rounded px-0.5">{part}</span>
+                    <span key={`${part}-${index}`} className="ui-mark">{part}</span>
                 ) : (
                     <span key={`${part}-${index}`}>{part}</span>
                 )
@@ -37,9 +37,10 @@ const HighlightText: React.FC<{ text: string; highlight: string }> = ({ text, hi
     );
 };
 
-/** Group cards cycle through the brand tones so consecutive departments stay
- *  distinguishable without inventing colours outside the palette. */
-const GROUP_TONES = ['ui-tone-primary', 'ui-tone-success', 'ui-tone-info', 'ui-tone-warning', 'ui-tone-muted'] as const;
+/** Department tiles only need to look different from each other — nothing is
+ *  being reported — so they cycle the identity tones, not the status ones.
+ *  The colours themselves live in style.css; this list is class names only. */
+const GROUP_TONES = ['ui-tone-brand-1', 'ui-tone-brand-2', 'ui-tone-brand-3', 'ui-tone-brand-4'] as const;
 
 const groupIcon = (groupId: string) => {
     if (groupId.startsWith('grp_director')) return 'shield_person';
@@ -597,7 +598,7 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
                             </div>
                         ) : contactGroups.map((group, index) => {
                             const isExpanded = expandedGroupId === group.id;
-                            const tone = GROUP_TONES[index % GROUP_TONES.length] ?? 'ui-tone-primary';
+                            const tone = GROUP_TONES[index % GROUP_TONES.length] ?? 'ui-tone-brand-1';
                             return (
                                 <div key={group.id} className="ui-card">
                                     <button

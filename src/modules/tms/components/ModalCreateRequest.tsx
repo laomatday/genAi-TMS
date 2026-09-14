@@ -27,6 +27,27 @@ interface RequestFormErrors {
     reason?: string;
 }
 
+/** Same tone mapping the Requests list uses, so a draft looks like its record. */
+function typeConfig(type: string) {
+    if (type.includes('Nghỉ ốm')) return { icon: 'medical_services', tone: 'danger' };
+    if (type.includes('Nghỉ không lương')) return { icon: 'event_busy', tone: 'warning' };
+    if (type.includes('Làm việc tại nhà')) return { icon: 'home_work', tone: 'success' };
+    if (type.includes('Công tác')) return { icon: 'flight_takeoff', tone: 'info' };
+    if (type.includes('Nghỉ phép')) return { icon: 'beach_access', tone: 'primary' };
+    return { icon: 'description', tone: 'muted' };
+}
+
+/** Inclusive day span; a same-day request counts as one day. */
+function dayCount(from: string, to: string) {
+    if (!from || !to || from > to) return 0;
+    const start = new Date(`${from}T00:00:00`);
+    const end = new Date(`${to}T00:00:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+    return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
+}
+
+const REASON_MAX_LENGTH = 500;
+
 const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClose, onSuccess, onAlert, onNavigate, data }) => {
     const [formData, setFormData] = useState({
         type: 'Nghỉ phép',
@@ -182,11 +203,17 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
 
     if (!isOpen) return null;
 
+    const selectedType = typeConfig(formData.type);
+    const span = dayCount(formData.fromDate, formData.toDate);
+    const leaveBalance = user.annual_leave_balance ?? 0;
+    const overspendsLeave = formData.type === 'Nghỉ phép' && span > leaveBalance;
+    const firstError = formErrors.type || formErrors.fromDate || formErrors.toDate || formErrors.reason || '';
+
     return (
         <div
             ref={dialogRef}
             tabIndex={-1}
-            className="app-modal-screen animate-slide-up transition-colors duration-300"
+            className="app-modal-screen app-modal-screen-solid animate-slide-up transition-colors duration-300"
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-request-title"
@@ -194,158 +221,219 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
         >
             <div className="app-modal-header-layer">
                 <ModalHeader
+                    title="Tạo đề xuất"
+                    subtitle={`${user.name} · ${user.employee_id}`}
                     onClose={() => { triggerHaptic('light'); onClose(); }}
-                    bgClass="bg-transparent border-none"
                 />
             </div>
 
-            <div className="app-modal-content no-scrollbar"
+            <div
+                className="app-modal-content no-scrollbar"
                 onTouchStart={onTouchStart}
                 onTouchMove={onTouchMove}
-                onTouchEnd={onTouchEnd}>
-                <div className="animate-fade-in mt-4">
+                onTouchEnd={onTouchEnd}
+            >
+                <div className="ui-stack animate-fade-in">
+                    {/* What this sheet is for ----------------------------- */}
+                    <section className="ui-sheet-hero">
+                        <span className="ui-sheet-hero-icon" aria-hidden="true">
+                            <span className="material-symbols-rounded">{selectedType.icon}</span>
+                        </span>
+                        <span className="ui-sheet-hero-body">
+                            <span id="create-request-title" className="ui-sheet-hero-title">{formData.type}</span>
+                            <span className="ui-sheet-hero-sub">Đơn được gửi tới quản lý trực tiếp và ghi vào bảng công của bạn.</span>
+                        </span>
+                    </section>
 
-                    <div className="app-surface app-form-hero">
-                        <div className="app-hero-tint" aria-hidden="true"></div>
-
-                        <div className="relative z-10 flex flex-col items-center">
-                            <div className="w-28 h-28 rounded-full p-1.5 bg-white dark:bg-dark-surface mb-4 mt-2 relative transition-colors">
-                                <div className="w-full h-full rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center border border-primary/20 dark:border-primary/30 text-primary dark:text-primary">
-                                    <span className="request-send-icon material-symbols-rounded text-5xl">send</span>
-                                </div>
-                            </div>
-                            <h2 id="create-request-title" className="text-2xl font-black text-slate-900 dark:text-dark-text-primary leading-tight">Tạo Đề Xuất</h2>
-                            <p className="text-xs text-slate-500 dark:text-dark-text-secondary font-bold mt-2 uppercase tracking-wide">Điền thông tin chi tiết bên dưới</p>
+                    {/* The form ------------------------------------------- */}
+                    <div>
+                        <div className="ui-label-row">
+                            <span className="ui-label">Thông tin đề xuất</span>
+                            {span > 0 ? <span className="ui-pill ui-pill-primary">{span} ngày</span> : null}
                         </div>
-                    </div>
 
-                    <h3 className="app-section-title app-section-title-spaced">
-                        <span className="material-symbols-rounded" aria-hidden="true">edit_square</span>
-                        Thông tin đề xuất
-                    </h3>
+                        <section className="ui-card ui-card-form ui-card-pad">
+                            <p className="sr-only" role="alert" aria-live="assertive">{firstError}</p>
 
-                    <div className="app-surface app-form-card space-y-6">
-                        <p className="sr-only" role="alert" aria-live="assertive">
-                            {formErrors.type || formErrors.fromDate || formErrors.toDate || formErrors.reason || ''}
-                        </p>
+                            <div className="ui-form">
+                                <div className="ui-field">
+                                    <label className="ui-field-label ui-field-label-required" htmlFor="request-type-trigger">Loại đề xuất</label>
+                                    <button
+                                        ref={typeListbox.triggerRef}
+                                        id="request-type-trigger"
+                                        type="button"
+                                        onClick={() => { triggerHaptic('light'); setIsTypeOpen((open) => !open); }}
+                                        onKeyDown={typeListbox.handleTriggerKeyDown}
+                                        className={`ui-control ${formErrors.type ? 'ui-control-invalid' : ''}`.trim()}
+                                        aria-haspopup="listbox"
+                                        aria-expanded={isTypeOpen}
+                                        aria-controls="request-type-options"
+                                        aria-invalid={!!formErrors.type}
+                                        aria-describedby={formErrors.type ? 'request-type-error' : undefined}
+                                        data-modal-escape-layer={isTypeOpen ? 'true' : undefined}
+                                    >
+                                        <span className={`ui-tile ui-tile-sm ui-tile-soft ui-tone-${selectedType.tone}`} aria-hidden="true">
+                                            <span className="material-symbols-rounded">{selectedType.icon}</span>
+                                        </span>
+                                        <span className="ui-control-value">{formData.type}</span>
+                                        <span className={`material-symbols-rounded ui-control-chevron ${isTypeOpen ? 'ui-control-chevron-open' : ''}`.trim()} aria-hidden="true">expand_more</span>
+                                    </button>
+                                    {formErrors.type ? (
+                                        <p id="request-type-error" className="ui-field-error">
+                                            <span className="material-symbols-rounded" aria-hidden="true">error</span>
+                                            {formErrors.type}
+                                        </p>
+                                    ) : null}
 
-                        <div className="relative">
-                            <label className="input-label" htmlFor="request-type-trigger">Loại đề xuất</label>
-                            <button
-                                ref={typeListbox.triggerRef}
-                                id="request-type-trigger"
-                                type="button"
-                                onClick={() => { triggerHaptic('light'); setIsTypeOpen((open) => !open); }}
-                                onKeyDown={typeListbox.handleTriggerKeyDown}
-                                className={`button-select justify-between w-full cursor-pointer ${formErrors.type ? 'border-secondary-red' : ''}`}
-                                aria-haspopup="listbox"
-                                aria-expanded={isTypeOpen}
-                                aria-controls="request-type-options"
-                                aria-invalid={!!formErrors.type}
-                                aria-describedby={formErrors.type ? 'request-type-error' : undefined}
-                                data-modal-escape-layer={isTypeOpen ? 'true' : undefined}
-                            >
-                                <span className="app-detail-text text-slate-800 dark:text-dark-text-primary font-semibold">{formData.type}</span>
-                                <span className={`material-symbols-rounded text-slate-400 dark:text-dark-text-secondary text-xl transition-transform duration-200 ${isTypeOpen ? 'rotate-180' : ''}`} aria-hidden="true">expand_more</span>
-                            </button>
-                            {formErrors.type ? <p id="request-type-error" className="mt-1.5 text-xs font-semibold text-secondary-red">{formErrors.type}</p> : null}
-
-                            {isTypeOpen && (
-                                <div id="request-type-options" role="listbox" aria-label="Loại đề xuất" data-modal-escape-layer="true" className="gemini-dropdown-menu app-dropdown-offset absolute left-0 w-full animate-fade-in p-2 space-y-1">
-                                    {LEAVE_REQUEST_TYPES.map((type, index) => (
-                                        <button
-                                            ref={typeListbox.registerOption(index)}
-                                            type="button"
-                                            key={type}
-                                            role="option"
-                                            aria-selected={formData.type === type}
-                                            onClick={() => handleTypeSelect(type)}
-                                            onKeyDown={(event) => typeListbox.handleOptionKeyDown(event, index)}
-                                            className={`gemini-dropdown-item ${formData.type === type ? 'gemini-dropdown-item-active' : ''}`}
+                                    {isTypeOpen && (
+                                        <div
+                                            id="request-type-options"
+                                            role="listbox"
+                                            aria-label="Loại đề xuất"
+                                            data-modal-escape-layer="true"
+                                            className="ui-menu animate-fade-in"
                                         >
-                                            <span className={`app-detail-text ${formData.type === type ? 'font-bold' : 'font-medium'}`}>{type}</span>
-                                            {formData.type === type && (
-                                                <span className="material-symbols-rounded text-primary dark:text-primary text-lg" aria-hidden="true">check</span>
-                                            )}
-                                        </button>
-                                    ))}
+                                            {LEAVE_REQUEST_TYPES.map((type, index) => {
+                                                const option = typeConfig(type);
+                                                const isSelected = formData.type === type;
+                                                return (
+                                                    <button
+                                                        ref={typeListbox.registerOption(index)}
+                                                        type="button"
+                                                        key={type}
+                                                        role="option"
+                                                        aria-selected={isSelected}
+                                                        onClick={() => handleTypeSelect(type)}
+                                                        onKeyDown={(event) => typeListbox.handleOptionKeyDown(event, index)}
+                                                        className={`ui-menu-item ${isSelected ? 'ui-menu-item-active' : ''}`.trim()}
+                                                    >
+                                                        <span className={`ui-tile ui-tile-sm ui-tile-soft ui-tone-${option.tone}`} aria-hidden="true">
+                                                            <span className="material-symbols-rounded">{option.icon}</span>
+                                                        </span>
+                                                        <span className="ui-menu-item-label">{type}</span>
+                                                        {isSelected ? <span className="material-symbols-rounded" aria-hidden="true">check</span> : null}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="input-label" htmlFor="request-from-date">Từ ngày</label>
-                                <div className="date-input-control relative h-13 w-full">
-                                    <input
-                                        ref={fromDateRef}
-                                        id="request-from-date"
-                                        type="date"
-                                        required
-                                        className="date-input-native absolute inset-0 z-20 opacity-0 cursor-pointer w-full h-full"
-                                        value={formData.fromDate}
-                                        onChange={e => setFieldValue('fromDate', e.target.value)}
-                                        aria-invalid={!!formErrors.fromDate}
-                                        aria-describedby={formErrors.fromDate ? 'request-from-date-error' : undefined}
-                                    />
-                                    <div className={`input-field flex items-center justify-between pointer-events-none z-10 w-full h-full ${formData.fromDate ? 'text-slate-900 dark:text-dark-text-primary font-semibold' : 'text-slate-400 dark:text-dark-text-secondary/60'}`}>
-                                        <span>{formData.fromDate ? formatDateDisplay(formData.fromDate) : 'dd/mm/yyyy'}</span>
-                                        <span className="material-symbols-rounded text-slate-400 dark:text-dark-text-secondary/60 text-lg" aria-hidden="true">calendar_today</span>
+                                <div className="ui-form-grid">
+                                    <div className="ui-field">
+                                        <label className="ui-field-label ui-field-label-required" htmlFor="request-from-date">Từ ngày</label>
+                                        <div className="ui-date">
+                                            <input
+                                                ref={fromDateRef}
+                                                id="request-from-date"
+                                                type="date"
+                                                required
+                                                value={formData.fromDate}
+                                                onChange={e => setFieldValue('fromDate', e.target.value)}
+                                                aria-invalid={!!formErrors.fromDate}
+                                                aria-describedby={formErrors.fromDate ? 'request-from-date-error' : undefined}
+                                            />
+                                            <span className={`ui-control ${formErrors.fromDate ? 'ui-control-invalid' : ''}`.trim()} aria-hidden="true">
+                                                <span className={`ui-control-value ${formData.fromDate ? '' : 'ui-control-placeholder'}`.trim()}>
+                                                    {formData.fromDate ? formatDateDisplay(formData.fromDate) : 'dd/mm/yyyy'}
+                                                </span>
+                                                <span className="material-symbols-rounded ui-control-chevron">calendar_today</span>
+                                            </span>
+                                        </div>
+                                        {formErrors.fromDate ? (
+                                            <p id="request-from-date-error" className="ui-field-error">
+                                                <span className="material-symbols-rounded" aria-hidden="true">error</span>
+                                                {formErrors.fromDate}
+                                            </p>
+                                        ) : null}
+                                    </div>
+
+                                    <div className="ui-field">
+                                        <label className="ui-field-label ui-field-label-required" htmlFor="request-to-date">Đến ngày</label>
+                                        <div className="ui-date">
+                                            <input
+                                                ref={toDateRef}
+                                                id="request-to-date"
+                                                type="date"
+                                                required
+                                                min={formData.fromDate || undefined}
+                                                value={formData.toDate}
+                                                onChange={e => setFieldValue('toDate', e.target.value)}
+                                                aria-invalid={!!formErrors.toDate}
+                                                aria-describedby={formErrors.toDate ? 'request-to-date-error' : undefined}
+                                            />
+                                            <span className={`ui-control ${formErrors.toDate ? 'ui-control-invalid' : ''}`.trim()} aria-hidden="true">
+                                                <span className={`ui-control-value ${formData.toDate ? '' : 'ui-control-placeholder'}`.trim()}>
+                                                    {formData.toDate ? formatDateDisplay(formData.toDate) : 'dd/mm/yyyy'}
+                                                </span>
+                                                <span className="material-symbols-rounded ui-control-chevron">calendar_today</span>
+                                            </span>
+                                        </div>
+                                        {formErrors.toDate ? (
+                                            <p id="request-to-date-error" className="ui-field-error">
+                                                <span className="material-symbols-rounded" aria-hidden="true">error</span>
+                                                {formErrors.toDate}
+                                            </p>
+                                        ) : null}
                                     </div>
                                 </div>
-                                {formErrors.fromDate ? <p id="request-from-date-error" className="mt-1.5 text-xs font-semibold text-secondary-red">{formErrors.fromDate}</p> : null}
-                            </div>
-                            <div>
-                                <label className="input-label" htmlFor="request-to-date">Đến ngày</label>
-                                <div className="date-input-control relative h-13 w-full">
-                                    <input
-                                        ref={toDateRef}
-                                        id="request-to-date"
-                                        type="date"
+
+                                <div className="ui-field">
+                                    <label className="ui-field-label ui-field-label-required" htmlFor="request-reason">Lý do chi tiết</label>
+                                    <textarea
+                                        ref={reasonRef}
+                                        id="request-reason"
                                         required
-                                        min={formData.fromDate || undefined}
-                                        className="date-input-native absolute inset-0 z-20 opacity-0 cursor-pointer w-full h-full"
-                                        value={formData.toDate}
-                                        onChange={e => setFieldValue('toDate', e.target.value)}
-                                        aria-invalid={!!formErrors.toDate}
-                                        aria-describedby={formErrors.toDate ? 'request-to-date-error' : undefined}
+                                        maxLength={REASON_MAX_LENGTH}
+                                        className={`ui-control ${formErrors.reason ? 'ui-control-invalid' : ''}`.trim()}
+                                        placeholder="Nêu rõ lý do để quản lý duyệt nhanh hơn…"
+                                        value={formData.reason}
+                                        onChange={e => setFieldValue('reason', e.target.value)}
+                                        aria-invalid={!!formErrors.reason}
+                                        aria-describedby={formErrors.reason ? 'request-reason-error' : undefined}
                                     />
-                                    <div className={`input-field flex items-center justify-between pointer-events-none z-10 w-full h-full ${formData.toDate ? 'text-slate-900 dark:text-dark-text-primary font-semibold' : 'text-slate-400 dark:text-dark-text-secondary/60'}`}>
-                                        <span>{formData.toDate ? formatDateDisplay(formData.toDate) : 'dd/mm/yyyy'}</span>
-                                        <span className="material-symbols-rounded text-slate-400 dark:text-dark-text-secondary/60 text-lg" aria-hidden="true">calendar_today</span>
-                                    </div>
+                                    {formErrors.reason ? (
+                                        <p id="request-reason-error" className="ui-field-error">
+                                            <span className="material-symbols-rounded" aria-hidden="true">error</span>
+                                            {formErrors.reason}
+                                        </p>
+                                    ) : (
+                                        <span className="ui-field-foot">
+                                            <span>Quản lý trực tiếp sẽ thấy nội dung này.</span>
+                                            <span>{formData.reason.length}/{REASON_MAX_LENGTH}</span>
+                                        </span>
+                                    )}
                                 </div>
-                                {formErrors.toDate ? <p id="request-to-date-error" className="mt-1.5 text-xs font-semibold text-secondary-red">{formErrors.toDate}</p> : null}
                             </div>
-                        </div>
-
-                        <div>
-                            <label className="input-label" htmlFor="request-reason">Lý do chi tiết</label>
-                            <textarea
-                                ref={reasonRef}
-                                id="request-reason"
-                                required
-                                className="textarea-field h-32 resize-none"
-                                placeholder="Nhập lý do nghỉ hoặc giải trình..."
-                                value={formData.reason}
-                                onChange={e => setFieldValue('reason', e.target.value)}
-                                aria-invalid={!!formErrors.reason}
-                                aria-describedby={formErrors.reason ? 'request-reason-error' : undefined}
-                            ></textarea>
-                            {formErrors.reason ? <p id="request-reason-error" className="mt-1.5 text-xs font-semibold text-secondary-red">{formErrors.reason}</p> : null}
-                        </div>
-
-                        <button
-                            type="button"
-                            onClick={handleSubmit}
-                            disabled={loading}
-                            className="app-submit-button"
-                        >
-                            {loading ? <span className="material-symbols-rounded animate-spin">progress_activity</span> : <>Gửi đề xuất <span className="material-symbols-rounded text-base">send</span></>}
-                        </button>
+                        </section>
                     </div>
+
+                    {/* Leave budget --------------------------------------- */}
+                    {formData.type === 'Nghỉ phép' ? (
+                        <p className={`ui-note ${overspendsLeave ? 'ui-note-warning' : ''}`.trim()}>
+                            <span className="material-symbols-rounded" aria-hidden="true">{overspendsLeave ? 'running_with_errors' : 'savings'}</span>
+                            <span>
+                                Quỹ phép năm còn <strong>{leaveBalance} ngày</strong>
+                                {span > 0 ? <> · đơn này dùng <strong>{span} ngày</strong></> : null}
+                                {overspendsLeave ? '. Đơn vượt quỹ có thể bị từ chối.' : '.'}
+                            </span>
+                        </p>
+                    ) : null}
+
+                    {/* Submit --------------------------------------------- */}
+                    <button type="button" onClick={handleSubmit} disabled={loading} className="ui-cta">
+                        {loading ? (
+                            <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span>
+                        ) : (
+                            <>
+                                <span className="material-symbols-rounded" aria-hidden="true">send</span>
+                                Gửi đề xuất
+                            </>
+                        )}
+                    </button>
                 </div>
             </div>
+
             <BottomNav
                 activeTab={activeTab}
                 onChange={(t) => {

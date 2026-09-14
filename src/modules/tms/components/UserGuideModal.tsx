@@ -13,7 +13,7 @@ const GUIDE_SECTIONS = [
     title: 'Chấm công 4.0',
     subtitle: 'Attendance 4.0 - Smart & Secure',
     icon: 'qr_code_scanner',
-    color: 'from-primary to-primary/80',
+    tone: 'primary',
     steps: [
       ['location_on', 'Geofencing', 'Hệ thống xác thực vị trí GPS trong bán kính văn phòng.'],
       ['qr_code_2', 'QR động', 'Mã tại Kiosk tự thay đổi để hạn chế sử dụng lại.'],
@@ -24,7 +24,7 @@ const GUIDE_SECTIONS = [
     title: 'Số hóa đơn từ',
     subtitle: 'Seamless Request Management',
     icon: 'send',
-    color: 'from-secondary-purple to-secondary-purple/80',
+    tone: 'info',
     steps: [
       ['event_available', 'Tạo đơn nhanh', 'Tạo đề xuất nghỉ phép, công tác hoặc làm việc tại nhà.'],
       ['edit', 'Giải trình công', 'Bổ sung thông tin khi dữ liệu chấm công có sai sót.'],
@@ -35,7 +35,7 @@ const GUIDE_SECTIONS = [
     title: 'Báo cáo thông minh',
     subtitle: 'Data-Driven Insights',
     icon: 'pie_chart',
-    color: 'from-secondary-green to-secondary-green/80',
+    tone: 'success',
     steps: [
       ['speed', 'Dashboard', 'Xem nhanh công chuẩn, thực tế, ngày nghỉ và quỹ phép năm.'],
       ['history', 'Lịch sử chi tiết', 'Tra cứu dữ liệu vào, ra và vị trí đối soát.'],
@@ -46,7 +46,7 @@ const GUIDE_SECTIONS = [
     title: 'An toàn & bảo mật',
     subtitle: 'Trusted Device Protocol',
     icon: 'shield',
-    color: 'from-secondary-red to-secondary-red/80',
+    tone: 'danger',
     steps: [
       ['stay_primary_portrait', 'Thiết bị tin cậy', 'Mỗi tài khoản được định danh trên một thiết bị cá nhân.'],
       ['fingerprint', 'Chống giả mạo', 'QR động và GPS giúp giảm gian lận chấm công.'],
@@ -91,59 +91,59 @@ export default function UserGuideModal({ isOpen, onClose }: Props) {
       aria-modal="true"
       aria-labelledby="user-guide-title"
       aria-describedby="user-guide-subtitle"
-      onTouchStart={(event) => { const touch=event.touches[0]; if(touch)touchStartX.current=touch.clientX; }}
+      onTouchStart={(event) => { const touch = event.touches[0]; if (touch) touchStartX.current = touch.clientX; }}
       onTouchEnd={handleTouchEnd}
     >
-      <button type="button" onClick={close} className="absolute top-safe mt-4 right-4 z-50 px-3 py-1.5 rounded-full bg-black/5 dark:bg-white/5 text-slate-500 dark:text-dark-text-secondary text-xxs font-bold uppercase tracking-widest">
-        Đóng
-      </button>
-
-      <div className="pt-20 pb-8 px-8 text-center bg-slate-50 dark:bg-dark-surface">
-        <div className={`w-28 h-28 mx-auto rounded-full bg-gradient-to-br ${section.color} text-white flex items-center justify-center shadow-xl`}>
-          <span className="material-symbols-rounded text-6xl" aria-hidden="true">{section.icon}</span>
+      <div className="guide-head">
+        <span className={`ui-tile ui-tile-soft ui-tone-${section.tone} guide-head-icon`} aria-hidden="true">
+          <span className="material-symbols-rounded">{section.icon}</span>
+        </span>
+        <div className="guide-head-text">
+          <h2 id="user-guide-title">{section.title}</h2>
+          <p id="user-guide-subtitle">{section.subtitle}</p>
         </div>
-        <h2 id="user-guide-title" className="text-2xl font-bold text-neutral-black dark:text-dark-text-primary mt-6">{section.title}</h2>
-        <p id="user-guide-subtitle" className="app-wide-kicker text-xxs font-bold text-slate-400 uppercase mt-2">{section.subtitle}</p>
+        <button type="button" onClick={close} className="ui-button ui-button-quiet guide-skip">Bỏ qua</button>
       </div>
 
-      <div className="flex-1 px-8 py-8 overflow-y-auto">
-        <div className="space-y-6">
+      <div className="guide-body no-scrollbar">
+        <section className="ui-card ui-card-flush">
           {section.steps.map(([icon, title, description]) => (
-            <div key={title} className="flex items-start gap-5">
-              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${section.color} text-white flex items-center justify-center flex-shrink-0`}>
-                <span className="material-symbols-rounded text-xl" aria-hidden="true">{icon}</span>
-              </div>
-              <div>
-                <h4 className="text-base font-bold text-neutral-black dark:text-dark-text-primary">{title}</h4>
-                <p className="text-xs font-medium text-slate-500 dark:text-dark-text-secondary leading-relaxed mt-1">{description}</p>
-              </div>
+            <div key={title} className="ui-row">
+              <span className={`ui-row-icon ui-tone-${section.tone}`} aria-hidden="true">
+                <span className="material-symbols-rounded">{icon}</span>
+              </span>
+              <span className="ui-row-body">
+                <span className="guide-step-title">{title}</span>
+                <span className="guide-step-text">{description}</span>
+              </span>
             </div>
           ))}
-        </div>
+        </section>
       </div>
 
-      <div className="px-8 py-6 border-t border-slate-100 dark:border-dark-border">
-        <div className="flex justify-center gap-2 mb-5">
+      <div className="guide-foot">
+        <div className="ui-guide-dots">
           {GUIDE_SECTIONS.map((item, index) => (
             <button
               type="button"
               key={item.title}
-              aria-label={`Mở phần ${index + 1}`}
+              aria-label={`Mở phần ${index + 1}: ${item.title}`}
               aria-current={index === activeTab ? 'step' : undefined}
               onClick={() => setActiveTab(index)}
-              className={`h-1.5 rounded-full ${index === activeTab ? `w-8 bg-gradient-to-r ${section.color}` : 'w-1.5 bg-slate-200 dark:bg-dark-border'}`}
+              className={`ui-guide-dot ${index === activeTab ? 'ui-guide-dot-active' : ''}`.trim()}
             />
           ))}
         </div>
-        <div className="flex gap-3">
+
+        <div className="guide-nav">
           {activeTab > 0 ? (
-            <button type="button" aria-label="Phần trước" onClick={() => setActiveTab((current) => current - 1)} className="w-14 h-14 rounded-xl bg-slate-100 dark:bg-dark-border/50 flex items-center justify-center">
+            <button type="button" aria-label="Phần trước" onClick={() => setActiveTab((current) => current - 1)} className="ui-button ui-button-quiet guide-nav-back">
               <span className="material-symbols-rounded" aria-hidden="true">arrow_back</span>
             </button>
           ) : null}
-          <button type="button" onClick={() => isLastSection ? close() : setActiveTab((current) => current + 1)} className={`flex-1 h-14 rounded-xl bg-gradient-to-r ${section.color} text-white font-bold uppercase tracking-widest flex items-center justify-center gap-2`}>
-            {isLastSection ? 'Hoàn thành' : 'Tiếp theo'}
-            <span className="material-symbols-rounded" aria-hidden="true">{isLastSection ? 'check' : 'chevron_right'}</span>
+          <button type="button" onClick={() => isLastSection ? close() : setActiveTab((current) => current + 1)} className="ui-cta">
+            {isLastSection ? 'Bắt đầu dùng' : 'Tiếp theo'}
+            <span className="material-symbols-rounded" aria-hidden="true">{isLastSection ? 'check' : 'arrow_forward'}</span>
           </button>
         </div>
       </div>

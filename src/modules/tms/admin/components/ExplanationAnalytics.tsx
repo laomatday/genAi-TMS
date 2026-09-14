@@ -22,11 +22,21 @@ interface ExplanationAnalyticsProps {
   onNavigate: (section: AdminSection) => void;
 }
 
+/** Recharts writes its colours onto SVG attributes, so it needs a resolved value
+ *  rather than a class. The tokens are read off the document at render time —
+ *  no hex is duplicated here, and the charts follow the theme like everything
+ *  else. If a token cannot be read the `var()` form is handed through, which the
+ *  browser still resolves once the node is in the DOM. */
+function brandColor(token: string) {
+  if (typeof window === 'undefined') return `var(${token})`;
+  return getComputedStyle(document.documentElement).getPropertyValue(token).trim() || `var(${token})`;
+}
+
 const COLORS = {
-  PENDING: '#f59e0b', // Amber-500
-  APPROVED: '#10b981', // Emerald-500
-  REJECTED: '#ef4444', // Rose-500
-  MUTED: '#94a3b8',
+  get PENDING() { return brandColor('--color-warning'); },
+  get APPROVED() { return brandColor('--color-success'); },
+  get REJECTED() { return brandColor('--color-error'); },
+  get MUTED() { return brandColor('--color-text-muted'); },
 };
 
 interface TooltipPayloadItem {
@@ -61,19 +71,19 @@ function CustomPieTooltip({ active, payload }: CustomTooltipProps) {
 
   return (
     <div className="admin-custom-tooltip">
-      <div className="flex items-center gap-2 font-bold text-sm text-slate-800 dark:text-slate-100">
+      <div className="flex items-center gap-2 font-bold text-sm ui-text-primary">
         <span
           className="w-3 h-3 rounded-full"
           style={{ backgroundColor: item.color || COLORS.MUTED }}
         />
         <span>{item.name}</span>
       </div>
-      <div className="mt-1 text-xs text-slate-600 dark:text-slate-300 flex justify-between gap-4">
+      <div className="mt-1 text-xs ui-text-secondary flex justify-between gap-4">
         <span>Số lượng đơn:</span>
-        <strong className="text-slate-900 dark:text-white">{item.value} đơn</strong>
+        <strong className="ui-text-primary dark:ui-text-on-dark">{item.value} đơn</strong>
       </div>
       {data?.percentage !== undefined && (
-        <div className="text-xs text-slate-500 dark:text-slate-400 flex justify-between gap-4">
+        <div className="text-xs ui-text-muted flex justify-between gap-4">
           <span>Tỷ trọng:</span>
           <strong>{data.percentage}%</strong>
         </div>
@@ -90,32 +100,32 @@ function CustomBarTooltip({ active, payload }: CustomTooltipProps) {
 
   return (
     <div className="admin-custom-tooltip min-w-[160px]">
-      <div className="font-bold text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 pb-1 mb-1 border-b border-slate-200 dark:border-slate-700">
+      <div className="font-bold text-xs uppercase tracking-wider ui-text-muted pb-1 mb-1 border-b ui-border-line">
         Ngày {data.displayDate || data.date}
       </div>
       <div className="space-y-1 text-xs">
-        <div className="flex items-center justify-between gap-3 text-amber-600 dark:text-amber-400 font-medium">
+        <div className="flex items-center justify-between gap-3 ui-tone-warning font-medium">
           <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-amber-500" />
+            <span className="w-2 h-2 rounded-full ui-fill-warning" />
             Chờ duyệt (Pending):
           </span>
           <strong>{data.pending || 0}</strong>
         </div>
-        <div className="flex items-center justify-between gap-3 text-emerald-600 dark:text-emerald-400 font-medium">
+        <div className="flex items-center justify-between gap-3 ui-tone-success font-medium">
           <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            <span className="w-2 h-2 rounded-full ui-fill-success" />
             Đã duyệt (Approved):
           </span>
           <strong>{data.approved || 0}</strong>
         </div>
-        <div className="flex items-center justify-between gap-3 text-rose-600 dark:text-rose-400 font-medium">
+        <div className="flex items-center justify-between gap-3 ui-tone-danger font-medium">
           <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-rose-500" />
+            <span className="w-2 h-2 rounded-full ui-fill-danger" />
             Từ chối (Rejected):
           </span>
           <strong>{data.rejected || 0}</strong>
         </div>
-        <div className="pt-1 mt-1 border-t border-slate-200 dark:border-slate-700 flex justify-between text-slate-700 dark:text-slate-200 font-bold">
+        <div className="pt-1 mt-1 border-t ui-border-line flex justify-between ui-text-secondary font-bold">
           <span>Tổng cộng:</span>
           <span>{data.total || 0} đơn</span>
         </div>
@@ -280,20 +290,20 @@ export default function ExplanationAnalytics({
       <div className="admin-explanation-kpi-grid">
         <div className="admin-explanation-kpi-card kpi-total">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <span className="text-xs font-semibold uppercase tracking-wider ui-text-muted">
               Tổng đơn tháng
             </span>
-            <span className="material-symbols-rounded text-slate-400 text-lg">edit_note</span>
+            <span className="material-symbols-rounded ui-text-muted text-lg">edit_note</span>
           </div>
           <div className="flex items-baseline gap-2">
-            <strong className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <strong className="text-2xl font-bold tracking-tight ui-text-primary dark:ui-text-on-dark">
               {stats.total}
             </strong>
-            <small className="text-xs text-slate-500 font-medium">giải trình</small>
+            <small className="text-xs ui-text-muted font-medium">giải trình</small>
           </div>
-          <div className="mt-2 text-xs text-slate-500 flex items-center gap-1">
+          <div className="mt-2 text-xs ui-text-muted flex items-center gap-1">
             <span>Tiến độ xử lý:</span>
-            <strong className={stats.resolutionRate === 100 ? 'text-emerald-600' : 'text-amber-600'}>
+            <strong className={stats.resolutionRate === 100 ? 'ui-tone-success' : 'ui-tone-warning'}>
               {stats.resolutionRate}%
             </strong>
           </div>
@@ -301,41 +311,41 @@ export default function ExplanationAnalytics({
 
         <div className={`admin-explanation-kpi-card kpi-pending ${stats.pending > 0 ? 'highlight' : ''}`}>
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+            <span className="text-xs font-semibold uppercase tracking-wider ui-tone-warning">
               Chờ duyệt (Pending)
             </span>
-            <span className="material-symbols-rounded text-amber-500 text-lg">pending</span>
+            <span className="material-symbols-rounded ui-tone-warning text-lg">pending</span>
           </div>
           <div className="flex items-baseline gap-2">
-            <strong className="text-2xl font-bold tracking-tight text-amber-600 dark:text-amber-400">
+            <strong className="text-2xl font-bold tracking-tight ui-tone-warning">
               {stats.pending}
             </strong>
-            <small className="text-xs text-amber-700/80 font-medium">
+            <small className="text-xs ui-tone-warning font-medium">
               {stats.total > 0 ? `${Math.round((stats.pending / stats.total) * 100)}%` : '0%'}
             </small>
           </div>
-          <div className="mt-2 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block animate-pulse" />
+          <div className="mt-2 text-xs ui-tone-warning flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full ui-fill-warning inline-block animate-pulse" />
             <span>{stats.pending > 0 ? 'Cần Admin phê duyệt' : 'Hàng chờ sạch'}</span>
           </div>
         </div>
 
         <div className="admin-explanation-kpi-card kpi-approved">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+            <span className="text-xs font-semibold uppercase tracking-wider ui-tone-success">
               Đã duyệt (Approved)
             </span>
-            <span className="material-symbols-rounded text-emerald-500 text-lg">check_circle</span>
+            <span className="material-symbols-rounded ui-tone-success text-lg">check_circle</span>
           </div>
           <div className="flex items-baseline gap-2">
-            <strong className="text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">
+            <strong className="text-2xl font-bold tracking-tight ui-tone-success">
               {stats.approved}
             </strong>
-            <small className="text-xs text-emerald-700/80 font-medium">
+            <small className="text-xs ui-tone-success font-medium">
               {stats.total > 0 ? `${Math.round((stats.approved / stats.total) * 100)}%` : '0%'}
             </small>
           </div>
-          <div className="mt-2 text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+          <div className="mt-2 text-xs ui-tone-success flex items-center gap-1">
             <span>Tỷ lệ chấp thuận:</span>
             <strong>{stats.approvalRate}%</strong>
           </div>
@@ -343,20 +353,20 @@ export default function ExplanationAnalytics({
 
         <div className="admin-explanation-kpi-card kpi-rejected">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-semibold uppercase tracking-wider text-rose-700 dark:text-rose-400">
+            <span className="text-xs font-semibold uppercase tracking-wider ui-tone-danger">
               Từ chối (Rejected)
             </span>
-            <span className="material-symbols-rounded text-rose-500 text-lg">cancel</span>
+            <span className="material-symbols-rounded ui-tone-danger text-lg">cancel</span>
           </div>
           <div className="flex items-baseline gap-2">
-            <strong className="text-2xl font-bold tracking-tight text-rose-600 dark:text-rose-400">
+            <strong className="text-2xl font-bold tracking-tight ui-tone-danger">
               {stats.rejected}
             </strong>
-            <small className="text-xs text-rose-700/80 font-medium">
+            <small className="text-xs ui-tone-danger font-medium">
               {stats.total > 0 ? `${Math.round((stats.rejected / stats.total) * 100)}%` : '0%'}
             </small>
           </div>
-          <div className="mt-2 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-1">
+          <div className="mt-2 text-xs ui-tone-danger flex items-center gap-1">
             <span>Không đủ căn cứ hợp lệ</span>
           </div>
         </div>
@@ -366,12 +376,12 @@ export default function ExplanationAnalytics({
       <div className="admin-explanation-chart-layout">
         <div className="admin-chart-stage-container">
           {stats.total === 0 ? (
-            <div className="h-[240px] flex flex-col items-center justify-center text-slate-400">
-              <span className="material-symbols-rounded text-4xl mb-2 text-slate-300">
+            <div className="h-[240px] flex flex-col items-center justify-center ui-text-muted">
+              <span className="material-symbols-rounded text-4xl mb-2 ui-text-on-dark">
                 pie_chart
               </span>
               <p className="text-sm font-medium">Chưa có dữ liệu giải trình trong tháng này</p>
-              <small className="text-xs text-slate-400">
+              <small className="text-xs ui-text-muted">
                 Các đơn giải trình mới từ nhân viên sẽ xuất hiện tự động tại đây
               </small>
             </div>
@@ -397,10 +407,10 @@ export default function ExplanationAnalytics({
                 </PieChart>
               </ResponsiveContainer>
               <div className="admin-donut-center-badge">
-                <span className="text-2xl font-bold text-slate-800 dark:text-white">
+                <span className="text-2xl font-bold ui-text-primary dark:ui-text-on-dark">
                   {stats.total}
                 </span>
-                <span className="text-[11px] font-semibold tracking-wider uppercase text-slate-400">
+                <span className="text-[11px] font-semibold tracking-wider uppercase ui-text-muted">
                   Tổng đơn
                 </span>
               </div>
@@ -413,16 +423,16 @@ export default function ExplanationAnalytics({
                   margin={{ top: 10, right: 10, left: -18, bottom: 0 }}
                   barSize={18}
                 >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" opacity={0.6} />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={brandColor('--color-divider')} opacity={0.8} />
                   <XAxis
                     dataKey="displayDate"
-                    tick={{ fontSize: 11, fill: '#64748b' }}
-                    axisLine={{ stroke: '#cbd5e1' }}
+                    tick={{ fontSize: 11, fill: COLORS.MUTED }}
+                    axisLine={{ stroke: brandColor('--color-border') }}
                     tickLine={false}
                   />
                   <YAxis
                     allowDecimals={false}
-                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    tick={{ fontSize: 11, fill: COLORS.MUTED }}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -464,28 +474,28 @@ export default function ExplanationAnalytics({
         {/* Legend / Context Breakdown */}
         <div className="admin-explanation-breakdown">
           <div className="admin-breakdown-header">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            <span className="text-xs font-bold uppercase tracking-wider ui-text-muted">
               Chi tiết phân bổ
             </span>
-            <span className="text-xs text-slate-400 font-medium">Tỷ trọng</span>
+            <span className="text-xs ui-text-muted font-medium">Tỷ trọng</span>
           </div>
 
           <div className="space-y-2.5">
             <div className="admin-breakdown-row">
               <div className="flex items-center gap-2.5">
-                <span className="w-3 h-3 rounded-full bg-amber-500 flex-shrink-0" />
+                <span className="w-3 h-3 rounded-full ui-fill-warning flex-shrink-0" />
                 <div>
-                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                  <div className="text-xs font-bold ui-text-primary">
                     Chờ duyệt (Pending)
                   </div>
-                  <div className="text-[11px] text-slate-500">Khối lượng đang tồn đọng</div>
+                  <div className="text-[11px] ui-text-muted">Khối lượng đang tồn đọng</div>
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-xs font-bold text-amber-600 dark:text-amber-400">
+                <div className="text-xs font-bold ui-tone-warning">
                   {stats.pending} đơn
                 </div>
-                <div className="text-[11px] text-slate-400 font-medium">
+                <div className="text-[11px] ui-text-muted font-medium">
                   {stats.total > 0 ? `${Math.round((stats.pending / stats.total) * 100)}%` : '0%'}
                 </div>
               </div>
@@ -493,19 +503,19 @@ export default function ExplanationAnalytics({
 
             <div className="admin-breakdown-row">
               <div className="flex items-center gap-2.5">
-                <span className="w-3 h-3 rounded-full bg-emerald-500 flex-shrink-0" />
+                <span className="w-3 h-3 rounded-full ui-fill-success flex-shrink-0" />
                 <div>
-                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                  <div className="text-xs font-bold ui-text-primary">
                     Đã duyệt (Approved)
                   </div>
-                  <div className="text-[11px] text-slate-500">Đã chốt bổ sung công hợp lệ</div>
+                  <div className="text-[11px] ui-text-muted">Đã chốt bổ sung công hợp lệ</div>
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                <div className="text-xs font-bold ui-tone-success">
                   {stats.approved} đơn
                 </div>
-                <div className="text-[11px] text-slate-400 font-medium">
+                <div className="text-[11px] ui-text-muted font-medium">
                   {stats.total > 0 ? `${Math.round((stats.approved / stats.total) * 100)}%` : '0%'}
                 </div>
               </div>
@@ -513,19 +523,19 @@ export default function ExplanationAnalytics({
 
             <div className="admin-breakdown-row">
               <div className="flex items-center gap-2.5">
-                <span className="w-3 h-3 rounded-full bg-rose-500 flex-shrink-0" />
+                <span className="w-3 h-3 rounded-full ui-fill-danger flex-shrink-0" />
                 <div>
-                  <div className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                  <div className="text-xs font-bold ui-text-primary">
                     Từ chối (Rejected)
                   </div>
-                  <div className="text-[11px] text-slate-500">Không chấp thuận lý do</div>
+                  <div className="text-[11px] ui-text-muted">Không chấp thuận lý do</div>
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-xs font-bold text-rose-600 dark:text-rose-400">
+                <div className="text-xs font-bold ui-tone-danger">
                   {stats.rejected} đơn
                 </div>
-                <div className="text-[11px] text-slate-400 font-medium">
+                <div className="text-[11px] ui-text-muted font-medium">
                   {stats.total > 0 ? `${Math.round((stats.rejected / stats.total) * 100)}%` : '0%'}
                 </div>
               </div>
@@ -534,13 +544,13 @@ export default function ExplanationAnalytics({
 
           {/* Operational Guidance Card */}
           <div className="admin-workload-guidance">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
-              <span className={`material-symbols-rounded text-sm ${stats.pending > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>
+            <div className="flex items-center gap-2 text-xs font-semibold ui-text-primary">
+              <span className={`material-symbols-rounded text-sm ${stats.pending > 0 ? 'ui-tone-warning' : 'ui-tone-success'}`}>
                 {stats.pending > 0 ? 'warning' : 'task_alt'}
               </span>
               <span>Đánh giá khối lượng công việc</span>
             </div>
-            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            <p className="mt-1 text-xs ui-text-secondary leading-relaxed">
               {stats.pending > 0
                 ? `Còn ${stats.pending} đơn giải trình đang chờ Admin duyệt trước chu kỳ chốt lương cuối tháng.`
                 : 'Toàn bộ đơn giải trình trong tháng đã được xử lý xong. Dữ liệu sẵn sàng đối soát công.'}
@@ -548,7 +558,7 @@ export default function ExplanationAnalytics({
             {stats.pending > 0 && (
               <button
                 type="button"
-                className="mt-2 w-full py-1.5 px-3 rounded-lg text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-200 border border-amber-500/30 flex items-center justify-center gap-1.5 transition-colors"
+                className="admin-guidance-action"
                 onClick={() => onNavigate('attendance')}
               >
                 <span className="material-symbols-rounded text-sm">assignment_turned_in</span>

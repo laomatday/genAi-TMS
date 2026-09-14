@@ -11,7 +11,6 @@ interface Props {
     notificationCount: number;
     onOpenProfile: () => void;
     onOpenNotifications: () => void;
-    onCreateRequest?: () => void;
     onContactSearch?: () => void;
     canManage?: boolean;
     onOpenManager?: () => void;
@@ -30,7 +29,7 @@ const TAB_IDENTITY: Partial<Record<TabType, { title: string; tag?: string }>> = 
     notifications: { title: 'Thông báo' },
 };
 
-const Header: React.FC<Props> = ({ user, activeTab, notificationCount, onOpenProfile, onOpenNotifications, onCreateRequest, onContactSearch, canManage, onOpenManager, onOpenWorkspace }) => {
+const Header: React.FC<Props> = ({ user, activeTab, notificationCount, onOpenProfile, onOpenNotifications, onContactSearch, canManage, onOpenManager, onOpenWorkspace }) => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const identity = TAB_IDENTITY[activeTab] ?? { title: 'genAi TMS' };
     const subtitle = [user.name, user.position].filter(Boolean).join(' • ');
@@ -81,15 +80,6 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, onOpenPro
                             />
                         )}
 
-                        {activeTab === 'requests' && onCreateRequest && (
-                            <IconButton
-                                icon="add"
-                                label="Tạo yêu cầu"
-                                size="lg"
-                                tone="primary"
-                                onClick={onCreateRequest}
-                            />
-                        )}
 
                         {canManage && onOpenManager && (
                             <IconButton

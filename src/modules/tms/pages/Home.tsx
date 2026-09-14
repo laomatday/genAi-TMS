@@ -11,7 +11,7 @@ import {
 import { determineShift, togglePause } from '@/modules/tms/services/employee';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import Spinner from '@/shared/components/common/Spinner';
-import StatCard from '@/shared/components/data/StatCard';
+import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import { TMS_LIMITS } from '@/shared/constants';
 
 interface Props {
@@ -116,6 +116,10 @@ const TabHome: React.FC<Props> = ({
 
   const pendingExplanation = explainableItems?.[0] || null;
   const summary = data?.history.summary;
+  const lateMinutes = summary?.lateMins ?? 0;
+  const workProgress = summary?.standardDays
+    ? Math.min(100, Math.max(0, ((summary.workDays ?? 0) / summary.standardDays) * 100))
+    : 0;
 
   const handleCheckIn = () => {
     triggerHaptic('medium');
@@ -169,7 +173,7 @@ const TabHome: React.FC<Props> = ({
       <div className="employee-page flex min-h-[60vh] items-center justify-center">
         <div className="text-center">
           <Spinner size="lg" />
-          <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">Đang tải trạng thái làm việc…</p>
+          <p className="app-loading-note">Đang tải trạng thái làm việc…</p>
         </div>
       </div>
     );
@@ -241,77 +245,113 @@ const TabHome: React.FC<Props> = ({
             ) : null}
           </section>
 
-          <div className="home-stats-header">
-            <div>
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Tháng hiện tại</span>
-              <h3 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Tổng quan công</h3>
+          {/* Month to date ------------------------------------------ */}
+          <div>
+            <div className="ui-label-row">
+              <span className="ui-label">Tháng này</span>
+              <span className="ui-label">Cập nhật liên tục</span>
+            </div>
+
+            <div className="ui-metrics ui-metrics-half animate-slide-up">
+              <div className="ui-metric">
+                <span className="ui-metric-head">
+                  <span>Công chuẩn</span>
+                  <span className="material-symbols-rounded ui-tone-primary" aria-hidden="true">calendar_today</span>
+                </span>
+                <span className="ui-metric-value">
+                  {summary?.standardDays ?? 0}
+                  <span className="ui-metric-unit">ngày</span>
+                </span>
+                <span className="ui-metric-foot">Định mức kỳ công</span>
+              </div>
+
+              <div className="ui-metric">
+                <span className="ui-metric-head">
+                  <span>Công thực tế</span>
+                  <span className="material-symbols-rounded ui-tone-success" aria-hidden="true">task_alt</span>
+                </span>
+                <span className="ui-metric-value ui-tone-success">
+                  {summary?.workDays ?? 0}
+                  <span className="ui-metric-unit">ngày</span>
+                </span>
+                <span className="ui-progress" role="img" aria-label={`Đã đạt ${summary?.workDays ?? 0} trên ${summary?.standardDays ?? 0} ngày công`}>
+                  <span style={{ width: `${workProgress}%` }} />
+                </span>
+              </div>
+
+              <div className="ui-metric">
+                <span className="ui-metric-head">
+                  <span>Phép đã dùng</span>
+                  <span className="material-symbols-rounded ui-tone-info" aria-hidden="true">beach_access</span>
+                </span>
+                <span className="ui-metric-value ui-tone-info">
+                  {summary?.leaveDays ?? 0}
+                  <span className="ui-metric-unit">ngày</span>
+                </span>
+                <span className="ui-metric-foot">Còn {summary?.remainingLeave ?? 0} ngày</span>
+              </div>
+
+              <div className={`ui-metric ${lateMinutes > 0 ? 'ui-metric-attention' : ''}`.trim()}>
+                <span className="ui-metric-head">
+                  <span>Đi trễ</span>
+                  <span className={`material-symbols-rounded ${lateMinutes > 0 ? 'ui-tone-danger' : 'ui-tone-muted'}`} aria-hidden="true">schedule</span>
+                </span>
+                <span className={`ui-metric-value ${lateMinutes > 0 ? 'ui-tone-danger' : ''}`.trim()}>
+                  {lateMinutes}
+                  <span className="ui-metric-unit">phút</span>
+                </span>
+                <span className="ui-metric-foot">{lateMinutes > 0 ? 'Có vi phạm giờ vào' : 'Không vi phạm'}</span>
+              </div>
             </div>
           </div>
 
-          <div className="home-stats-grid animate-slide-up">
-            <StatCard title="Công chuẩn" value={summary?.standardDays ?? 0} sub={<span className="stat-label-bottom">ngày</span>} icon="calendar_today" color="blue" />
-            <StatCard title="Công thực tế" value={summary?.workDays ?? 0} sub={<span className="stat-label-bottom">ngày</span>} icon="check_circle" color="indigo" />
-            <StatCard title="Phép đã dùng" value={summary?.leaveDays ?? 0} sub={<span className="stat-label-bottom">còn {summary?.remainingLeave ?? 0}</span>} icon="beach_access" color="amber" />
-            <StatCard title="Đi trễ" value={summary?.lateMins ?? 0} sub={<span className="stat-label-bottom">phút</span>} icon="schedule" color="rose" />
-          </div>
-
+          {/* Something needs you ------------------------------------- */}
           {pendingExplanation && onExplain ? (
-            <section className="home-smart-prompt animate-slide-up" aria-label="Cần giải trình">
-              <div className="home-smart-prompt-content">
-                <span className="material-symbols-rounded home-smart-prompt-icon" aria-hidden="true">notification_important</span>
-                <div className="home-smart-prompt-text">
-                  <strong>Cần giải trình · {formatDateString(pendingExplanation.date)}</strong>
-                  <p>{pendingExplanation.explainReason}</p>
-                </div>
+            <section className="ui-card ui-card-attention ui-card-pad animate-slide-up home-prompt" aria-label="Cần giải trình">
+              <div className="home-prompt-head">
+                <span className="ui-tile ui-tile-soft ui-tone-danger" aria-hidden="true">
+                  <span className="material-symbols-rounded">notification_important</span>
+                </span>
+                <span className="home-prompt-text">
+                  <span className="home-prompt-title">Cần giải trình · {formatDateString(pendingExplanation.date)}</span>
+                  <span className="home-prompt-reason">{pendingExplanation.explainReason}</span>
+                </span>
               </div>
               <button
                 type="button"
-                className="home-smart-prompt-action"
+                className="ui-cta"
                 onClick={() => {
                   triggerHaptic('light');
                   onExplain(pendingExplanation.date, pendingExplanation.explainReason);
                 }}
               >
-                Xử lý
+                <span className="material-symbols-rounded" aria-hidden="true">edit_document</span>
+                Giải trình ngay
               </button>
             </section>
           ) : null}
         </div>
       </PullToRefresh>
 
-      {holidayConfirm.isOpen ? (
-        <div className="app-dialog-backdrop animate-fade-in">
-          <div className="app-dialog animate-scale-in" role="alertdialog" aria-modal="true" aria-labelledby="holiday-dialog-title">
-            <span className="app-dialog-icon status-tone-danger material-symbols-rounded" aria-hidden="true">celebration</span>
-            <h3 id="holiday-dialog-title">Hôm nay là ngày lễ</h3>
-            <strong className="status-tone-danger">{holidayConfirm.name}</strong>
-            <p>Hệ thống đang ghi nhận hôm nay là ngày nghỉ. Chỉ tiếp tục nếu anh/chị thực sự đang làm việc.</p>
-            <div className="app-dialog-actions">
-              <button type="button" className="btn btn-primary btn-md" onClick={() => { setHolidayConfirm({ isOpen: false, name: '' }); onScanKiosk(); }}>
-                <span className="material-symbols-rounded" aria-hidden="true">work</span>Vẫn chấm công
-              </button>
-              <button type="button" className="btn btn-secondary btn-md" onClick={() => setHolidayConfirm({ isOpen: false, name: '' })}>Hủy</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmDialog
+        isOpen={holidayConfirm.isOpen}
+        title="Hôm nay là ngày lễ"
+        message={<>Hệ thống ghi nhận <strong>{holidayConfirm.name}</strong> là ngày nghỉ. Chỉ tiếp tục nếu anh/chị thực sự đang làm việc.</>}
+        confirmLabel="Vẫn chấm công"
+        onConfirm={() => { setHolidayConfirm({ isOpen: false, name: '' }); onScanKiosk(); }}
+        onCancel={() => setHolidayConfirm({ isOpen: false, name: '' })}
+        type="warning"
+      />
 
-      {earlyCheckoutConfirm.isOpen ? (
-        <div className="app-dialog-backdrop animate-fade-in">
-          <div className="app-dialog animate-scale-in" role="alertdialog" aria-modal="true" aria-labelledby="early-dialog-title">
-            <span className="app-dialog-icon status-tone-warning material-symbols-rounded" aria-hidden="true">timer</span>
-            <h3 id="early-dialog-title">Check-out sớm?</h3>
-            <strong className="status-tone-warning">Sớm {earlyCheckoutConfirm.minutes} phút</strong>
-            <p>Nếu tiếp tục, hệ thống sẽ ghi nhận về sớm theo ca đã được phân.</p>
-            <div className="app-dialog-actions">
-              <button type="button" className="btn btn-danger btn-md" onClick={() => { setEarlyCheckoutConfirm({ isOpen: false, minutes: 0 }); onCheckOut(); }}>
-                <span className="material-symbols-rounded" aria-hidden="true">logout</span>Vẫn Check-out
-              </button>
-              <button type="button" className="btn btn-secondary btn-md" onClick={() => setEarlyCheckoutConfirm({ isOpen: false, minutes: 0 })}>Hủy</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmDialog
+        isOpen={earlyCheckoutConfirm.isOpen}
+        title="Check-out sớm?"
+        message={<>Còn <strong>{earlyCheckoutConfirm.minutes} phút</strong> nữa mới hết ca. Nếu tiếp tục, hệ thống sẽ ghi nhận về sớm.</>}
+        confirmLabel="Vẫn check-out"
+        onConfirm={() => { setEarlyCheckoutConfirm({ isOpen: false, minutes: 0 }); onCheckOut(); }}
+        onCancel={() => setEarlyCheckoutConfirm({ isOpen: false, minutes: 0 })}
+        type="danger"
+      />
     </>
   );
 };

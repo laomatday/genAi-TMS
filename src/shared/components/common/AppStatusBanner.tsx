@@ -65,35 +65,35 @@ export default function AppStatusBanner() {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-3 top-[calc(env(safe-area-inset-top)+0.75rem)] z-[9999] mx-auto flex max-w-xl flex-col gap-2"
+      className="app-status-stack"
       aria-live="polite"
       aria-atomic="true"
     >
       {!isOnline ? (
-        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-amber-300/70 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-xl dark:border-amber-500/40 dark:bg-amber-950 dark:text-amber-50" role="alert">
+        <div className="app-status-banner app-status-banner-warning" role="alert">
           <span className="material-symbols-rounded" aria-hidden="true">wifi_off</span>
-          <div className="min-w-0 flex-1">
-            <strong className="block">Đang ngoại tuyến</strong>
-            <span className="block text-xs opacity-80">Bạn vẫn có thể xem dữ liệu đã tải. Chấm công và cập nhật dữ liệu đang tạm khóa.</span>
+          <div className="app-status-banner-body">
+            <strong>Đang ngoại tuyến</strong>
+            <span>Bạn vẫn có thể xem dữ liệu đã tải. Chấm công và cập nhật dữ liệu đang tạm khóa.</span>
           </div>
         </div>
       ) : connectionRestored ? (
-        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-emerald-300/70 bg-emerald-50 px-4 py-3 text-sm text-emerald-950 shadow-xl dark:border-emerald-500/40 dark:bg-emerald-950 dark:text-emerald-50" role="status">
+        <div className="app-status-banner app-status-banner-success" role="status">
           <span className="material-symbols-rounded" aria-hidden="true">wifi</span>
           <strong>Đã kết nối lại</strong>
         </div>
       ) : null}
 
       {updateAction ? (
-        <div className="pointer-events-auto flex items-center gap-3 rounded-2xl border border-sky-300/70 bg-white px-4 py-3 text-sm text-slate-900 shadow-xl dark:border-sky-500/40 dark:bg-slate-900 dark:text-slate-50" role="status">
-          <span className="material-symbols-rounded text-sky-600 dark:text-sky-400" aria-hidden="true">system_update</span>
-          <div className="min-w-0 flex-1">
-            <strong className="block">Có phiên bản mới</strong>
-            <span className="block text-xs text-slate-500 dark:text-slate-400">{!isOnline ? 'Kết nối mạng để cài đặt phiên bản mới.' : isAttendanceActive ? 'Sẽ mở lại sau khi hoàn tất chấm công.' : 'Cập nhật khi bạn không thực hiện chấm công.'}</span>
+        <div className="app-status-banner app-status-banner-info" role="status">
+          <span className="material-symbols-rounded ui-tone-info" aria-hidden="true">system_update</span>
+          <div className="app-status-banner-body">
+            <strong>Có phiên bản mới</strong>
+            <span>{!isOnline ? 'Kết nối mạng để cài đặt phiên bản mới.' : isAttendanceActive ? 'Sẽ mở lại sau khi hoàn tất chấm công.' : 'Cập nhật khi bạn không thực hiện chấm công.'}</span>
           </div>
           <button
             type="button"
-            className="rounded-full bg-sky-600 px-3 py-2 text-xs font-bold text-white disabled:cursor-wait disabled:opacity-60"
+            className="app-status-banner-action"
             onClick={applyUpdate}
             disabled={isApplyingUpdate || isAttendanceActive || !isOnline}
           >
@@ -101,7 +101,7 @@ export default function AppStatusBanner() {
           </button>
           <button
             type="button"
-            className="grid size-9 place-items-center rounded-full text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            className="app-status-banner-dismiss"
             onClick={() => {
               updateDismissedRef.current = true;
               setUpdateAction(null);

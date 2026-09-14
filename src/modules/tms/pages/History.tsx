@@ -321,8 +321,8 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                             dayItem.status = 'Weekend';
                             dayItem.shiftInfo = "Nghỉ toàn hệ thống";
                             dayItem.icon = 'local_cafe';
-                            dayItem.iconClass = 'bg-slate-50 dark:bg-dark-surface/50 text-slate-400 dark:text-dark-text-secondary';
-                            dayItem.dotClass = 'bg-slate-300 dark:bg-dark-border';
+                            dayItem.iconClass = 'history-icon-idle';
+                            dayItem.dotClass = 'history-dot-idle';
                         } else if (loopPtr < today) {
                             if (isApproved) {
                                 dayItem.status = 'Full';
@@ -331,8 +331,8 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                                 stats.workDays += 1;
                                 dayItem.showExplain = true;
                                 dayItem.icon = 'verified';
-                                dayItem.iconClass = 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20';
-                                dayItem.dotClass = 'bg-emerald-500';
+                                dayItem.iconClass = 'bg-secondary-green/10 dark:bg-secondary-green/20 text-secondary-green dark:text-secondary-green';
+                                dayItem.dotClass = 'bg-secondary-green';
                             } else {
                                 dayItem.status = 'Absent';
                                 dayItem.shiftInfo = "Vắng mặt";
@@ -351,12 +351,12 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                             dayItem.status = 'Future';
                             dayItem.shiftInfo = "Chưa có dữ liệu";
                             dayItem.dotClass = 'bg-transparent';
-                            dayItem.iconClass = 'bg-slate-50 dark:bg-dark-surface/50 text-slate-300 dark:text-dark-text-secondary/50';
+                            dayItem.iconClass = 'history-icon-blank';
                         } else {
                             dayItem.status = 'Future';
                             dayItem.shiftInfo = "-";
                             dayItem.dotClass = 'bg-transparent';
-                            dayItem.iconClass = 'bg-slate-50 dark:bg-dark-surface/50 text-slate-300 dark:text-dark-text-secondary/50';
+                            dayItem.iconClass = 'history-icon-blank';
                         }
                     }
                 }
