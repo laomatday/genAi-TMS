@@ -10,15 +10,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="genAi" />
     <link rel="manifest" href="/manifest.json" />
-    <script>
-      (function () {
-        try {
-          const savedTheme = localStorage.getItem('genai_theme');
-          const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-          document.documentElement.classList.toggle('dark', savedTheme === 'dark' || (!savedTheme && systemDark));
-        } catch (error) {}
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
     <link rel="icon" type="image/svg+xml" href="/genai-symbol.svg" />
     <link rel="apple-touch-icon" sizes="180x180" href="/genai-app-icon-180.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

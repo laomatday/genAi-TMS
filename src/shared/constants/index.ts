@@ -1,19 +1,29 @@
-import type { EmployeeRole, ShiftConfig, SystemConfig } from '@/shared/types';
+import type { Employee, EmployeeRole, ShiftConfig, SystemConfig } from '@/shared/types';
 
 const ENV_DOMAIN = typeof import.meta !== 'undefined' && import.meta.env?.VITE_APP_DOMAIN ? import.meta.env.VITE_APP_DOMAIN : 'genai.ai.vn';
 const ENV_BRAND = typeof import.meta !== 'undefined' && import.meta.env?.VITE_APP_BRAND ? import.meta.env.VITE_APP_BRAND : 'genAi';
+const ENV_LOGO_URL = typeof import.meta !== 'undefined' && import.meta.env?.VITE_APP_LOGO_URL ? import.meta.env.VITE_APP_LOGO_URL : '/genai-symbol.svg';
+const ENV_SUPPORT_EMAIL = typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPPORT_EMAIL ? import.meta.env.VITE_SUPPORT_EMAIL : `support@${ENV_DOMAIN}`;
 const ENV_PHONE = typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPPORT_PHONE ? import.meta.env.VITE_SUPPORT_PHONE : '19001234';
 const ENV_PHONE_LABEL = typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPPORT_PHONE_LABEL ? import.meta.env.VITE_SUPPORT_PHONE_LABEL : '1900 1234 (Nhánh 1)';
+const ENV_LOGIN_DOMAINS = typeof import.meta !== 'undefined' && import.meta.env?.VITE_LOGIN_EMAIL_DOMAINS
+  ? import.meta.env.VITE_LOGIN_EMAIL_DOMAINS
+  : ENV_DOMAIN;
+const ENV_RELEASE_CHANNEL = typeof import.meta !== 'undefined' && import.meta.env?.VITE_RELEASE_CHANNEL ? import.meta.env.VITE_RELEASE_CHANNEL : 'stable';
+const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0-dev';
+const APP_BUILD_ID = typeof __APP_BUILD_ID__ !== 'undefined' ? __APP_BUILD_ID__ : 'local';
 
 export const APP_INFO = {
   NAME: ENV_BRAND,
   BRAND: ENV_BRAND,
   PRODUCT_NAME: `${ENV_BRAND} TMS`,
-  VERSION: '2.1.0',
+  VERSION: APP_VERSION,
+  BUILD_ID: APP_BUILD_ID,
+  RELEASE_CHANNEL: ENV_RELEASE_CHANNEL,
   DOMAIN: ENV_DOMAIN,
   WEBSITE_URL: `https://${ENV_DOMAIN}`,
-  CONTACT_EMAIL: `support@${ENV_DOMAIN}`,
-  LOGO_URL: '/genai-symbol.svg',
+  CONTACT_EMAIL: ENV_SUPPORT_EMAIL,
+  LOGO_URL: ENV_LOGO_URL,
   SUPPORT_PHONE: ENV_PHONE,
   SUPPORT_PHONE_LABEL: ENV_PHONE_LABEL,
 } as const;
@@ -69,13 +79,20 @@ export function canApproveAny(role: EmployeeRole, config: ApprovalRoleConfig = D
 export const STORAGE_KEYS = {
   THEME: 'genai_theme',
   HISTORY_VIEW: 'genai_history_view_mode',
-  CONTACTS_CACHE: 'genai_contacts_cache',
   SEEN_NOTIFICATIONS: 'genai_seen_noti_count',
   GUIDE_SEEN: 'genai_guide_seen_v2026',
   DEVICE_ID: 'genai_tms_device_id_v2',
   DB_NAME: 'genai-tms-device',
   STORE_NAME: 'keys',
 } as const;
+
+export function scopedStorageKey(
+  baseKey: string,
+  user: Pick<Employee, 'employee_id' | 'organization_id'>,
+) {
+  const organization = user.organization_id || 'unassigned';
+  return `${baseKey}:${encodeURIComponent(organization)}:${encodeURIComponent(user.employee_id)}`;
+}
 
 export const ADMIN_BULK_NOTE_PRESETS = {
   APPROVED: [
@@ -202,4 +219,6 @@ export const TMS_DEFAULTS = {
   ANNUAL_LEAVE_DAYS: 12,
 } as const;
 
-export const LOGIN_EMAIL_DOMAINS: readonly string[] = [ENV_DOMAIN];
+export const LOGIN_EMAIL_DOMAINS: readonly string[] = [...new Set<string>(
+  String(ENV_LOGIN_DOMAINS).split(',').map((domain) => domain.trim().toLowerCase()).filter(Boolean),
+)];

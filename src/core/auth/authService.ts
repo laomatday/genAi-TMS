@@ -12,7 +12,7 @@ export async function fetchMyProfile(): Promise<Employee> {
 
   const { data, error } = await supabase
     .from('employees')
-    .select('employee_id, auth_user_id, name, email, phone, role, center_id, allowed_locations, managed_locations, direct_manager_id, annual_leave_balance, attendance_policy_id, trusted_device_id, trusted_device_bound_at, position, department, avatar_url, face_ref_url, status')
+    .select('employee_id, auth_user_id, organization_id, name, email, phone, role, center_id, allowed_locations, managed_locations, direct_manager_id, annual_leave_balance, attendance_policy_id, trusted_device_id, trusted_device_bound_at, position, department, avatar_url, face_ref_url, employment_start_date, employment_end_date, status')
     .eq('auth_user_id', authData.user.id)
     .single();
 
@@ -56,6 +56,10 @@ export async function doLogin(loginId: string, password: string) {
       if (profile.status !== 'Active') {
         await supabase.auth.signOut({ scope: 'local' });
         return { success: false as const, message: 'Tài khoản đã bị vô hiệu hóa.' };
+      }
+      if (!profile.organization_id) {
+        await supabase.auth.signOut({ scope: 'local' });
+        return { success: false as const, message: 'Hồ sơ chưa được gán tổ chức. Vui lòng liên hệ quản trị hệ thống.' };
       }
 
       return { success: true as const, data: profile };

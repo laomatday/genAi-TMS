@@ -13,7 +13,7 @@ import Header from './Header';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import Spinner from '@/shared/components/common/Spinner';
 import LoadingScreen from '@/shared/components/common/LoadingScreen';
-import { canApproveAny, STORAGE_KEYS, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
+import { canApproveAny, scopedStorageKey, STORAGE_KEYS, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
 import { useAuth } from '@/core/auth/useAuth';
 import { ATTENDANCE_ACTIVITY_EVENT } from '@/shared/components/common/AppStatusBanner';
 
@@ -105,14 +105,23 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   const [explainWorkInitialData, setExplainWorkInitialData] = useState<{ date: string; reason: string } | null>(null);
   const [contactsResetTrigger, setContactsResetTrigger] = useState(0);
   const [contactsSearchTrigger, setContactsSearchTrigger] = useState(0);
+  const notificationStorageKey = useMemo(
+    () => scopedStorageKey(STORAGE_KEYS.SEEN_NOTIFICATIONS, user),
+    [user.employee_id, user.organization_id],
+  );
   const [seenNotiCount, setSeenNotiCount] = useState(() => {
-    try { return parseInt(localStorage.getItem(STORAGE_KEYS.SEEN_NOTIFICATIONS) || '0', 10); } catch { return 0; }
+    try { return parseInt(localStorage.getItem(notificationStorageKey) || '0', 10); } catch { return 0; }
   });
   const managerDate = new Date();
   const touchStart = useRef<{ x: number; y: number; allowGlobalNavigation: boolean } | null>(null);
   const touchEnd = useRef<{ x: number; y: number } | null>(null);
   const swipeHandlerRef = useRef<SwipeHandler | null>(null);
   const attendanceLockRef = useRef(false);
+
+  useEffect(() => {
+    try { setSeenNotiCount(parseInt(localStorage.getItem(notificationStorageKey) || '0', 10)); }
+    catch { setSeenNotiCount(0); }
+  }, [notificationStorageKey]);
 
   const registerSwipeHandler: RegisterSwipeHandler = useCallback((handler) => {
     swipeHandlerRef.current = handler;
@@ -188,7 +197,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     }
     if (tab === 'notifications') {
       setSeenNotiCount(rawNotiCount);
-      localStorage.setItem(STORAGE_KEYS.SEEN_NOTIFICATIONS, String(rawNotiCount));
+      localStorage.setItem(notificationStorageKey, String(rawNotiCount));
     }
     if (showCreateRequestModal) setShowCreateRequestModal(false);
     if (showExplainWorkModal) setShowExplainWorkModal(false);
@@ -386,7 +395,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
       {activeTab === 'history' && <TabHistory data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} registerSwipeHandler={registerSwipeHandler} />}
       {activeTab === 'requests' && <TabRequests data={data} user={currentUser} onRefresh={refresh} onCreateRequest={(type) => { setCreateRequestType(type); setShowCreateRequestModal(true); }} onCreateExplanation={() => { setExplainWorkInitialData(null); setShowExplainWorkModal(true); }} registerSwipeHandler={registerSwipeHandler} />}
       {activeTab === 'calendar' && <CalendarPage data={data} user={currentUser} onRefresh={refresh} currentDate={managerDate} />}
-      {activeTab === 'contacts' && <TabContacts data={data} user={currentUser} resetTrigger={contactsResetTrigger} searchTrigger={contactsSearchTrigger} setIsHeaderVisible={setIsHeaderVisible} registerSwipeHandler={registerSwipeHandler} onNavigate={handleTabChange} />}
+      {activeTab === 'contacts' && <TabContacts data={data} resetTrigger={contactsResetTrigger} searchTrigger={contactsSearchTrigger} setIsHeaderVisible={setIsHeaderVisible} registerSwipeHandler={registerSwipeHandler} onNavigate={handleTabChange} />}
       {activeTab === 'manager' && <TabManager data={data} user={currentUser} onRefresh={refresh} onAlert={handleShowAlert} />}
       {activeTab === 'profile' && <TabProfile user={currentUser} locations={data.locations || []} locationNames={locationNames} contacts={data.contacts || []} punctuality={punctuality} onLogout={onLogout} onUpdate={(profile) => { updateProfile(profile); void refresh(); }} onClose={() => { setDirection('left'); setActiveTab(lastActiveTab); }} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={() => handleTabChange('manager')} />}
       {activeTab === 'notifications' && <NotificationsModal data={data} user={currentUser} onSwitchTab={handleTabChange} onRefresh={refresh} />}

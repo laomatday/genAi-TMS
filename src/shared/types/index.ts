@@ -79,6 +79,7 @@ export interface Attendance {
 export interface LeaveRequest {
   id: string;
   request_id?: string;
+  request_code?: string;
   employee_id: string;
   name?: string;
   created_at: string;
@@ -102,6 +103,7 @@ export interface LeaveRequest {
 
 export interface Explanation {
   id: string;
+  request_code?: string;
   employee_id: string;
   name?: string;
   date: string;

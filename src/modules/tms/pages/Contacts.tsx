@@ -4,13 +4,12 @@ import { DashboardData, Employee } from '@/shared/types';
 import { getShortName, triggerHaptic } from '@/core/utils/helpers';
 import Avatar from '@/shared/components/common/Avatar';
 import ModalContactDetail from '@/modules/tms/components/ModalContactDetail';
-import { STORAGE_KEYS, TMS_LIMITS } from '@/shared/constants';
+import { TMS_LIMITS } from '@/shared/constants';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import { type RegisterSwipeHandler, type TabType } from '@/modules/tms/components/BottomNav';
 
 interface Props {
     data: DashboardData | null;
-    user: Employee;
     resetTrigger?: number;
     searchTrigger?: number; // Header Search Trigger
     setIsHeaderVisible?: (visible: boolean) => void;
@@ -37,10 +36,9 @@ const HighlightText: React.FC<{ text: string; highlight: string }> = ({ text, hi
     );
 };
 
-/** Department tiles only need to look different from each other — nothing is
- *  being reported — so they cycle the identity tones, not the status ones.
- *  The colours themselves live in style.css; this list is class names only. */
-const GROUP_TONES = ['ui-tone-brand-1', 'ui-tone-brand-2', 'ui-tone-brand-3', 'ui-tone-brand-4'] as const;
+/** Department icons share one brand role. Their glyphs, names and hierarchy do
+ *  the differentiating; semantic colours remain available for actual status. */
+const GROUP_TONE = 'ui-tone-brand-1';
 
 const groupIcon = (groupId: string) => {
     if (groupId.startsWith('grp_director')) return 'shield_person';
@@ -50,7 +48,7 @@ const groupIcon = (groupId: string) => {
     return 'badge';
 };
 
-const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrigger = 0, setIsHeaderVisible, registerSwipeHandler, onNavigate }) => {
+const TabContacts: React.FC<Props> = ({ data, resetTrigger = 0, searchTrigger = 0, setIsHeaderVisible, registerSwipeHandler, onNavigate }) => {
     const [term, setTerm] = useState('');
     const [debouncedTerm, setDebouncedTerm] = useState('');
     const [selectedContact, setSelectedContact] = useState<Employee | null>(null);
@@ -62,22 +60,6 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
         setExpandedGroupId(prev => prev === groupId ? null : groupId);
     };
 
-    const [cachedContacts, setCachedContacts] = useState<Employee[]>(() => {
-        try {
-            const cached = localStorage.getItem(STORAGE_KEYS.CONTACTS_CACHE);
-            if (!cached) return [];
-            const parsed: unknown = JSON.parse(cached);
-            if (!parsed || typeof parsed !== 'object') return [];
-            const envelope = parsed as { ownerId?: unknown; contacts?: unknown };
-            return envelope.ownerId === user.employee_id && Array.isArray(envelope.contacts)
-                ? envelope.contacts as Employee[]
-                : [];
-        } catch (e) {
-            console.error("Failed to load contacts cache", e);
-            return [];
-        }
-    });
-
     const inputRef = useRef<HTMLInputElement>(null);
     const tabsRef = useRef<HTMLDivElement>(null);
     const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
@@ -85,7 +67,7 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
     const locationsMap = useMemo(() => buildLocationNameMap(data), [data]);
 
     const contacts = useMemo(() => {
-        const allContacts = ((data?.contacts && data.contacts.length > 0) ? data.contacts : cachedContacts).filter(c => c.role !== 'Kiosk');
+        const allContacts = (data?.contacts || []).filter(c => c.role !== 'Kiosk');
 
         const userProfile = data?.userProfile;
         if (!userProfile) return allContacts;
@@ -110,7 +92,7 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
             const contactPrefix = c.center_id.replace(/[0-9]/g, '');
             return uniquePrefixes.includes(contactPrefix);
         });
-    }, [data?.contacts, cachedContacts, data?.userProfile]);
+    }, [data?.contacts, data?.userProfile]);
 
     const centers = useMemo(() => {
         const centerSet = new Set<string>();
@@ -234,20 +216,6 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
         window.addEventListener('popstate', handlePopState);
         return () => window.removeEventListener('popstate', handlePopState);
     }, [selectedContact, setIsHeaderVisible]);
-
-    useEffect(() => {
-        if (data?.contacts && data.contacts.length > 0) {
-            try {
-                localStorage.setItem(STORAGE_KEYS.CONTACTS_CACHE, JSON.stringify({
-                    ownerId: user.employee_id,
-                    contacts: data.contacts,
-                }));
-                setCachedContacts(data.contacts);
-            } catch (e) {
-                console.error("Failed to save contacts cache", e);
-            }
-        }
-    }, [data?.contacts, user.employee_id]);
 
     useEffect(() => {
         const handler = setTimeout(() => {
@@ -596,9 +564,8 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
                                 <span className="ui-empty-title">Chưa có nhân sự</span>
                                 <span className="ui-empty-text">Không có ai trong phạm vi chi nhánh đang chọn.</span>
                             </div>
-                        ) : contactGroups.map((group, index) => {
+                        ) : contactGroups.map((group) => {
                             const isExpanded = expandedGroupId === group.id;
-                            const tone = GROUP_TONES[index % GROUP_TONES.length] ?? 'ui-tone-brand-1';
                             return (
                                 <div key={group.id} className="ui-card">
                                     <button
@@ -607,7 +574,7 @@ const TabContacts: React.FC<Props> = ({ data, user, resetTrigger = 0, searchTrig
                                         aria-expanded={isExpanded}
                                         onClick={() => toggleGroup(group.id)}
                                     >
-                                        <span className={`ui-tile ${tone}`} aria-hidden="true">
+                                        <span className={`ui-tile ${GROUP_TONE}`} aria-hidden="true">
                                             <span className="material-symbols-rounded">{groupIcon(group.id)}</span>
                                         </span>
                                         <span className="ui-card-head-text">

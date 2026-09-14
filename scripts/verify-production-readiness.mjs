@@ -45,6 +45,7 @@ const forbiddenRuntimePatterns = [
   { pattern: /\.from\(['"]attendance['"]\)\s*\.update/s, message: 'direct runtime mutation of legacy attendance table' },
   { pattern: /\.eq\(['"]date['"]\s*,\s*request\.work_date/, message: 'invalid legacy attendance date-column update' },
   { pattern: /status:\s*['"]VALID['"]/, message: 'invalid canonical timesheet VALID status' },
+  { pattern: /\.slice\(\s*-\s*8\s*\)/, message: 'UUID fragment used as a display identifier' },
 ];
 
 for (const file of sourceFiles) {
@@ -68,6 +69,12 @@ const requiredFiles = [
   'supabase/migrations/20260905043052_workforce_experience_notification_delivery.sql',
   'supabase/migrations/20260905043727_workforce_enable_scheduled_maintenance.sql',
   'supabase/migrations/20260906070000_tms_workforce_v3_hardening.sql',
+  'supabase/migrations/20260914102118_tenantize_workforce_configuration.sql',
+  'supabase/tests/tenant_configuration_isolation.sql',
+  'supabase/config.toml',
+  'src/core/errors/AppErrorBoundary.tsx',
+  'src/core/observability/clientTelemetry.ts',
+  'src/modules/tms/utils/requestCode.ts',
 ];
 for (const file of requiredFiles) {
   try {
@@ -75,6 +82,45 @@ for (const file of requiredFiles) {
   } catch {
     fail(`missing required production migration: ${file}`);
   }
+}
+
+const packageMetadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+if (packageMetadata.packageManager !== 'bun@1.4.2') {
+  fail('package manager must stay pinned for reproducible commercial builds');
+}
+if (packageMetadata.engines?.node !== '>=22') {
+  fail('Node.js production runtime contract is missing or has changed');
+}
+if (!packageMetadata.scripts?.['check:release']?.includes('audit:dependencies')) {
+  fail('release verification does not include a dependency vulnerability audit');
+}
+
+const mainEntry = await readFile(join(root, 'src/main.tsx'), 'utf8');
+if (!mainEntry.includes('<AppErrorBoundary>') || !mainEntry.includes('installGlobalErrorReporting()')) {
+  fail('global render recovery and client error reporting must remain installed');
+}
+
+const constants = await readFile(join(root, 'src/shared/constants/index.ts'), 'utf8');
+if (constants.includes("VERSION: '2.1.0'") || !constants.includes('__APP_VERSION__')) {
+  fail('application version must come from build metadata rather than a hardcoded display value');
+}
+
+const workflow = await readFile(join(root, '.github/workflows/build.yml'), 'utf8');
+if (!workflow.includes('bun-version: 1.4.2') || !workflow.includes('bun run check:release')) {
+  fail('commercial CI gates are missing or use an unpinned toolchain');
+}
+if (!workflow.includes('supabase@2.117.0') || !workflow.includes('tenant_configuration_isolation.sql')) {
+  fail('tenant database isolation is not enforced in CI with a pinned Supabase CLI');
+}
+
+const indexDocument = await readFile(join(root, 'index.html'), 'utf8');
+if (/<script(?![^>]+src=)[^>]*>/i.test(indexDocument)) {
+  fail('index.html contains an inline script that production CSP will block');
+}
+
+const viteConfig = await readFile(join(root, 'vite.config.ts'), 'utf8');
+if (viteConfig.includes('allowedHosts: true') || !viteConfig.includes('strictPort: true')) {
+  fail('development server must reject arbitrary hostnames and port drift');
 }
 
 const attendanceService = await readFile(join(root, 'src/modules/tms/services/attendance.ts'), 'utf8');
@@ -94,6 +140,11 @@ if (!attendanceService.includes('command_id: commandId()')) {
 const employeeService = await readFile(join(root, 'src/modules/tms/services/employee.ts'), 'utf8');
 if (!employeeService.includes("rpc('tms_dashboard_bundle_v1'")) {
   fail('employee dashboard is not using the one-roundtrip Workforce V3 bundle');
+}
+
+const contactsPage = await readFile(join(root, 'src/modules/tms/pages/Contacts.tsx'), 'utf8');
+if (contactsPage.includes('localStorage') || constants.includes('CONTACTS_CACHE')) {
+  fail('employee directory data must not be persisted in browser localStorage');
 }
 if (!employeeService.includes("p_action: 'request.submit'")) {
   fail('employee requests are not routed through Workforce V3');
@@ -118,6 +169,36 @@ for (const requiredClause of [
 }
 if (/^\s*begin\s*;/mi.test(hardeningMigration) || /^\s*commit\s*;/mi.test(hardeningMigration)) {
   fail('hardening migration must not own the outer transaction; apply_migration should own it');
+}
+
+const tenantMigration = await readFile(
+  join(root, 'supabase/migrations/20260914102118_tenantize_workforce_configuration.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'config_shifts_organization_name_key unique (organization_id, name)',
+  'config_system_pkey primary key (organization_id, key)',
+  'holidays_organization_dates_idx',
+  'shift_assignments_organization_shift_fk',
+  'workforce_staffing_rules_organization_shift_fk',
+  'create policy config_shifts_read_tenant',
+  'create policy config_system_read_tenant',
+  'create policy holidays_read_tenant',
+  'create table public.workforce_request_counters',
+  'attendance_requests_organization_request_code_key',
+  'create or replace function wf_private.seed_organization_configuration()',
+]) {
+  if (!tenantMigration.includes(requiredClause)) fail(`tenant migration missing: ${requiredClause}`);
+}
+
+const supabaseConfig = await readFile(join(root, 'supabase/config.toml'), 'utf8');
+if (!supabaseConfig.includes('auto_expose_new_tables = false')) {
+  fail('new public tables must not be automatically exposed through the Data API');
+}
+
+const requestCodeUtility = await readFile(join(root, 'src/modules/tms/utils/requestCode.ts'), 'utf8');
+if (!requestCodeUtility.includes('REQUEST_CODE_PATTERN') || !requestCodeUtility.includes('request_code')) {
+  fail('user-facing request codes must come from validated tenant business references');
 }
 
 if (failures.length) {

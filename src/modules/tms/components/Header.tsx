@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Employee } from '@/shared/types';
 import { TabType } from './BottomNav';
 import SettingsModal from './SettingsModal';
@@ -33,6 +33,8 @@ const TAB_IDENTITY: Partial<Record<TabType, { title: string; tag?: string }>> = 
 
 const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline = true, locationName, onOpenProfile, onOpenNotifications, onContactSearch, canManage, onOpenManager, onOpenWorkspace }) => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isActionsOpen, setIsActionsOpen] = useState(false);
+    const actionsRef = useRef<HTMLDivElement>(null);
     const identity = TAB_IDENTITY[activeTab] ?? { title: 'genAi TMS' };
     const isHome = activeTab === 'home';
     const title = isHome ? user.name : identity.title;
@@ -42,7 +44,31 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline 
 
     useEffect(() => {
         setIsSettingsOpen(false);
+        setIsActionsOpen(false);
     }, [activeTab]);
+
+    useEffect(() => {
+        if (!isActionsOpen) return undefined;
+
+        const handlePointerDown = (event: PointerEvent) => {
+            if (!actionsRef.current?.contains(event.target as Node)) setIsActionsOpen(false);
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setIsActionsOpen(false);
+        };
+
+        document.addEventListener('pointerdown', handlePointerDown);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isActionsOpen]);
+
+    const openSettings = () => {
+        setIsActionsOpen(false);
+        setIsSettingsOpen(true);
+    };
 
     return (
         <>
@@ -89,27 +115,6 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline 
                                 onClick={onContactSearch}
                             />
                         )}
-
-
-                        {canManage && onOpenManager && (
-                            <IconButton
-                                icon="speed"
-                                label="Quản lý"
-                                size="lg"
-                                tone={activeTab === 'manager' ? 'primary' : 'default'}
-                                onClick={onOpenManager}
-                            />
-                        )}
-
-                        {onOpenWorkspace && (
-                            <IconButton
-                                icon="apps"
-                                label="Chuyển không gian"
-                                size="lg"
-                                onClick={onOpenWorkspace}
-                            />
-                        )}
-
                         <span className="app-header-action">
                             <IconButton
                                 icon="notifications"
@@ -125,12 +130,49 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline 
                             ) : null}
                         </span>
 
-                        <IconButton
-                            icon="more_vert"
-                            label="Mở cài đặt"
-                            size="lg"
-                            onClick={() => setIsSettingsOpen(true)}
-                        />
+                        <div className="app-header-menu" ref={actionsRef}>
+                            <IconButton
+                                icon="more_vert"
+                                label="Mở menu tác vụ"
+                                size="lg"
+                                aria-expanded={isActionsOpen}
+                                aria-haspopup="menu"
+                                onClick={() => setIsActionsOpen((open) => !open)}
+                            />
+
+                            {isActionsOpen ? (
+                                <div className="app-header-menu-popover" role="menu" aria-label="Tác vụ ứng dụng">
+                                    {canManage && onOpenManager ? (
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            className={`app-header-menu-item ${activeTab === 'manager' ? 'app-header-menu-item-active' : ''}`.trim()}
+                                            onClick={() => { setIsActionsOpen(false); onOpenManager(); }}
+                                        >
+                                            <span className="material-symbols-rounded" aria-hidden="true">speed</span>
+                                            <span>Quản lý</span>
+                                        </button>
+                                    ) : null}
+
+                                    {onOpenWorkspace ? (
+                                        <button
+                                            type="button"
+                                            role="menuitem"
+                                            className="app-header-menu-item"
+                                            onClick={() => { setIsActionsOpen(false); onOpenWorkspace(); }}
+                                        >
+                                            <span className="material-symbols-rounded" aria-hidden="true">apps</span>
+                                            <span>Chuyển không gian</span>
+                                        </button>
+                                    ) : null}
+
+                                    <button type="button" role="menuitem" className="app-header-menu-item" onClick={openSettings}>
+                                        <span className="material-symbols-rounded" aria-hidden="true">settings</span>
+                                        <span>Cài đặt</span>
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
                     </div>
                 </div>
             </header>

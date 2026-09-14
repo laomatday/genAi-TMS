@@ -223,11 +223,11 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
               <span className="ui-stat-label">Tổng vắng team</span>
             </div>
             <div className="ui-stat">
-              <span className="ui-stat-value ui-tone-success">{monthStats.remote}<span className="ui-stat-unit">lượt</span></span>
+              <span className="ui-stat-value">{monthStats.remote}<span className="ui-stat-unit">lượt</span></span>
               <span className="ui-stat-label">Làm từ xa</span>
             </div>
             <div className="ui-stat">
-              <span className="ui-stat-value ui-tone-primary">{monthStats.annual}<span className="ui-stat-unit">lượt</span></span>
+              <span className="ui-stat-value">{monthStats.annual}<span className="ui-stat-unit">lượt</span></span>
               <span className="ui-stat-label">Nghỉ phép năm</span>
             </div>
           </div>

@@ -9,6 +9,7 @@ import ModalListRequest from '@/modules/tms/components/ModalListRequest';
 import type { ApprovalGroup, ApprovalItem, ApprovalTypeConfig } from '@/modules/tms/components/ModalListRequest';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
+import { displayRequestCode } from '@/modules/tms/utils/requestCode';
 
 interface Props {
   data: DashboardData | null;
@@ -20,11 +21,6 @@ interface Props {
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
-
-function requestCode(item: ApprovalItem) {
-  const id = item.itemType === 'leave' && item.request_id ? item.request_id : item.id;
-  return `#${String(id).slice(-8).toUpperCase()}`;
-}
 
 function inclusiveDayCount(from: string, to: string) {
   const start = new Date(`${from.slice(0, 10)}T00:00:00`);
@@ -98,6 +94,7 @@ const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
   const duration = inclusiveDayCount(fromDate, toDate);
   const dueAt = isLeave ? item.due_at : undefined;
   const deadline = deadlineText(dueAt);
+  const requestCode = displayRequestCode(item);
   const directManager = employee?.direct_manager_id
     ? contacts.find(contact => contact.employee_id === employee.direct_manager_id)
     : null;
@@ -123,7 +120,7 @@ const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
           <span className="material-symbols-rounded" aria-hidden="true">arrow_back</span>
           Hàng đợi
         </button>
-        <span className="ui-pill ui-pill-primary">{requestCode(item)}</span>
+        {requestCode ? <span className="ui-pill ui-pill-primary">{requestCode}</span> : null}
       </div>
 
       <section className="ui-card manager-status-card">

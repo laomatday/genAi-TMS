@@ -1,16 +1,21 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import WebApp from '@/WebApp';
+import AppErrorBoundary from '@/core/errors/AppErrorBoundary';
+import { installGlobalErrorReporting } from '@/core/observability/clientTelemetry';
 import AppStatusBanner, { PWA_UPDATE_AVAILABLE_EVENT, type PwaUpdateAvailableDetail } from '@/shared/components/common/AppStatusBanner';
 import '@/style.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Failed to find the root element');
+installGlobalErrorReporting();
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <WebApp />
-    <AppStatusBanner />
+    <AppErrorBoundary>
+      <WebApp />
+      <AppStatusBanner />
+    </AppErrorBoundary>
   </React.StrictMode>
 );
 

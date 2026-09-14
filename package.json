@@ -3,14 +3,20 @@
   "version": "2.2.0",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.4.2",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
     "audit:repo": "bun scripts/verify-production-readiness.mjs",
+    "audit:dependencies": "bun audit --audit-level=high",
     "deadcode": "knip",
     "build": "tsc --noEmit && vite build",
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "check": "bun run audit:repo && bun run deadcode && bun run test && bun run build",
+    "check:release": "bun run check && bun run audit:dependencies",
     "preview": "vite preview --host 0.0.0.0 --port 3000"
   },
   "dependencies": {

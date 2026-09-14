@@ -4,11 +4,39 @@ alter table public.leave_requests
   add column if not exists approver_id text null,
   add column if not exists updated_at timestamptz not null default now();
 
-alter table public.leave_requests alter column request_id set default (gen_random_uuid()::text);
+-- Some legacy deployments used a text request_id; fresh installs already use
+-- the UUID `id` primary key. Only normalize the legacy column when it exists.
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'leave_requests'
+      and column_name = 'request_id'
+  ) then
+    alter table public.leave_requests
+      alter column request_id set default (gen_random_uuid()::text);
+  end if;
+end;
+$$;
 alter table public.leave_requests alter column reason set default '';
 alter table public.leave_requests alter column manager_note set default '';
 alter table public.leave_requests alter column status set default 'Pending';
-create unique index if not exists leave_requests_id_uidx on public.leave_requests(id);
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.leave_requests'::regclass
+      and contype in ('p', 'u')
+      and pg_get_constraintdef(oid) ~ '\(id\)'
+  ) then
+    create unique index if not exists leave_requests_id_uidx
+      on public.leave_requests(id);
+  end if;
+end;
+$$;
 create index if not exists leave_requests_approver_idx on public.leave_requests(approver_id) where approver_id is not null;
 
 do $$ begin

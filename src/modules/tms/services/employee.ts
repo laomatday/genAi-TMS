@@ -25,6 +25,7 @@ import type {
   WorkforceRequestType,
 } from '@/shared/types';
 import { runAttendanceAction } from './attendance';
+import { reportClientMetric } from '@/core/observability/clientTelemetry';
 
 type DataRow = Record<string, unknown>;
 type DecisionStatus = Exclude<ReviewStatus, 'Pending'>;
@@ -309,6 +310,7 @@ function mapLeave(row: DataRow): LeaveRequest | null {
   return {
     id: textValue(row.id),
     request_id: textValue(row.id),
+    request_code: optionalText(row.request_code),
     employee_id: textValue(row.employee_id),
     name: optionalText(row.employee_name),
     created_at: textValue(row.created_at),
@@ -335,6 +337,7 @@ function mapExplanation(row: DataRow): Explanation | null {
   if ((type !== 'EXPLANATION' && type !== 'CORRECTION') || !status) return null;
   return {
     id: textValue(row.id),
+    request_code: optionalText(row.request_code),
     employee_id: textValue(row.employee_id),
     name: optionalText(row.employee_name),
     date: textValue(row.from_date),
@@ -487,6 +490,7 @@ export function determineShift(timeStr: string, shifts: ShiftConfig[]): ShiftCon
 }
 
 export async function getDashboardData(_employeeId: string): Promise<{ success: boolean; data?: DashboardData; message?: string }> {
+  const startedAt = performance.now();
   try {
     if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
 
@@ -542,7 +546,7 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
       errorCount: numberValue(workforceSummary.exceptions),
     };
 
-    return {
+    const result = {
       success: true,
       data: {
         userProfile: profile,
@@ -565,7 +569,10 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
         approvalRoles,
       },
     };
+    void reportClientMetric('DASHBOARD_LOAD_OK', performance.now() - startedAt, 'LOAD');
+    return result;
   } catch (error) {
+    void reportClientMetric('DASHBOARD_LOAD_FAILED', performance.now() - startedAt, 'LOAD');
     return { success: false, message: errorMessage(error, 'Không tải được dữ liệu.') };
   }
 }

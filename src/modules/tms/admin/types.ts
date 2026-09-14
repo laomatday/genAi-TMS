@@ -80,6 +80,7 @@ export interface Timesheet {
 // guarantees those request types have a canonical timesheet before submission.
 export interface AttendanceRequest {
   id: string;
+  request_code?: string;
   organization_id?: string;
   timesheet_id: string;
   employee_id: string;
@@ -129,6 +130,7 @@ export interface QrStationInfo {
 
 export interface ShiftRecord {
   id?: number;
+  organization_id?: string;
   name: string;
   start_time: string;
   end_time: string;
@@ -169,6 +171,7 @@ export interface AttendancePeriod {
 }
 
 export interface SystemSetting {
+  organization_id?: string;
   key: string;
   value: string;
   updated_at?: string;
@@ -176,6 +179,7 @@ export interface SystemSetting {
 
 export interface HolidayRecord {
   id?: number;
+  organization_id?: string;
   name: string;
   from_date: string;
   to_date: string;

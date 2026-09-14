@@ -407,9 +407,9 @@ const TabHome: React.FC<Props> = ({
               <div className="ui-metric home-metric-worked">
                 <span className="ui-metric-head">
                   <span>Công thực tế</span>
-                  <span className="home-metric-icon material-symbols-rounded ui-tone-success" aria-hidden="true">done_all</span>
+                  <span className="home-metric-icon material-symbols-rounded" aria-hidden="true">done_all</span>
                 </span>
-                <span className="ui-metric-value ui-tone-success">
+                <span className="ui-metric-value">
                   {summary?.workDays ?? 0}
                   <span className="ui-metric-unit">ngày</span>
                 </span>
@@ -426,9 +426,9 @@ const TabHome: React.FC<Props> = ({
               <div className="ui-metric home-metric-leave">
                 <span className="ui-metric-head">
                   <span>Phép đã dùng</span>
-                  <span className="home-metric-icon material-symbols-rounded ui-tone-warning" aria-hidden="true">beach_access</span>
+                  <span className="home-metric-icon material-symbols-rounded" aria-hidden="true">beach_access</span>
                 </span>
-                <span className="ui-metric-value ui-tone-info">
+                <span className="ui-metric-value">
                   {summary?.leaveDays ?? 0}
                   <span className="ui-metric-unit">ngày</span>
                 </span>

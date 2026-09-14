@@ -45,16 +45,14 @@ interface ProcessedHistoryData {
     calendarGrid: Array<HistoryDayItem | null>;
 }
 
-/** One tone per day outcome, so the day tag, the status dot and the calendar
- *  marker for a given day can never disagree about how that day went. */
+/** Colour is reserved for exceptions. Ordinary work, future days and weekends
+ *  stay neutral so warnings and errors remain visible at a glance. */
 function dayTone(item: HistoryDayItem): string {
     if (item.status === 'Absent' || item.isMissingCheckout) return 'danger';
     if (item.isLate || item.isEarly) return 'warning';
-    if (item.status === 'Holiday') return 'danger';
-    if (item.status === 'Leave') return 'info';
+    if (item.status === 'Holiday' || item.status === 'Leave' || item.status === 'Half') return 'primary';
     if (item.status === 'Weekend' || item.status === 'Future') return 'muted';
-    if (item.status === 'Half') return 'primary';
-    return 'success';
+    return 'muted';
 }
 
 const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, registerSwipeHandler }) => {
@@ -591,8 +589,8 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                                             </div>
 
                                             <div className="history-day-badges">
-                                                {item.status === 'Leave' && <span className="ui-pill ui-pill-info">{item.leaveType}</span>}
-                                                {item.status === 'Holiday' && <span className="ui-pill ui-pill-danger">Nghỉ lễ</span>}
+                                                {item.status === 'Leave' && <span className="ui-pill ui-pill-primary">{item.leaveType}</span>}
+                                                {item.status === 'Holiday' && <span className="ui-pill ui-pill-primary">Nghỉ lễ</span>}
                                                 {item.status === 'Weekend' && <span className="ui-pill ui-pill-muted">Cuối tuần</span>}
                                                 {item.status === 'Absent' && <span className="ui-pill ui-pill-danger">Vắng mặt</span>}
                                                 {item.isMissingCheckout && <span className="ui-pill ui-pill-danger"><span className="ui-pill-dot" aria-hidden="true" />Lỗi ra</span>}
@@ -684,7 +682,7 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                                                 <div className="ui-card-section">
                                                     {records.map((rec, rIdx) => (
                                                         <div key={`detail-${item.date}-${rIdx}`} className="ui-row">
-                                                            <span className="ui-row-icon ui-tone-info" aria-hidden="true">
+                                                            <span className="ui-row-icon ui-tone-muted" aria-hidden="true">
                                                                 <span className="material-symbols-rounded">location_on</span>
                                                             </span>
                                                             <span className="ui-row-body">

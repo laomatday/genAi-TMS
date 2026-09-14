@@ -4,6 +4,7 @@ const APP_SHELL = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/theme-init.js',
   '/genai-app-icon-180.png',
   '/genai-app-icon-192.png',
   '/genai-app-icon-512.png',

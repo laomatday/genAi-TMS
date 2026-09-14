@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DashboardData, Employee } from '@/shared/types';
 import { getDashboardData } from '@/modules/tms/services/employee';
 import { getCurrentTimeStr, timeToMinutes, toISODateString, triggerHaptic } from '@/core/utils/helpers';
-import { TMS_LIMITS } from '@/shared/constants';
+import { scopedStorageKey, TMS_LIMITS } from '@/shared/constants';
 
 export const useDashboardData = (
   user: Employee,
@@ -33,7 +33,7 @@ export const useDashboardData = (
     const currentMinutes = timeToMinutes(getCurrentTimeStr());
     if (currentMinutes <= shiftEndMinutes + TMS_LIMITS.CHECKOUT_REMINDER_DELAY_MINUTES) return;
 
-    const reminderKey = `remind_checkout_${today}`;
+    const reminderKey = scopedStorageKey(`remind_checkout_${today}`, currentUserRef.current);
     if (localStorage.getItem(reminderKey)) return;
 
     const title = 'Nhắc nhở Check-out';

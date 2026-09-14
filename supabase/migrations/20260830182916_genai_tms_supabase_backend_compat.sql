@@ -13,6 +13,24 @@ alter table public.attendance drop constraint if exists attendance_checkin_type_
 alter table public.attendance add constraint attendance_checkin_type_check
   check (checkin_type in ('GPS','Manual','Mobile','Kiosk','QR_GPS'));
 
+-- Legacy databases already had kiosk_sessions. Fresh installs did not, so the
+-- compatibility migration must create the baseline before normalizing it.
+create table if not exists public.kiosk_sessions (
+  session_id uuid primary key default gen_random_uuid(),
+  kiosk_id text not null references public.kiosks(kiosk_id) on update cascade on delete cascade,
+  employee_id text not null references public.employees(employee_id) on update cascade on delete cascade,
+  employee_name text,
+  center_id text references public.locations(center_id) on update cascade on delete restrict,
+  status text not null default 'pending',
+  token text,
+  user_lat double precision,
+  user_lng double precision,
+  error text,
+  selfie_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table public.kiosk_sessions
   add column if not exists employee_name text,
   add column if not exists center_id text,
@@ -590,14 +608,22 @@ grant execute on function public.record_kiosk_checkin(text,text,double precision
 
 revoke insert on public.leave_requests, public.attendance_explanations from authenticated;
 
-grant select on public.monthly_stats to authenticated;
-drop policy if exists monthly_stats_select_scope on public.monthly_stats;
-create policy monthly_stats_select_scope on public.monthly_stats
-for select to authenticated
-using (
-  employee_id = (select tms_private.current_employee_id())
-  or (select tms_private.can_manage_employee(employee_id))
-);
+-- monthly_stats existed only on older deployments and is no longer part of a
+-- fresh Workforce schema. Preserve its policy only when upgrading that shape.
+do $$
+begin
+  if to_regclass('public.monthly_stats') is not null then
+    grant select on public.monthly_stats to authenticated;
+    drop policy if exists monthly_stats_select_scope on public.monthly_stats;
+    create policy monthly_stats_select_scope on public.monthly_stats
+    for select to authenticated
+    using (
+      employee_id = (select tms_private.current_employee_id())
+      or (select tms_private.can_manage_employee(employee_id))
+    );
+  end if;
+end;
+$$;
 
 drop policy if exists kiosk_sessions_select on public.kiosk_sessions;
 create policy kiosk_sessions_select on public.kiosk_sessions

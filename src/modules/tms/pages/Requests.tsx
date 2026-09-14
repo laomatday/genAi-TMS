@@ -7,6 +7,7 @@ import { formatDateString, triggerHaptic } from '@/core/utils/helpers';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { RegisterSwipeHandler } from '@/modules/tms/components/BottomNav';
+import { displayRequestCode } from '@/modules/tms/utils/requestCode';
 
 interface Props {
     data: DashboardData | null;
@@ -32,14 +33,14 @@ const QUICK_TYPES: Array<{ type: string; label: string; icon: string }> = [
     { type: 'Công tác', label: 'Đi công tác', icon: 'flight_takeoff' },
 ];
 
-function typeConfig(type: string) {
-    if (type.includes('Nghỉ ốm')) return { icon: 'medical_services', tone: 'danger' };
-    if (type.includes('Nghỉ không lương')) return { icon: 'event_busy', tone: 'warning' };
-    if (type.includes('Làm việc tại nhà') || type.includes('WFH')) return { icon: 'home_work', tone: 'success' };
-    if (type.includes('Công tác')) return { icon: 'flight_takeoff', tone: 'info' };
-    if (type.includes('Giải trình')) return { icon: 'assignment_turned_in', tone: 'info' };
-    if (type.includes('Nghỉ phép')) return { icon: 'beach_access', tone: 'primary' };
-    return { icon: 'description', tone: 'muted' };
+function typeIcon(type: string) {
+    if (type.includes('Nghỉ ốm')) return 'medical_services';
+    if (type.includes('Nghỉ không lương')) return 'event_busy';
+    if (type.includes('Làm việc tại nhà') || type.includes('WFH')) return 'home_work';
+    if (type.includes('Công tác')) return 'flight_takeoff';
+    if (type.includes('Giải trình')) return 'assignment_turned_in';
+    if (type.includes('Nghỉ phép')) return 'beach_access';
+    return 'description';
 }
 
 /** Inclusive day span of a leave request; a same-day request counts as one day. */
@@ -48,11 +49,6 @@ function dayCount(from: string, to: string) {
     const end = new Date(`${to.slice(0, 10)}T00:00:00`);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 1;
     return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
-}
-
-function shortCode(item: RequestListItem) {
-    const raw = ('request_id' in item && item.request_id) ? item.request_id : item.id;
-    return `#${String(raw).slice(-8).toUpperCase()}`;
 }
 
 const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, onCreateExplanation, registerSwipeHandler }) => {
@@ -172,7 +168,7 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
                                 <span>Đã duyệt</span>
                                 <span className="material-symbols-rounded ui-tone-success" aria-hidden="true">task_alt</span>
                             </span>
-                            <span className="ui-metric-value ui-tone-success">
+                            <span className="ui-metric-value">
                                 {approvedCount}
                                 <span className="ui-metric-unit">đơn</span>
                             </span>
@@ -184,7 +180,7 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
                                 <span>Quỹ phép</span>
                                 <span className="ui-metric-unit">{leaveQuota.remaining}/{leaveQuota.total}d</span>
                             </span>
-                            <span className="ui-metric-value ui-tone-primary">
+                            <span className="ui-metric-value">
                                 {leaveQuota.remaining}
                                 <span className="ui-metric-unit">ngày</span>
                             </span>
@@ -229,7 +225,7 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
                     {/* History -------------------------------------------- */}
                     <div>
                         <div className="ui-label-row">
-                            <span className="ui-label">Lịch sử đề xuất</span>
+                            <span className="ui-label">{isLeaveView ? 'Lịch sử đề xuất' : 'Lịch sử giải trình'}</span>
                             <span className="ui-label">{listItems.length} bản ghi</span>
                         </div>
 
@@ -237,14 +233,18 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
                             <div className="ui-empty">
                                 <span className="material-symbols-rounded" aria-hidden="true">{isLeaveView ? 'folder_open' : 'history_edu'}</span>
                                 <span className="ui-empty-title">{isLeaveView ? 'Chưa có đề xuất nào' : 'Chưa có giải trình nào'}</span>
-                                <span className="ui-empty-text">Các đơn bạn gửi sẽ hiển thị tại đây kèm trạng thái duyệt.</span>
+                                <span className="ui-empty-text">
+                                    {isLeaveView
+                                        ? 'Các đề xuất bạn gửi sẽ hiển thị tại đây kèm trạng thái duyệt.'
+                                        : 'Các giải trình bạn gửi sẽ hiển thị tại đây kèm trạng thái duyệt.'}
+                                </span>
                             </div>
                         ) : (
                             <motion.div variants={containerVariants} initial="hidden" animate="show" className="ui-stack">
                                 <AnimatePresence>
                                     {listItems.map((item) => {
                                         const status = STATUS_CONFIG[item.status] ?? STATUS_CONFIG.Pending;
-                                        const type = item.itemType === 'leave' ? typeConfig(item.type) : { icon: 'assignment_turned_in', tone: 'info' };
+                                        const icon = item.itemType === 'leave' ? typeIcon(item.type) : 'assignment_turned_in';
                                         const isExpanded = expandedId === item.id;
                                         const title = item.itemType === 'leave' ? item.type : 'Giải trình chấm công';
                                         const period = item.itemType === 'leave'
@@ -254,6 +254,7 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
                                             : formatDateString(item.date);
                                         const days = item.itemType === 'leave' ? dayCount(item.from_date, item.to_date) : 1;
                                         const approver = item.approver_id ? approverNames[item.approver_id] || item.approver_id : null;
+                                        const requestCode = displayRequestCode(item);
 
                                         return (
                                             <motion.section
@@ -270,12 +271,12 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
                                                     onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleExpand(item.id); } }}
                                                 >
                                                     <div className="request-card-head">
-                                                        <span className={`ui-tile ui-tile-soft ui-tone-${type.tone}`} aria-hidden="true">
-                                                            <span className="material-symbols-rounded">{type.icon}</span>
+                                                        <span className="ui-tile ui-tile-soft ui-tone-primary" aria-hidden="true">
+                                                            <span className="material-symbols-rounded">{icon}</span>
                                                         </span>
                                                         <span className="request-card-title">
                                                             <span className="request-card-name">{title}</span>
-                                                            <span className="request-card-code">{shortCode(item)}</span>
+                                                            {requestCode ? <span className="request-card-code">{requestCode}</span> : null}
                                                         </span>
                                                         <span className={`ui-pill ui-pill-${status?.tone ?? 'warning'}`}>
                                                             <span className="ui-pill-dot" aria-hidden="true" />
