@@ -4,6 +4,7 @@ import type { Attendance, DashboardData } from '@/shared/types';
 import { toISODateString, triggerHaptic } from '@/core/utils/helpers';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import { STORAGE_KEYS, TMS_DEFAULT_SYSTEM_CONFIG, TMS_LIMITS } from '@/shared/constants';
+import type { RegisterSwipeHandler } from '@/modules/tms/components/BottomNav';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
 
 interface Props {
@@ -11,6 +12,7 @@ interface Props {
     onRefresh: () => Promise<void>;
     onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
     onExplain: (date: string, reason: string) => void;
+    registerSwipeHandler?: RegisterSwipeHandler;
 }
 
 type HistoryStatus = 'Absent' | 'Leave' | 'Holiday' | 'Full' | 'Half' | 'Working' | 'Weekend' | 'Future';
@@ -53,10 +55,29 @@ function dayTone(item: HistoryDayItem): string {
     return 'muted';
 }
 
-const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain }) => {
+const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, registerSwipeHandler }) => {
     const [viewMode, setViewMode] = useState<'week' | 'month'>(() =>
         (localStorage.getItem(STORAGE_KEYS.HISTORY_VIEW) as 'week' | 'month') || 'week'
     );
+
+    useEffect(() => {
+        if (registerSwipeHandler) {
+            return registerSwipeHandler((direction) => {
+                if (direction === 'left' && viewMode === 'week') {
+                    triggerHaptic('light');
+                    setViewMode('month');
+                    return true;
+                }
+                if (direction === 'right' && viewMode === 'month') {
+                    triggerHaptic('light');
+                    setViewMode('week');
+                    return true;
+                }
+                return false;
+            });
+        }
+        return undefined;
+    }, [registerSwipeHandler, viewMode]);
 
     useEffect(() => {
         localStorage.setItem(STORAGE_KEYS.HISTORY_VIEW, viewMode);

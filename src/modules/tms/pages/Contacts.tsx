@@ -6,13 +6,14 @@ import Avatar from '@/shared/components/common/Avatar';
 import ModalContactDetail from '@/modules/tms/components/ModalContactDetail';
 import { TMS_LIMITS } from '@/shared/constants';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
-import type { TabType } from '@/modules/tms/components/BottomNav';
+import { type RegisterSwipeHandler, type TabType } from '@/modules/tms/components/BottomNav';
 
 interface Props {
     data: DashboardData | null;
     resetTrigger?: number;
     searchTrigger?: number; // Header Search Trigger
     setIsHeaderVisible?: (visible: boolean) => void;
+    registerSwipeHandler?: RegisterSwipeHandler;
     onNavigate: (tab: TabType) => void;
 }
 
@@ -47,7 +48,7 @@ const groupIcon = (groupId: string) => {
     return 'badge';
 };
 
-const TabContacts: React.FC<Props> = ({ data, resetTrigger = 0, searchTrigger = 0, setIsHeaderVisible, onNavigate }) => {
+const TabContacts: React.FC<Props> = ({ data, resetTrigger = 0, searchTrigger = 0, setIsHeaderVisible, registerSwipeHandler, onNavigate }) => {
     const [term, setTerm] = useState('');
     const [debouncedTerm, setDebouncedTerm] = useState('');
     const [selectedContact, setSelectedContact] = useState<Employee | null>(null);
@@ -129,6 +130,37 @@ const TabContacts: React.FC<Props> = ({ data, resetTrigger = 0, searchTrigger = 
             }
         }
     }, [activeCenter]);
+
+    useEffect(() => {
+        if (registerSwipeHandler) {
+            return registerSwipeHandler((direction) => {
+                if (term || selectedContact) return false; // Branch swiping would fight the search results
+
+                const currentIndex = centers.indexOf(activeCenter);
+
+                if (direction === 'left') {
+                    const nextCenter = centers[currentIndex + 1];
+                    if (currentIndex >= 0 && nextCenter) {
+                        triggerHaptic('light');
+                        setActiveCenter(nextCenter);
+                        return true;
+                    }
+                }
+
+                if (direction === 'right') {
+                    const previousCenter = centers[currentIndex - 1];
+                    if (currentIndex > 0 && previousCenter) {
+                        triggerHaptic('light');
+                        setActiveCenter(previousCenter);
+                        return true;
+                    }
+                }
+
+                return false;
+            });
+        }
+        return undefined;
+    }, [registerSwipeHandler, activeCenter, centers, term, selectedContact]);
 
     useEffect(() => {
         if (searchTrigger > 0) {

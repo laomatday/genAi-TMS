@@ -9,6 +9,7 @@ import ImageCropper from '@/shared/components/common/ImageCropper';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import ModalHeader from '@/shared/components/modals/ModalHeader';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
+import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
 
 interface Props {
     user: Employee;
@@ -89,6 +90,9 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
     const [uploading, setUploading] = useState(false);
 
     const [croppingImage, setCroppingImage] = useState<string | null>(null);
+    const swipeBackHandlers = useModalSwipeBack(onClose, showPwdModal || showLogoutConfirm || Boolean(croppingImage));
+    const passwordSwipeBackHandlers = useModalSwipeBack(() => setShowPwdModal(false), loadingPwd);
+
     useEffect(() => {
         setShowImageCropper(!!croppingImage);
     }, [croppingImage, setShowImageCropper]);
@@ -211,10 +215,12 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
         <div
             ref={profileDialogRef}
             tabIndex={-1}
-            className="fixed inset-0 z-30 page-bg flex flex-col animate-slide-up transition-colors duration-300"
+            className="app-modal-swipe-surface fixed inset-0 z-30 page-bg flex flex-col animate-slide-up transition-colors duration-300"
             role="dialog"
             aria-modal="true"
             aria-label="Hồ sơ cá nhân"
+            data-swipe-surface="modal"
+            {...swipeBackHandlers}
         >
             <div className="fixed top-0 left-0 w-full z-40">
                 <ModalHeader
@@ -466,7 +472,7 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
             </div>
 
             {showPwdModal && (
-                <div className="confirm-backdrop animate-fade-in">
+                <div className="confirm-backdrop app-modal-swipe-surface animate-fade-in" data-swipe-surface="modal" {...passwordSwipeBackHandlers}>
                     <section
                         ref={passwordDialogRef}
                         tabIndex={-1}

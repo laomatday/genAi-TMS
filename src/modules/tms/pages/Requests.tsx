@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type { DashboardData, Employee, Explanation, LeaveRequest } from '@/shared/types';
 import { deleteRequest, deleteExplanation } from '@/modules/tms/services/employee';
 import { useToast } from '@/shared/contexts/useToast';
@@ -6,6 +6,7 @@ import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import { formatDateString, triggerHaptic } from '@/core/utils/helpers';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import { motion, AnimatePresence } from 'framer-motion';
+import type { RegisterSwipeHandler } from '@/modules/tms/components/BottomNav';
 import { displayRequestCode } from '@/modules/tms/utils/requestCode';
 
 interface Props {
@@ -14,6 +15,7 @@ interface Props {
     onRefresh: () => Promise<void>;
     onCreateRequest?: (type?: string) => void;
     onCreateExplanation?: () => void;
+    registerSwipeHandler?: RegisterSwipeHandler;
 }
 
 type RequestListItem = (LeaveRequest & { itemType: 'leave' }) | (Explanation & { itemType: 'explanation' });
@@ -49,11 +51,22 @@ function dayCount(from: string, to: string) {
     return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
 }
 
-const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, onCreateExplanation }) => {
+const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, onCreateExplanation, registerSwipeHandler }) => {
     const [viewMode, setViewMode] = useState<'leaves' | 'explanations'>('leaves');
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'leave' | 'explanation' } | null>(null);
     const { showToast } = useToast();
+
+    useEffect(() => {
+        if (registerSwipeHandler) {
+            return registerSwipeHandler((direction) => {
+                if (direction === 'left' && viewMode === 'leaves') { triggerHaptic('light'); setViewMode('explanations'); setExpandedId(null); return true; }
+                if (direction === 'right' && viewMode === 'explanations') { triggerHaptic('light'); setViewMode('leaves'); setExpandedId(null); return true; }
+                return false;
+            });
+        }
+        return undefined;
+    }, [registerSwipeHandler, viewMode]);
 
     const requests = useMemo(() => [...(data?.myRequests || [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [data?.myRequests]);
     const explanations = useMemo(() => [...(data?.myExplanations || [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()), [data?.myExplanations]);

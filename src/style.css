@@ -126,8 +126,11 @@
   --app-inline-space: clamp(var(--space-4), 4vw, var(--space-8));
   --app-page-top: calc(var(--app-header-height) + var(--space-6));
   --app-page-bottom: calc(var(--app-nav-height) + var(--space-12) + env(safe-area-inset-bottom));
-  --app-page-enter-forward: 100%;
-  --app-page-enter-backward: -100%;
+  --app-page-swipe-forward: 100%;
+  --app-page-swipe-backward: -100%;
+  --swipe-snap-duration: 180ms;
+  --swipe-commit-duration: 150ms;
+  --swipe-snap-easing: cubic-bezier(0.22, 1, 0.36, 1);
   --motion-fast: 150ms ease;
   --motion-base: 200ms ease;
   --surface-raised: color-mix(in srgb, var(--color-card) 96%, var(--color-bg));
@@ -1357,9 +1360,28 @@
 .app-guide-screen { z-index: var(--layer-guide); overflow: hidden; background: var(--color-card); }
 .app-modal-screen,
 .app-guide-screen,
+.app-modal-swipe-surface,
 .scanner-modal {
   overscroll-behavior-x: none;
   touch-action: pan-y pinch-zoom;
+}
+[data-swipe-surface] {
+  --swipe-offset-x: 0px;
+  translate: var(--swipe-offset-x) 0;
+}
+[data-swipe-phase="dragging"] {
+  z-index: 1;
+  will-change: translate;
+  transition: none;
+}
+[data-swipe-phase="settling"] {
+  will-change: translate;
+  transition: translate var(--swipe-snap-duration) var(--swipe-snap-easing);
+}
+[data-swipe-phase="committing"] {
+  pointer-events: none;
+  will-change: translate;
+  transition: translate var(--swipe-commit-duration) var(--swipe-snap-easing);
 }
 .app-modal-header-layer { position: fixed; z-index: calc(var(--layer-modal) + 10); top: 0; left: 0; width: 100%; }
 .app-contact-header-layer { z-index: calc(var(--layer-modal) + 20); }

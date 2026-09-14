@@ -5,10 +5,10 @@ import { useToast } from '@/shared/contexts/useToast';
 import { TMS_LIMITS } from '@/shared/constants';
 import {
   resolveGestureAxis,
-  shouldIgnorePullGesture,
+  shouldIgnoreHorizontalSwipe,
   type GestureAxis,
   type GesturePoint,
-} from '@/shared/gestures/touchAxis';
+} from '@/shared/gestures/horizontalSwipe';
 
 interface PullToRefreshProps {
   onRefresh: () => Promise<void>;
@@ -62,7 +62,7 @@ export default function PullToRefresh({
       event.touches.length !== 1
       || refreshingRef.current
       || (contentRef.current?.scrollTop ?? 0) > 0
-      || shouldIgnorePullGesture(event.target, event.currentTarget)
+      || shouldIgnoreHorizontalSwipe(event.target, event.currentTarget)
     ) return;
     const touch = event.touches[0];
     if (!touch) return;

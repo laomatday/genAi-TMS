@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import IconButton from '@/shared/components/common/IconButton';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { TMS_LIMITS } from '@/shared/constants';
+import { useModalTabSwipe } from '@/modules/tms/hooks/useModalTabSwipe';
+import type { TabType } from './BottomNav';
 
 interface Props {
   onClose: () => void;
   onScan: (data: string) => void;
   onError: (msg: string) => void;
+  onNavigate: (tab: TabType) => void;
 }
 
 type ScannerStatus = 'starting' | 'scanning' | 'error';
@@ -80,7 +83,7 @@ export async function resolveBarcodeDetectorCtor(): Promise<BarcodeDetectorCtor>
   return BarcodeDetector as unknown as BarcodeDetectorCtor;
 }
 
-const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
+const ModalQRScanner = ({ onClose, onScan, onError, onNavigate }: Props) => {
   const [status, setStatus] = useState<ScannerStatus>('starting');
   const [cameraError, setCameraError] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -91,6 +94,13 @@ const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const dialogRef = useModalAccessibility(true, onClose);
+  const { swipeHandlers: swipeBackHandlers } = useModalTabSwipe({
+    activeTab: 'home',
+    onClose,
+    onNavigate,
+    surfaceRef: dialogRef,
+    disabled: scanHandledRef.current,
+  });
   handlersRef.current = { onScan, onError };
 
   useEffect(() => {
@@ -216,7 +226,7 @@ const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
   };
 
   return (
-    <div ref={dialogRef} tabIndex={-1} className="scanner-modal" role="dialog" aria-modal="true" aria-labelledby="qr-scanner-title">
+    <div ref={dialogRef} tabIndex={-1} className="scanner-modal" role="dialog" aria-modal="true" aria-labelledby="qr-scanner-title" data-swipe-surface="modal" {...swipeBackHandlers}>
       <header className="scanner-toolbar">
         <div className="scanner-title">
           <span className="scanner-title-icon material-symbols-rounded" aria-hidden="true">qr_code_scanner</span>
