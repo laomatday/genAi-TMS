@@ -546,9 +546,13 @@
   will-change: transform, opacity;
 }
 
-.employee-secondary-stage { background: var(--color-bg); }
+.employee-secondary-stage {
+  z-index: 1;
+  background: var(--color-bg);
+}
 
 .employee-pager {
+  --pager-offset-x: 0px;
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -561,6 +565,8 @@
   inset: 0;
 }
 
+.employee-pager-layer[aria-hidden="true"] { visibility: hidden; }
+
 .employee-pager-panel {
   position: absolute;
   inset: 0;
@@ -570,6 +576,31 @@
   background: var(--color-bg);
 }
 
+.employee-pager-panel-previous { transform: translate3d(-100%, 0, 0); }
+.employee-pager-panel-next { transform: translate3d(100%, 0, 0); }
+.employee-pager-panel:not(.employee-pager-panel-current) { pointer-events: none; }
+
+.employee-pager[data-pager-phase] .employee-pager-panel-current {
+  transform: translate3d(var(--pager-offset-x), 0, 0);
+}
+
+.employee-pager[data-pager-phase] .employee-pager-panel-previous {
+  transform: translate3d(calc(-100% + var(--pager-offset-x)), 0, 0);
+}
+
+.employee-pager[data-pager-phase] .employee-pager-panel-next {
+  transform: translate3d(calc(100% + var(--pager-offset-x)), 0, 0);
+}
+
+.employee-pager[data-pager-phase="dragging"] .employee-pager-panel {
+  will-change: transform;
+  transition: none;
+}
+
+.employee-pager[data-pager-phase="settling"] .employee-pager-panel {
+  will-change: transform;
+  transition: transform var(--swipe-snap-duration) var(--swipe-snap-easing);
+}
 
 .employee-page {
   width: min(var(--app-content-width), 100%);
@@ -1398,7 +1429,6 @@
   translate: var(--swipe-offset-x) 0;
 }
 [data-swipe-phase="dragging"] {
-  z-index: 1;
   will-change: translate;
   transition: none;
 }

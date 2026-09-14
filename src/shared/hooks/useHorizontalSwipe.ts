@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type MouseEventHandler, type TouchEventHandler } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, type MouseEventHandler, type TouchEventHandler } from 'react';
 import { TMS_LIMITS } from '@/shared/constants';
 import {
   detectHorizontalSwipe,
@@ -58,6 +58,8 @@ export function useHorizontalSwipe({
   const shouldStartRef = useRef(shouldStart);
   const canSwipeRef = useRef(canSwipe);
   const finishTimerRef = useRef<number | null>(null);
+  const finishGenerationRef = useRef(0);
+  const activeSurfaceRef = useRef<HTMLElement | null>(null);
   const clickSuppressionTimerRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
   onSwipeRef.current = onSwipe;
@@ -85,44 +87,71 @@ export function useHorizontalSwipe({
     delete surface.dataset.swipePhase;
   }, []);
 
+  const hardReset = useCallback((surface?: HTMLElement | null) => {
+    const trackedSurface = activeSurfaceRef.current ?? gestureRef.current?.boundary;
+    finishGenerationRef.current += 1;
+    clearFinishTimer();
+    clearClickSuppression();
+    gestureRef.current = null;
+    clearSurface(trackedSurface);
+    if (surface !== trackedSurface) clearSurface(surface);
+    activeSurfaceRef.current = null;
+  }, [clearClickSuppression, clearFinishTimer, clearSurface]);
+
   const reset = useCallback(() => {
-    const surface = gestureRef.current?.boundary;
+    const surface = gestureRef.current?.boundary ?? activeSurfaceRef.current;
     gestureRef.current = null;
     if (surface) {
+      activeSurfaceRef.current = surface;
+      const generation = ++finishGenerationRef.current;
       surface.dataset.swipePhase = 'settling';
       surface.style.setProperty('--swipe-offset-x', '0px');
       clearFinishTimer();
       finishTimerRef.current = window.setTimeout(() => {
+        if (finishGenerationRef.current !== generation) return;
         clearSurface(surface);
+        if (activeSurfaceRef.current === surface) activeSurfaceRef.current = null;
         finishTimerRef.current = null;
       }, TMS_LIMITS.SWIPE_SETTLE_MS);
     }
   }, [clearFinishTimer, clearSurface]);
 
-  useEffect(() => () => {
-    clearFinishTimer();
-    clearClickSuppression();
-    clearSurface(gestureRef.current?.boundary);
-  }, [clearClickSuppression, clearFinishTimer, clearSurface]);
+  useLayoutEffect(() => {
+    if (disabled) hardReset();
+  }, [disabled, hardReset]);
+
+  useEffect(() => {
+    const handleInterruption = () => hardReset();
+    const handleVisibilityChange = () => {
+      if (document.hidden) hardReset();
+    };
+
+    window.addEventListener('blur', handleInterruption);
+    window.addEventListener('pagehide', handleInterruption);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', handleInterruption);
+      window.removeEventListener('pagehide', handleInterruption);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      hardReset();
+    };
+  }, [hardReset]);
 
   const onTouchStart = useCallback<TouchEventHandler<HTMLElement>>((event) => {
+    const boundary = event.currentTarget;
+    hardReset(boundary);
     if (disabled || event.touches.length !== 1) {
-      reset();
       return;
     }
     const touch = event.touches[0];
     if (!touch) return;
-    const boundary = event.currentTarget;
     const start = pointFromTouch(touch, event.timeStamp);
     const canStart = !shouldIgnoreHorizontalSwipe(event.target, boundary)
       && (shouldStartRef.current?.(event.target, boundary, start) ?? true);
     if (!canStart) {
-      reset();
       return;
     }
-    clearFinishTimer();
-    clearClickSuppression();
-    clearSurface(boundary);
+    activeSurfaceRef.current = boundary;
     gestureRef.current = {
       start,
       last: start,
@@ -131,13 +160,13 @@ export function useHorizontalSwipe({
       boundary,
       width: boundary.clientWidth || window.innerWidth,
     };
-  }, [clearClickSuppression, clearFinishTimer, clearSurface, disabled, reset]);
+  }, [disabled, hardReset]);
 
   const onTouchMove = useCallback<TouchEventHandler<HTMLElement>>((event) => {
     const gesture = gestureRef.current;
     if (!gesture) return;
     if (disabled || event.touches.length !== 1) {
-      reset();
+      hardReset(event.currentTarget);
       return;
     }
     const touch = event.touches[0];
@@ -170,15 +199,14 @@ export function useHorizontalSwipe({
       gesture.boundary.dataset.swipePhase = 'dragging';
       gesture.boundary.style.setProperty('--swipe-offset-x', `${visualOffset}px`);
     }
-  }, [clearClickSuppression, disabled, reset]);
+  }, [clearClickSuppression, disabled, hardReset]);
 
   const onTouchEnd = useCallback<TouchEventHandler<HTMLElement>>((event) => {
     const gesture = gestureRef.current;
     const changedTouch = event.changedTouches[0];
     gestureRef.current = null;
     if (!gesture || !changedTouch || disabled) {
-      if (gesture) gestureRef.current = gesture;
-      reset();
+      hardReset(event.currentTarget);
       return;
     }
 
@@ -190,7 +218,10 @@ export function useHorizontalSwipe({
         dominanceRatio: TMS_LIMITS.TOUCH_AXIS_DOMINANCE_RATIO,
       })
       : gesture.axis;
-    if (finalAxis !== 'horizontal') return;
+    if (finalAxis !== 'horizontal') {
+      hardReset(gesture.boundary);
+      return;
+    }
     const direction = detectHorizontalSwipe(
       gesture.start,
       end,
@@ -219,13 +250,17 @@ export function useHorizontalSwipe({
 
     if (completeBeforeSwipe && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       clearFinishTimer();
+      activeSurfaceRef.current = gesture.boundary;
+      const generation = ++finishGenerationRef.current;
       gesture.boundary.dataset.swipePhase = 'committing';
       const dismissOffset = direction === 'left' ? -gesture.width : gesture.width;
       gesture.boundary.style.setProperty('--swipe-offset-x', `${dismissOffset}px`);
       finishTimerRef.current = window.setTimeout(() => {
+        if (finishGenerationRef.current !== generation) return;
         finishTimerRef.current = null;
-        onSwipeRef.current(direction);
         clearSurface(gesture.boundary);
+        if (activeSurfaceRef.current === gesture.boundary) activeSurfaceRef.current = null;
+        onSwipeRef.current(direction);
       }, TMS_LIMITS.SWIPE_COMMIT_MS);
       return;
     }
@@ -234,7 +269,7 @@ export function useHorizontalSwipe({
     gestureRef.current = gesture;
     reset();
     if (!accepted) return;
-  }, [clearFinishTimer, clearSurface, completeBeforeSwipe, disabled, minDistancePx, reset, viewportRatio]);
+  }, [clearFinishTimer, clearSurface, completeBeforeSwipe, disabled, hardReset, minDistancePx, reset, viewportRatio]);
 
   const onClickCapture = useCallback<MouseEventHandler<HTMLElement>>((event) => {
     if (!suppressClickRef.current) return;

@@ -115,6 +115,8 @@ export function detectHorizontalSwipe(
 
 export function shouldIgnoreHorizontalSwipe(target: EventTarget | null, boundary?: HTMLElement | null) {
   if (!(target instanceof Element)) return true;
+  const nestedSwipeSurface = target.closest('[data-swipe-surface]');
+  if (nestedSwipeSurface && nestedSwipeSurface !== boundary) return true;
   if (target.closest('input, textarea, select, [role="slider"], [contenteditable="true"], [draggable="true"], [data-swipe-ignore="true"]')) {
     return true;
   }

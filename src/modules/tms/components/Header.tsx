@@ -11,6 +11,8 @@ interface Props {
     notificationCount: number;
     isOnline?: boolean;
     locationName?: string;
+    isSettingsOpen: boolean;
+    onSettingsOpenChange: (open: boolean) => void;
     onOpenProfile: () => void;
     onOpenNotifications: () => void;
     onContactSearch?: () => void;
@@ -31,8 +33,7 @@ const TAB_IDENTITY: Partial<Record<TabType, { title: string; tag?: string }>> = 
     notifications: { title: 'Thông báo' },
 };
 
-const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline = true, locationName, onOpenProfile, onOpenNotifications, onContactSearch, canManage, onOpenManager, onOpenWorkspace }) => {
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline = true, locationName, isSettingsOpen, onSettingsOpenChange, onOpenProfile, onOpenNotifications, onContactSearch, canManage, onOpenManager, onOpenWorkspace }) => {
     const [isActionsOpen, setIsActionsOpen] = useState(false);
     const actionsRef = useRef<HTMLDivElement>(null);
     const identity = TAB_IDENTITY[activeTab] ?? { title: 'genAi TMS' };
@@ -43,9 +44,9 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline 
         : [user.name, user.position].filter(Boolean).join(' • ');
 
     useEffect(() => {
-        setIsSettingsOpen(false);
+        onSettingsOpenChange(false);
         setIsActionsOpen(false);
-    }, [activeTab]);
+    }, [activeTab, onSettingsOpenChange]);
 
     useEffect(() => {
         if (!isActionsOpen) return undefined;
@@ -67,7 +68,7 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline 
 
     const openSettings = () => {
         setIsActionsOpen(false);
-        setIsSettingsOpen(true);
+        onSettingsOpenChange(true);
     };
 
     return (
@@ -177,7 +178,7 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline 
                 </div>
             </header>
 
-            <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+            <SettingsModal isOpen={isSettingsOpen} onClose={() => onSettingsOpenChange(false)} />
         </>
     );
 };
