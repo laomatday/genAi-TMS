@@ -7,7 +7,6 @@ import { useModalAccessibility } from '@/shared/components/modals/useModalAccess
 import { useListboxNavigation } from '@/shared/components/common/useListboxNavigation';
 import BottomNav, { TabType } from './BottomNav';
 import { LEAVE_REQUEST_TYPES } from '@/shared/constants';
-import { useModalTabSwipe } from '@/modules/tms/hooks/useModalTabSwipe';
 
 interface Props {
     user: Employee;
@@ -65,13 +64,10 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
     const toDateRef = useRef<HTMLInputElement>(null);
     const reasonRef = useRef<HTMLTextAreaElement>(null);
     const dialogRef = useModalAccessibility(isOpen, onClose, { closeOnEscape: !loading });
-    const { swipeHandlers: swipeBackHandlers, navigateFromModal } = useModalTabSwipe({
-        activeTab,
-        onClose,
-        onNavigate,
-        surfaceRef: dialogRef,
-        disabled: loading,
-    });
+    const navigateFromModal = (targetTab: TabType) => {
+        onClose();
+        onNavigate(targetTab);
+    };
     const typeListbox = useListboxNavigation({
         isOpen: isTypeOpen,
         optionCount: LEAVE_REQUEST_TYPES.length,
@@ -198,8 +194,6 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
             aria-modal="true"
             aria-labelledby="create-request-title"
             aria-busy={loading}
-            data-swipe-surface="modal"
-            {...swipeBackHandlers}
         >
             <div className="app-modal-header-layer">
                 <ModalHeader

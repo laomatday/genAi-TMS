@@ -46,6 +46,10 @@ const forbiddenRuntimePatterns = [
   { pattern: /\.eq\(['"]date['"]\s*,\s*request\.work_date/, message: 'invalid legacy attendance date-column update' },
   { pattern: /status:\s*['"]VALID['"]/, message: 'invalid canonical timesheet VALID status' },
   { pattern: /\.slice\(\s*-\s*8\s*\)/, message: 'UUID fragment used as a display identifier' },
+  {
+    pattern: /\b(?:useHorizontalSwipe|useModalSwipeBack|useModalTabSwipe|RegisterSwipeHandler)\b|data-swipe-(?:surface|phase)/,
+    message: 'removed horizontal gesture navigation',
+  },
 ];
 
 for (const file of sourceFiles) {

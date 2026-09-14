@@ -1,11 +1,8 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { UI_MOTION } from '@/shared/constants';
-import type { HorizontalSwipeDirection } from '@/shared/gestures/horizontalSwipe';
 
 export type TabType = 'home' | 'history' | 'requests' | 'contacts' | 'manager' | 'profile' | 'notifications' | 'calendar';
-export type SwipeHandler = (direction: HorizontalSwipeDirection) => boolean;
-export type RegisterSwipeHandler = (handler: SwipeHandler) => () => void;
 
 interface Props {
   activeTab: TabType;
@@ -23,12 +20,6 @@ const NAV_ITEMS: Array<{ name: TabType; icon: string; label: string }> = [
 ];
 
 export const EMPLOYEE_NAV_TABS = NAV_ITEMS.map(({ name }) => name);
-
-export function adjacentEmployeeTab(activeTab: TabType, direction: HorizontalSwipeDirection) {
-  const currentIndex = EMPLOYEE_NAV_TABS.indexOf(activeTab);
-  if (currentIndex < 0) return null;
-  return EMPLOYEE_NAV_TABS[currentIndex + (direction === 'left' ? 1 : -1)] ?? null;
-}
 
 const NavItem = ({ name, icon, label, activeTab, onChange }: {
   name: TabType;

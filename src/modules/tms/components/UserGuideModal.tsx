@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { triggerHaptic } from '@/core/utils/helpers';
-import { STORAGE_KEYS, TMS_LIMITS } from '@/shared/constants';
+import { STORAGE_KEYS } from '@/shared/constants';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
-import { useHorizontalSwipe } from '@/shared/hooks/useHorizontalSwipe';
 
 interface Props {
   isOpen: boolean;
@@ -65,25 +64,6 @@ export default function UserGuideModal({ isOpen, onClose }: Props) {
     onClose();
   };
   const dialogRef = useModalAccessibility(isOpen, close);
-  const guideSwipeHandlers = useHorizontalSwipe({
-    disabled: !isOpen,
-    minDistancePx: TMS_LIMITS.SWIPE_NAVIGATION_PX,
-    viewportRatio: TMS_LIMITS.SWIPE_NAVIGATION_VIEWPORT_RATIO,
-    canSwipe: (direction) => direction === 'left'
-      ? activeTab < GUIDE_SECTIONS.length - 1
-      : activeTab > 0,
-    onSwipe: (direction) => {
-      const nextTab = Math.max(
-        0,
-        Math.min(GUIDE_SECTIONS.length - 1, activeTab + (direction === 'left' ? 1 : -1)),
-      );
-      if (nextTab === activeTab) return false;
-      triggerHaptic('light');
-      setActiveTab(nextTab);
-      return true;
-    },
-  });
-
   if (!isOpen) return null;
 
   const section = GUIDE_SECTIONS[activeTab] ?? GUIDE_SECTIONS[0];
@@ -98,8 +78,6 @@ export default function UserGuideModal({ isOpen, onClose }: Props) {
       aria-modal="true"
       aria-labelledby="user-guide-title"
       aria-describedby="user-guide-subtitle"
-      data-swipe-surface="guide"
-      {...guideSwipeHandlers}
     >
       <div className="guide-head">
         <span className={`ui-tile ui-tile-soft ui-tone-${section.tone} guide-head-icon`} aria-hidden="true">
