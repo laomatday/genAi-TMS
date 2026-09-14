@@ -69,14 +69,18 @@ export default function UserGuideModal({ isOpen, onClose }: Props) {
     disabled: !isOpen,
     minDistancePx: TMS_LIMITS.SWIPE_NAVIGATION_PX,
     viewportRatio: TMS_LIMITS.SWIPE_NAVIGATION_VIEWPORT_RATIO,
+    canSwipe: (direction) => direction === 'left'
+      ? activeTab < GUIDE_SECTIONS.length - 1
+      : activeTab > 0,
     onSwipe: (direction) => {
       const nextTab = Math.max(
         0,
         Math.min(GUIDE_SECTIONS.length - 1, activeTab + (direction === 'left' ? 1 : -1)),
       );
-      if (nextTab === activeTab) return;
+      if (nextTab === activeTab) return false;
       triggerHaptic('light');
       setActiveTab(nextTab);
+      return true;
     },
   });
 

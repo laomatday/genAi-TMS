@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   detectHorizontalSwipe,
   horizontalSwipeThreshold,
+  recentHorizontalVelocity,
+  resistedSwipeOffset,
   resolveGestureAxis,
   type GesturePoint,
   type SwipeOptions,
@@ -15,6 +17,8 @@ const options: SwipeOptions = {
   maxDistancePx: 104,
   maxDurationMs: 850,
   minVelocityPxMs: 0.1,
+  flingVelocityPxMs: 0.45,
+  projectionMs: 180,
   longSwipeMultiplier: 1.7,
 };
 
@@ -48,5 +52,29 @@ describe('horizontal touch gestures', () => {
 
   it('still accepts a long deliberate accessibility swipe', () => {
     expect(detectHorizontalSwipe(point(300, 200, 0), point(180, 198, 1400), 390, options)).toBe('left');
+  });
+
+  it('uses recent release velocity to accept a short intentional flick', () => {
+    const start = point(300, 200, 0);
+    const end = point(260, 202, 120);
+    expect(detectHorizontalSwipe(start, end, 390, options, -0.8)).toBe('left');
+    expect(detectHorizontalSwipe(start, end, 390, options, -0.2)).toBeNull();
+    expect(detectHorizontalSwipe(start, end, 390, options, 0.8)).toBeNull();
+  });
+});
+
+describe('native-feeling swipe feedback', () => {
+  it('calculates velocity from the latest movement window', () => {
+    expect(recentHorizontalVelocity([
+      point(300, 200, 0),
+      point(295, 200, 300),
+      point(255, 200, 350),
+    ], 100)).toBeCloseTo(-0.8);
+  });
+
+  it('preserves direct tracking and adds resistance at a blocked edge', () => {
+    expect(resistedSwipeOffset(80, 400, true)).toBe(80);
+    expect(resistedSwipeOffset(80, 400, false)).toBeGreaterThan(0);
+    expect(resistedSwipeOffset(80, 400, false)).toBeLessThan(25);
   });
 });

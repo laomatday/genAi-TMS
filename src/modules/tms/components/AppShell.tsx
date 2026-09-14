@@ -192,19 +192,28 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
 
   const navigationSwipeHandlers = useHorizontalSwipe({
     disabled: isAttendanceProcessing,
+    canSwipe: (swipeDirection) => {
+      if (swipeHandlerRef.current) return true;
+      if (['manager', 'notifications', 'profile'].includes(activeTab)) return swipeDirection === 'left';
+      const currentIndex = EMPLOYEE_NAV_TABS.indexOf(activeTab);
+      if (currentIndex < 0) return false;
+      return Boolean(EMPLOYEE_NAV_TABS[currentIndex + (swipeDirection === 'left' ? 1 : -1)]);
+    },
     onSwipe: (swipeDirection) => {
-      if (swipeHandlerRef.current?.(swipeDirection)) return;
+      if (swipeHandlerRef.current?.(swipeDirection)) return true;
 
       if (swipeDirection === 'left' && ['manager', 'notifications', 'profile'].includes(activeTab)) {
         handleTabChange(lastActiveTab);
-        return;
+        return true;
       }
 
       const currentIndex = EMPLOYEE_NAV_TABS.indexOf(activeTab);
-      if (currentIndex < 0) return;
+      if (currentIndex < 0) return false;
       const targetIndex = currentIndex + (swipeDirection === 'left' ? 1 : -1);
       const targetTab = EMPLOYEE_NAV_TABS[targetIndex];
-      if (targetTab) handleTabChange(targetTab);
+      if (!targetTab) return false;
+      handleTabChange(targetTab);
+      return true;
     },
   });
 
@@ -386,7 +395,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     {isAttendanceProcessing && isProcessOverlayVisible ? <div className="app-process-backdrop animate-fade-in"><div className="app-process-dialog animate-scale-in" role="status" aria-live="polite"><Spinner size="lg" /><h3>Đang xử lý…</h3><p>{checkInStatus || 'Vui lòng đợi trong giây lát'}</p><small>Không đóng ứng dụng cho đến khi có xác nhận.</small><button type="button" onClick={() => setIsProcessOverlayVisible(false)}>Ẩn đi · vẫn chạy nền</button></div></div> : null}
     {isAttendanceProcessing && !isProcessOverlayVisible ? <button type="button" onClick={() => setIsProcessOverlayVisible(true)} className="app-processing-pill" aria-label="Mở trạng thái chấm công"><span className="app-processing-spinner" aria-hidden="true" />Đang chấm công</button> : null}
     {activeTab !== 'profile' && isHeaderVisible && <Header user={currentUser} activeTab={activeTab} notificationCount={badgeCount} isOnline={isOnline} locationName={locationNames[currentUser.center_id]} onOpenProfile={() => handleTabChange('profile')} onOpenNotifications={() => activeTab === 'notifications' ? setActiveTab(lastActiveTab) : handleTabChange('notifications')} onContactSearch={() => setContactsSearchTrigger((value) => value + 1)} canManage={canManage} onOpenManager={() => handleTabChange('manager')} onOpenWorkspace={onOpenWorkspace} />}
-    <div className="employee-scroll" data-swipe-surface="navigation" {...navigationSwipeHandlers}><div className="employee-motion-stage"><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_PX : -UI_MOTION.PAGE_OFFSET_PX, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: direction === 'right' ? -UI_MOTION.PAGE_OFFSET_PX : UI_MOTION.PAGE_OFFSET_PX, opacity: 0 }} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
+    <div className="employee-scroll" data-swipe-surface="navigation" {...navigationSwipeHandlers}><div className="employee-motion-stage"><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_FORWARD : UI_MOTION.PAGE_OFFSET_BACKWARD }} animate={{ x: 0 }} exit={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_BACKWARD : UI_MOTION.PAGE_OFFSET_FORWARD }} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
       {activeTab === 'home' && <TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} explainableItems={explainableItems} onNavigate={handleTabChange} onCreateRequest={(type) => { setCreateRequestType(type); setShowCreateRequestModal(true); }} />}
       {activeTab === 'history' && <TabHistory data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} registerSwipeHandler={registerSwipeHandler} />}
       {activeTab === 'requests' && <TabRequests data={data} user={currentUser} onRefresh={refresh} onCreateRequest={(type) => { setCreateRequestType(type); setShowCreateRequestModal(true); }} onCreateExplanation={() => { setExplainWorkInitialData(null); setShowExplainWorkModal(true); }} registerSwipeHandler={registerSwipeHandler} />}

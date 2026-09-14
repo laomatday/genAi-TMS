@@ -10,9 +10,10 @@ import { useHorizontalSwipe, type HorizontalSwipeHandlers } from './useHorizonta
  */
 export function useModalSwipeBack(onBack: () => void, disabled = false): HorizontalSwipeHandlers {
   const handleSwipe = useCallback((direction: 'left' | 'right') => {
-    if (direction !== 'left') return;
+    if (direction !== 'left') return false;
     triggerHaptic('light');
     onBack();
+    return true;
   }, [onBack]);
 
   return useHorizontalSwipe({
@@ -20,5 +21,7 @@ export function useModalSwipeBack(onBack: () => void, disabled = false): Horizon
     disabled,
     minDistancePx: TMS_LIMITS.SWIPE_MODAL_CLOSE_PX,
     viewportRatio: TMS_LIMITS.SWIPE_MODAL_VIEWPORT_RATIO,
+    canSwipe: (direction) => direction === 'left',
+    completeBeforeSwipe: true,
   });
 }

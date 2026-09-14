@@ -18,7 +18,47 @@ export interface SwipeOptions extends AxisOptions {
   maxDistancePx: number;
   maxDurationMs: number;
   minVelocityPxMs: number;
+  flingVelocityPxMs: number;
+  projectionMs: number;
   longSwipeMultiplier: number;
+}
+
+export function recentHorizontalVelocity(
+  points: readonly GesturePoint[],
+  lookbackMs: number,
+) {
+  const end = points[points.length - 1];
+  if (!end || points.length < 2) return 0;
+
+  const cutoff = end.time - Math.max(1, lookbackMs);
+  let start = points[points.length - 2] ?? end;
+  for (let index = points.length - 2; index >= 0; index -= 1) {
+    const candidate = points[index];
+    if (!candidate) continue;
+    if (candidate.time < cutoff) break;
+    start = candidate;
+  }
+
+  return (end.x - start.x) / Math.max(1, end.time - start.time);
+}
+
+/**
+ * Direct movement is preserved in the available direction. At a boundary the
+ * distance is compressed, matching the elastic edge feedback used by native
+ * messaging apps without allowing the page to drift away from the finger.
+ */
+export function resistedSwipeOffset(
+  movementX: number,
+  viewportWidth: number,
+  directionAllowed: boolean,
+) {
+  const width = Math.max(1, viewportWidth);
+  if (!directionAllowed) {
+    return Math.sign(movementX) * width * (1 - Math.exp(-Math.abs(movementX) / width)) * 0.28;
+  }
+  if (Math.abs(movementX) <= width) return movementX;
+  const overflow = Math.abs(movementX) - width;
+  return Math.sign(movementX) * (width + overflow * 0.12);
 }
 
 export function resolveGestureAxis(
@@ -47,17 +87,26 @@ export function detectHorizontalSwipe(
   end: GesturePoint,
   viewportWidth: number,
   options: SwipeOptions,
+  releaseVelocityX = 0,
 ): HorizontalSwipeDirection | null {
   const movementX = end.x - start.x;
   const distanceX = Math.abs(movementX);
   const distanceY = Math.abs(end.y - start.y);
   const threshold = horizontalSwipeThreshold(viewportWidth, options);
-  if (distanceX < threshold || distanceX <= distanceY * options.dominanceRatio) return null;
+  if (distanceX <= distanceY * options.dominanceRatio) return null;
 
   const duration = Math.max(1, end.time - start.time);
-  const velocity = distanceX / duration;
+  const averageVelocity = distanceX / duration;
+  const projectedDistance = Math.abs(movementX + releaseVelocityX * options.projectionMs);
   const isLongDeliberateSwipe = distanceX >= threshold * options.longSwipeMultiplier;
-  if (!isLongDeliberateSwipe && (duration > options.maxDurationMs || velocity < options.minVelocityPxMs)) {
+  const isFling = distanceX >= options.lockDistancePx * 2
+    && Math.abs(releaseVelocityX) >= options.flingVelocityPxMs
+    && Math.sign(releaseVelocityX) === Math.sign(movementX)
+    && projectedDistance >= threshold;
+  const crossedDistance = distanceX >= threshold;
+
+  if (!crossedDistance && !isFling) return null;
+  if (!isLongDeliberateSwipe && !isFling && (duration > options.maxDurationMs || averageVelocity < options.minVelocityPxMs)) {
     return null;
   }
 
