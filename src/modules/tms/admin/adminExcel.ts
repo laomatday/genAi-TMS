@@ -40,15 +40,130 @@ export function exportEmployeesExcel(employees: Employee[]) {
   });
 }
 
+export interface EmployeeImportRow {
+  mode: 'create' | 'update';
+  rowNumber: number;
+  employee: EmployeeInput;
+}
+
+export interface EmployeeImportResult {
+  total: number;
+  confirmed: number;
+  employeeIds: string[];
+}
+
+export type EmployeeImportFailureState = 'rejected' | 'partial' | 'unknown';
+
+export class EmployeeImportError extends Error {
+  readonly total: number;
+  readonly confirmed: number;
+  readonly failedRowNumber: number;
+  readonly failedEmployeeId: string;
+  readonly remaining: number;
+  readonly failureState: EmployeeImportFailureState;
+  readonly originalCause: unknown;
+
+  constructor({
+    cause,
+    total,
+    confirmed,
+    failedRowNumber,
+    failedEmployeeId,
+    failureState,
+  }: {
+    cause: unknown;
+    total: number;
+    confirmed: number;
+    failedRowNumber: number;
+    failedEmployeeId: string;
+    failureState: EmployeeImportFailureState;
+  }) {
+    const causeMessage = cause instanceof Error ? cause.message : 'Không thể đồng bộ dòng này.';
+    const stateMessage = failureState === 'unknown'
+      ? 'Kết quả dòng này chưa xác định do mất kết nối.'
+      : failureState === 'partial'
+        ? 'Máy chủ báo thao tác có thể mới hoàn tất một phần.'
+        : 'Máy chủ từ chối dòng này.';
+    const remaining = total - confirmed;
+    super(
+      `Đã xác nhận ${confirmed}/${total} dòng. Dừng tại dòng ${failedRowNumber} (${failedEmployeeId}). `
+      + `${stateMessage} ${remaining} dòng chưa được xác nhận. ${causeMessage} `
+      + 'Danh sách sẽ được tải lại; nhập lại cùng file để đối soát và tiếp tục.',
+    );
+    this.name = 'EmployeeImportError';
+    this.total = total;
+    this.confirmed = confirmed;
+    this.failedRowNumber = failedRowNumber;
+    this.failedEmployeeId = failedEmployeeId;
+    this.remaining = remaining;
+    this.failureState = failureState;
+    this.originalCause = cause;
+  }
+}
+
+function employeeImportFailureState(error: unknown): EmployeeImportFailureState {
+  if (!error || typeof error !== 'object') return 'unknown';
+  const outcome = Reflect.get(error, 'outcome');
+  return outcome === 'rejected' || outcome === 'partial' || outcome === 'unknown'
+    ? outcome
+    : 'unknown';
+}
+
+export function assertEmployeeImportRowCount(rowCount: number) {
+  if (rowCount < 1 || rowCount > TMS_LIMITS.MAX_EMPLOYEE_IMPORT_ROWS) {
+    throw new Error(`File Excel phải có từ 1 đến ${TMS_LIMITS.MAX_EMPLOYEE_IMPORT_ROWS} nhân sự.`);
+  }
+}
+
+/**
+ * Runs a bounded, fail-fast import and records only server-confirmed rows.
+ * `upsert` makes a retry reconcile rows already committed by an earlier attempt
+ * instead of stopping at the first "employee already exists" response.
+ */
+export async function executeEmployeeImport(
+  rows: EmployeeImportRow[],
+  writeEmployee: (
+    employee: EmployeeInput,
+    mode: 'upsert',
+    options: { expectedMode: 'create' | 'update' },
+  ) => Promise<unknown>,
+): Promise<EmployeeImportResult> {
+  const employeeIds: string[] = [];
+  for (const row of rows) {
+    try {
+      await writeEmployee(row.employee, 'upsert', { expectedMode: row.mode });
+      employeeIds.push(row.employee.employee_id);
+    } catch (error) {
+      throw new EmployeeImportError({
+        cause: error,
+        total: rows.length,
+        confirmed: employeeIds.length,
+        failedRowNumber: row.rowNumber,
+        failedEmployeeId: row.employee.employee_id,
+        failureState: employeeImportFailureState(error),
+      });
+    }
+  }
+  return { total: rows.length, confirmed: employeeIds.length, employeeIds };
+}
+
 export async function parseEmployeesExcel(file: File, data: AdminData) {
   const rows = await readExcelRows(file);
+  assertEmployeeImportRowCount(rows.length);
   const employeeIds = new Set(data.employees.map((item) => item.employee_id));
   const locationIds = new Set(data.locations.map((item) => item.center_id));
-  const policyIds = new Set(data.policies.map((item) => item.id));
+  const activePolicyIds = new Set(data.policies.filter((item) => item.active).map((item) => item.id));
+  const soleActivePolicyId: string | null = activePolicyIds.size === 1
+    ? activePolicyIds.values().next().value ?? null
+    : null;
+  const employeeByEmail = new Map(
+    data.employees.map((item) => [item.email.trim().toLocaleLowerCase(), item.employee_id]),
+  );
   const managerIds = new Set(data.employees.filter((item) => item.status === 'Active' && MANAGEMENT_ROLES.includes(item.role)).map((item) => item.employee_id));
   const errors: string[] = [];
   const seen = new Set<string>();
-  const result: Array<{ mode: 'create' | 'update'; employee: EmployeeInput }> = [];
+  const seenEmails = new Set<string>();
+  const result: EmployeeImportRow[] = [];
 
   for (const row of rows) {
     const employeeId = excelText(row, 'Mã nhân viên').toUpperCase();
@@ -61,23 +176,30 @@ export async function parseEmployeesExcel(file: File, data: AdminData) {
     const allowedLocations = excelList(row, 'Địa điểm được phép').map((item) => item.toUpperCase());
     const managedLocations = excelList(row, 'Địa điểm quản lý').map((item) => item.toUpperCase());
     const annualLeave = excelNumber(row, 0, 'Số ngày phép');
-    const policyId = excelText(row, 'Mã chính sách');
+    const suppliedPolicyId = excelText(row, 'Mã chính sách');
+    const policyId = role === 'Kiosk' ? null : suppliedPolicyId || soleActivePolicyId;
     const managerId = excelText(row, 'Mã quản lý').toUpperCase();
+    const emailOwner = employeeByEmail.get(email);
 
     if (!employeeId || !name || !email || !role || !centerId) errors.push(`Dòng ${row.rowNumber}: thiếu trường bắt buộc.`);
     else if (seen.has(employeeId)) errors.push(`Dòng ${row.rowNumber}: mã nhân viên ${employeeId} bị trùng.`);
     else if (!EMPLOYEE_ROLES.includes(role)) errors.push(`Dòng ${row.rowNumber}: vai trò ${role} không hợp lệ.`);
     else if (!locationIds.has(centerId)) errors.push(`Dòng ${row.rowNumber}: địa điểm ${centerId} không tồn tại.`);
     else if ([...allowedLocations, ...managedLocations].some((id) => !locationIds.has(id))) errors.push(`Dòng ${row.rowNumber}: danh sách địa điểm có mã không tồn tại.`);
-    else if (policyId && !policyIds.has(policyId)) errors.push(`Dòng ${row.rowNumber}: chính sách ${policyId} không tồn tại.`);
+    else if (seenEmails.has(email)) errors.push(`Dòng ${row.rowNumber}: email ${email} bị trùng trong file.`);
+    else if (emailOwner && emailOwner !== employeeId) errors.push(`Dòng ${row.rowNumber}: email ${email} đang thuộc nhân viên ${emailOwner}.`);
+    else if (role !== 'Kiosk' && !policyId) errors.push(`Dòng ${row.rowNumber}: cần chọn chính sách chấm công đang hoạt động.`);
+    else if (role !== 'Kiosk' && policyId && !activePolicyIds.has(policyId)) errors.push(`Dòng ${row.rowNumber}: chính sách ${policyId} không tồn tại hoặc đã tắt.`);
     else if (managerId && !managerIds.has(managerId)) errors.push(`Dòng ${row.rowNumber}: quản lý ${managerId} không tồn tại hoặc không hoạt động.`);
     else if (!Number.isFinite(annualLeave) || annualLeave < 0 || annualLeave > TMS_LIMITS.MAX_ANNUAL_LEAVE_DAYS) errors.push(`Dòng ${row.rowNumber}: số ngày phép không hợp lệ.`);
     else if (mode === 'create' && password.length < TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH) errors.push(`Dòng ${row.rowNumber}: tài khoản mới cần mật khẩu tạm từ ${TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} ký tự.`);
     else if (!/^\S+@\S+\.\S+$/.test(email)) errors.push(`Dòng ${row.rowNumber}: email không hợp lệ.`);
 
     seen.add(employeeId);
+    seenEmails.add(email);
     result.push({
       mode,
+      rowNumber: row.rowNumber,
       employee: {
         employee_id: employeeId,
         name,
@@ -89,7 +211,7 @@ export async function parseEmployeesExcel(file: File, data: AdminData) {
         managed_locations: managedLocations,
         direct_manager_id: managerId || null,
         annual_leave_balance: annualLeave,
-        attendance_policy_id: policyId || null,
+        attendance_policy_id: policyId,
         position: excelText(row, 'Chức danh'),
         department: excelText(row, 'Phòng ban'),
         status: excelBoolean(row, true, 'Trạng thái') ? 'Active' : 'Inactive',
@@ -102,7 +224,6 @@ export async function parseEmployeesExcel(file: File, data: AdminData) {
     const remainder = errors.length > 6 ? ` và ${errors.length - 6} lỗi khác` : '';
     throw new Error(`${errors.slice(0, 6).join(' ')}${remainder}.`);
   }
-  if (!result.length) throw new Error('File Excel không có nhân sự để nhập.');
   return result;
 }
 

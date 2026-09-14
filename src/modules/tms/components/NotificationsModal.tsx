@@ -8,7 +8,7 @@ interface Props {
     data: DashboardData | null;
     user: Employee;
     onSwitchTab: (tab: 'manager') => void;
-    onRefresh: () => Promise<void>;
+    onRefresh: () => Promise<boolean | void>;
 }
 
 type NotificationEntry = (LeaveRequest & { category: 'leave' }) | (Explanation & { category: 'explanation' });

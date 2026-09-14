@@ -20,12 +20,18 @@ export default function AttendanceSection({
   month,
   onMonthChange,
   busy,
+  canReview,
+  canExport,
+  canLock,
   onRun,
 }: {
   data: AdminData;
   month: string;
   onMonthChange: (month: string) => void;
   busy: boolean;
+  canReview: boolean;
+  canExport: boolean;
+  canLock: boolean;
   onRun: AdminActionRunner;
 }) {
   const [filter, setFilter] = useState<AttendanceFilter>('all');
@@ -61,6 +67,10 @@ export default function AttendanceSection({
       masterCheckboxRef.current.indeterminate = isSomeSelected;
     }
   }, [isSomeSelected]);
+
+  useEffect(() => {
+    if (!canReview && filter === 'action') setFilter('all');
+  }, [canReview, filter]);
 
   const selectedRequests = useMemo(
     () => data.requests.filter((request) => selectedRequestIds.includes(request.id)),
@@ -112,6 +122,7 @@ export default function AttendanceSection({
   const unresolvedPeriodCount = data.timesheets.filter((timesheet) => ['OPEN', 'EXCEPTION', 'REJECTED', 'PENDING_REVIEW'].includes(timesheet.status)).length;
 
   const review = async (request: AttendanceRequest, status: 'APPROVED' | 'REJECTED') => {
+    if (!canReview) return;
     await onRun(
       () => reviewAttendanceRequest(request, status, reviewNotes[request.id] || ''),
       status === 'APPROVED' ? 'Đã duyệt và cập nhật ngày công.' : 'Đã từ chối yêu cầu.',
@@ -119,7 +130,7 @@ export default function AttendanceSection({
   };
 
   const reviewBulk = async () => {
-    if (!bulkStatus || !selectedRequests.length) return;
+    if (!canReview || !bulkStatus || !selectedRequests.length) return;
     const requests = [...selectedRequests];
     const status = bulkStatus;
     const note = bulkNote;
@@ -133,6 +144,7 @@ export default function AttendanceSection({
   };
 
   const confirmPeriodClose = async () => {
+    if (!canLock) return;
     setConfirmClose(false);
     await onRun(
       () => closeAttendancePeriod(range, closeNote),
@@ -150,7 +162,7 @@ export default function AttendanceSection({
         <article className={exceptionCount ? 'attention' : ''}><small>Ngoại lệ</small><strong>{exceptionCount}</strong></article>
       </section>
 
-      {data.requests.length > 0 && filter !== 'action' ? (
+      {canReview && data.requests.length > 0 && filter !== 'action' ? (
         <div className="admin-pending-banner">
           <div className="admin-pending-banner-text">
             <span className="material-symbols-rounded">pending_actions</span>
@@ -169,14 +181,14 @@ export default function AttendanceSection({
 
       <section className="admin-panel admin-attendance-panel">
         <div className="admin-tabs" role="tablist" aria-label="Bộ lọc bảng công">
-          {attendanceTabs.map((tab) => (
+          {attendanceTabs.filter((tab) => canReview || tab.id !== 'action').map((tab) => (
             <button type="button" role="tab" aria-selected={filter === tab.id} className={filter === tab.id ? 'active' : ''} onClick={() => { setFilter(tab.id); setPage(1); }} key={tab.id}>
               {tab.label}{tab.id === 'action' && data.requests.length ? <b>{data.requests.length}</b> : null}
             </button>
           ))}
         </div>
 
-        {filter === 'action' ? (
+        {canReview && filter === 'action' ? (
           <div className="admin-review-queue">
             {data.requests.length > 0 ? (
               <div className="admin-review-bulk">
@@ -313,13 +325,13 @@ export default function AttendanceSection({
         <div className="admin-toolbar">
           <SearchField value={query} onChange={(value) => { setQuery(value); setPage(1); }} placeholder="Tên, mã nhân viên, địa điểm…" />
           <label className="admin-compact-field"><span>Tháng công</span><input type="month" value={month} onChange={(event) => { setPage(1); onMonthChange(event.target.value); }} /></label>
-          <div className="admin-export-actions">
+          {canExport ? <div className="admin-export-actions">
             <button type="button" className="admin-secondary-button" disabled={busy || !filteredTimesheets.length} onClick={() => void onRun(() => exportAttendanceExcel({ month, timesheets: filteredTimesheets, employees: data.employees, policies: data.policies }), 'Đã xuất chi tiết bảng công ra Excel.', { refresh: false })}><span className="material-symbols-rounded">download</span>Chi tiết Excel</button>
             <button type="button" className="admin-secondary-button" disabled={busy || !filteredTimesheets.length} onClick={() => void onRun(() => exportPayrollExcel({ month, timesheets: filteredTimesheets, employees: data.employees, policies: data.policies, closed: periodClosed }), 'Đã xuất dữ liệu payroll ra Excel.', { refresh: false })}><span className="material-symbols-rounded">request_quote</span>Payroll Excel</button>
-          </div>
+          </div> : null}
           <div className="admin-period-control">
             <span className={`admin-period-state ${periodClosed ? 'closed' : 'draft'}`}><span className="material-symbols-rounded">{periodClosed ? 'verified' : 'edit_calendar'}</span>{periodClosed ? 'Đã đóng kỳ' : 'Bản nháp'}</span>
-            {data.features.workforceOperations ? <button type="button" className="admin-primary-button" disabled={busy || periodClosed || unresolvedPeriodCount > 0 || range.to >= today} onClick={() => setConfirmClose(true)}><span className="material-symbols-rounded">lock</span>Đóng kỳ</button> : null}
+            {canLock && data.features.workforceOperations ? <button type="button" className="admin-primary-button" disabled={busy || periodClosed || unresolvedPeriodCount > 0 || range.to >= today} onClick={() => setConfirmClose(true)}><span className="material-symbols-rounded">lock</span>Đóng kỳ</button> : null}
           </div>
         </div>
 
@@ -345,7 +357,7 @@ export default function AttendanceSection({
       </section>
 
       <ConfirmDialog
-        isOpen={confirmClose}
+        isOpen={canLock && confirmClose}
         title={`Đóng kỳ công tháng ${month}?`}
         message={<label className="admin-dialog-field"><span>Ghi chú kỳ công</span><textarea value={closeNote} onChange={(event) => setCloseNote(event.target.value)} placeholder="Ví dụ: Đã đối soát với HR và quản lý các đơn vị" autoFocus /></label>}
         confirmLabel="Đóng và khóa kỳ"
@@ -355,7 +367,7 @@ export default function AttendanceSection({
         type="warning"
       />
       <ConfirmDialog
-        isOpen={bulkStatus !== null}
+        isOpen={canReview && bulkStatus !== null}
         title={bulkStatus === 'APPROVED' ? `Duyệt hàng loạt ${selectedRequestIds.length} yêu cầu?` : `Từ chối hàng loạt ${selectedRequestIds.length} yêu cầu?`}
         message={
           <div className="admin-bulk-dialog-content">
@@ -415,4 +427,3 @@ export default function AttendanceSection({
     </div>
   );
 }
-

@@ -51,12 +51,15 @@ describe('determineShift', () => {
 });
 
 describe('attendanceRequestPayload', () => {
+  const clientRequestId = '40000000-0000-0000-0000-000000000001';
+
   it('keeps a reason-only explanation separate from a time correction', () => {
-    expect(attendanceRequestPayload({ date: '2026-09-10', reason: 'Xe hỏng giữa đường' })).toEqual({
+    expect(attendanceRequestPayload({ date: '2026-09-10', reason: 'Xe hỏng giữa đường', clientRequestId })).toEqual({
       request_type: 'EXPLANATION',
       from_date: '2026-09-10',
       to_date: '2026-09-10',
       reason: 'Xe hỏng giữa đường',
+      client_request_id: clientRequestId,
     });
   });
 
@@ -67,6 +70,7 @@ describe('attendanceRequestPayload', () => {
       requestType: 'CORRECTION',
       requestedCheckin: '08:30',
       requestedCheckout: '17:35',
+      clientRequestId,
     })).toMatchObject({
       request_type: 'CORRECTION',
       requested_checkin: '2026-09-10T08:30:00+07:00',
@@ -81,6 +85,7 @@ describe('attendanceRequestPayload', () => {
       requestType: 'CORRECTION',
       requestedCheckin: '22:00',
       requestedCheckout: '02:00',
+      clientRequestId,
     }).requested_checkout).toBe('2026-09-11T02:00:00+07:00');
   });
 
@@ -90,6 +95,7 @@ describe('attendanceRequestPayload', () => {
       reason: 'Quên check-out',
       requestType: 'CORRECTION',
       requestedCheckin: '08:30',
+      clientRequestId,
     })).toThrow('Điều chỉnh công cần đủ giờ check-in và check-out hợp lệ.');
   });
 });

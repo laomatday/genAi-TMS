@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { APP_ROUTES } from '@/shared/constants';
 import type { Employee } from '@/shared/types';
 import Avatar from '@/shared/components/common/Avatar';
+import { canOpenKioskStation, hasControlCenterAccess } from '@/modules/tms/services/workforceCapabilities';
 
 const PORTAL_OPTIONS = [
   {
@@ -11,14 +12,16 @@ const PORTAL_OPTIONS = [
     title: 'Chấm công',
     description: 'Chấm công, xem lịch sử và gửi đề xuất cá nhân.',
     tone: 'attendance',
+    access: 'attendance',
   },
   {
     path: APP_ROUTES.ADMIN,
     icon: 'admin_panel_settings',
     eyebrow: 'Điều hành',
-    title: 'Trang Admin',
+    title: 'Control Center',
     description: 'Quản trị nhân sự, bảng công và tham số hệ thống.',
     tone: 'admin',
+    access: 'control-center',
   },
   {
     path: APP_ROUTES.KIOSK,
@@ -27,10 +30,25 @@ const PORTAL_OPTIONS = [
     title: 'Trang Kiosk',
     description: 'Mở trạm QR động phục vụ chấm công tại văn phòng.',
     tone: 'kiosk',
+    access: 'kiosk',
   },
 ] as const;
 
-export default function AdminPortal({ user, onLogout }: { user: Employee; onLogout: () => void }) {
+export default function AdminPortal({
+  user,
+  capabilities,
+  onLogout,
+}: {
+  user: Employee;
+  capabilities: readonly string[];
+  onLogout: () => void;
+}) {
+  const visibleOptions = PORTAL_OPTIONS.filter((option) => {
+    if (option.access === 'attendance') return capabilities.includes('attendance.self');
+    if (option.access === 'kiosk') return canOpenKioskStation(user.role, capabilities);
+    return hasControlCenterAccess(capabilities);
+  });
+
   return (
     <main className="admin-portal-page">
       <header className="admin-portal-header">
@@ -38,7 +56,7 @@ export default function AdminPortal({ user, onLogout }: { user: Employee; onLogo
           <Avatar src={user.avatar_url || user.face_ref_url} name={user.name} className="admin-portal-avatar" textSize="" />
           <span className="admin-portal-identity">
             <strong>{user.name}</strong>
-            <small>Tài khoản quản trị</small>
+            <small>Tài khoản vận hành</small>
           </span>
         </div>
         <button type="button" className="admin-portal-logout" onClick={onLogout}>
@@ -55,7 +73,7 @@ export default function AdminPortal({ user, onLogout }: { user: Employee; onLogo
         </div>
 
         <nav className="admin-portal-grid" aria-label="Chọn khu vực làm việc">
-          {PORTAL_OPTIONS.map((option) => (
+          {visibleOptions.map((option) => (
             <Link className={`admin-portal-card admin-portal-card-${option.tone}`} to={option.path} key={option.path}>
               <span className="admin-portal-card-icon material-symbols-rounded" aria-hidden="true">{option.icon}</span>
               <span className="admin-portal-card-copy">

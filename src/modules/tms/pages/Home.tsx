@@ -47,7 +47,7 @@ interface Props {
   loading: boolean;
   onCheckOut: () => void;
   onScanKiosk: () => void;
-  onRefresh: () => Promise<void>;
+  onRefresh: () => Promise<boolean | void>;
   onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
   onExplain?: (date: string, reason: string) => void;
   explainableItems?: ExplainableAttendanceItem[];

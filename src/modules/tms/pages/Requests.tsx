@@ -11,7 +11,7 @@ import { displayRequestCode } from '@/modules/tms/utils/requestCode';
 interface Props {
     data: DashboardData | null;
     user: Employee;
-    onRefresh: () => Promise<void>;
+    onRefresh: () => Promise<boolean | void>;
     onCreateRequest?: (type?: string) => void;
     onCreateExplanation?: () => void;
 }

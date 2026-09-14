@@ -8,7 +8,7 @@ import { buildLocationNameMap } from '@/modules/tms/services/locations';
 
 interface Props {
     data: DashboardData | null;
-    onRefresh: () => Promise<void>;
+    onRefresh: () => Promise<boolean | void>;
     onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
     onExplain: (date: string, reason: string) => void;
 }

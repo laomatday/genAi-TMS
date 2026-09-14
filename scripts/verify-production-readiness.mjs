@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { extname, join, relative } from 'node:path';
 import process from 'node:process';
+import { spawnSync } from 'node:child_process';
 
 const root = process.cwd();
 const failures = [];
@@ -73,12 +74,32 @@ const requiredFiles = [
   'supabase/migrations/20260912033556_branch_directory_context.sql',
   'supabase/migrations/20260914102118_tenantize_workforce_configuration.sql',
   'supabase/migrations/20260914114002_allow_checkin_with_stale_sessions.sql',
+  'supabase/migrations/20260914154744_harden_commercial_tenant_boundaries.sql',
+  'supabase/migrations/20260914155809_enforce_tenant_approval_roles.sql',
+  'supabase/migrations/20260914161322_enforce_approval_queue_visibility.sql',
+  'supabase/migrations/20260914162113_fail_closed_approval_config_validation.sql',
+  'supabase/migrations/20260914162758_bound_dashboard_directory_context.sql',
+  'supabase/migrations/20260914163500_require_review_capability_for_queue.sql',
+  'supabase/migrations/20260914164200_enable_notification_http_extension.sql',
+  'supabase/migrations/20260914164800_align_request_assignment_with_policy.sql',
+  'supabase/migrations/20260914165500_enforce_sensitive_read_capabilities.sql',
+  'supabase/migrations/20260914170200_freeze_safe_tenant_provisioning_templates.sql',
+  'supabase/migrations/20260914171000_optimize_approval_candidate_resolution.sql',
+  'supabase/migrations/20260914171600_align_direct_table_management_scope.sql',
+  'supabase/migrations/20260914172200_require_login_for_request_assignee.sql',
+  'supabase/migrations/20260914172800_enforce_settings_write_capability.sql',
+  'supabase/migrations/20260914173000_make_request_submission_idempotent.sql',
+  'supabase/migrations/20260915001000_serialize_period_sensitive_workflows.sql',
+  'supabase/migrations/20260915002000_enforce_kiosk_capability.sql',
+  'supabase/migrations/20260915003000_relocate_pg_net_extension.sql',
   'supabase/tests/tenant_configuration_isolation.sql',
   'supabase/tests/attendance_session_rollover.sql',
   'supabase/config.toml',
   'src/core/errors/AppErrorBoundary.tsx',
   'src/core/observability/clientTelemetry.ts',
   'src/modules/tms/utils/requestCode.ts',
+  'src/modules/tms/services/workforceCapabilities.ts',
+  'scripts/load-test-dashboard.mjs',
 ];
 for (const file of requiredFiles) {
   try {
@@ -97,6 +118,15 @@ if (packageMetadata.engines?.node !== '>=22') {
 }
 if (!packageMetadata.scripts?.['check:release']?.includes('audit:dependencies')) {
   fail('release verification does not include a dependency vulnerability audit');
+}
+if (packageMetadata.scripts?.['test:load'] !== 'bun scripts/load-test-dashboard.mjs') {
+  fail('staging dashboard load-test command is missing');
+}
+const loadScriptSyntax = spawnSync('node', ['--check', join(root, 'scripts/load-test-dashboard.mjs')], {
+  encoding: 'utf8',
+});
+if (loadScriptSyntax.status !== 0) {
+  fail(`dashboard load-test script has invalid syntax: ${loadScriptSyntax.stderr.trim()}`);
 }
 
 const mainEntry = await readFile(join(root, 'src/main.tsx'), 'utf8');
@@ -144,6 +174,73 @@ if (!attendanceService.includes('command_id: commandId()')) {
 const employeeService = await readFile(join(root, 'src/modules/tms/services/employee.ts'), 'utf8');
 if (!employeeService.includes("rpc('tms_dashboard_bundle_v1'")) {
   fail('employee dashboard is not using the one-roundtrip Workforce V3 bundle');
+}
+if (!employeeService.includes('client_request_id: input.clientRequestId') || !employeeService.includes('requestCommandId()')) {
+  fail('proposal and explanation commands are missing a browser idempotency key');
+}
+for (const modalFile of [
+  'src/modules/tms/components/ModalCreateRequest.tsx',
+  'src/modules/tms/components/ModalExplainWork.tsx',
+]) {
+  const modalSource = await readFile(join(root, modalFile), 'utf8');
+  if (!modalSource.includes('useRef(requestCommandId())') || !modalSource.includes('clientRequestIdRef.current')) {
+    fail(`${modalFile} must reuse one request id across transport retries`);
+  }
+}
+
+const adminUsersFunction = await readFile(join(root, 'supabase/functions/admin-users/index.ts'), 'utf8');
+if (!adminUsersFunction.includes('"employee.manage"') || !adminUsersFunction.includes('CAPABILITY_DENIED')) {
+  fail('admin-users Edge Function does not enforce effective employee.manage capability');
+}
+if (!adminUsersFunction.includes('requestedAction !== "upsert"')
+  || !adminUsersFunction.includes('EMPLOYEE_RECONCILE_CONFLICT')
+  || !adminUsersFunction.includes('commit_state: "AUTH_CREATED_PROFILE_PENDING"')) {
+  fail('employee account import no longer exposes guarded retry/reconciliation states');
+}
+const accountsSection = await readFile(join(root, 'src/modules/tms/admin/components/AccountsSection.tsx'), 'utf8');
+if (!accountsSection.includes('executeEmployeeImport(imported, saveEmployee)')
+  || !accountsSection.includes('refreshOnError: (error) => error instanceof EmployeeImportError')) {
+  fail('employee spreadsheet import no longer reloads authoritative data after partial failure');
+}
+if (!constants.includes('MAX_EMPLOYEE_IMPORT_ROWS: 100')) {
+  fail('interactive employee import reconciliation surface is not bounded');
+}
+const trustedDeviceFunction = await readFile(join(root, 'supabase/functions/trusted-device/index.ts'), 'utf8');
+if (!trustedDeviceFunction.includes('"kiosk.manage"') || !trustedDeviceFunction.includes('canManageDevices')) {
+  fail('trusted-device reset does not enforce effective kiosk.manage capability');
+}
+
+const tmsRoutes = await readFile(join(root, 'src/modules/tms/routes.tsx'), 'utf8');
+const appShell = await readFile(join(root, 'src/modules/tms/components/AppShell.tsx'), 'utf8');
+const adminPortal = await readFile(join(root, 'src/modules/tms/admin/AdminPortal.tsx'), 'utf8');
+const adminApp = await readFile(join(root, 'src/modules/tms/admin/AdminApp.tsx'), 'utf8');
+const adminOverview = await readFile(join(root, 'src/modules/tms/admin/components/OverviewSection.tsx'), 'utf8');
+const workforceCapabilities = await readFile(join(root, 'src/modules/tms/services/workforceCapabilities.ts'), 'utf8');
+if (tmsRoutes.includes('ADMIN_ROUTE_ROLES')
+  || !tmsRoutes.includes('hasControlCenterAccess')
+  || !tmsRoutes.includes('canOpenKioskStation')) {
+  fail('Control Center routes are not guarded by effective Workforce capabilities');
+}
+if ((tmsRoutes.match(/<DeviceGate[\s\S]{0,300}<QrStation/g) || []).length < 2) {
+  fail('every QR station entry path must pass through the trusted-device gate');
+}
+if (!appShell.includes('hasControlCenterAccess(data.capabilities)')
+  || !appShell.includes('onOpenWorkspace={canOpenControlCenter ? onOpenWorkspace : undefined}')) {
+  fail('employee header exposes Control Center without dashboard effective capabilities');
+}
+if (!adminPortal.includes('visibleOptions')
+  || !adminPortal.includes('canOpenKioskStation(user.role, capabilities)')) {
+  fail('desktop workspace cards are not filtered by effective capabilities');
+}
+if (!adminApp.includes('allowedSections={allowedSections}')
+  || !adminOverview.includes("allowedSections.has('attendance')")
+  || !adminOverview.includes("allowedSections.has('scheduling')")
+  || !adminOverview.includes("allowedSections.has('kiosks')")) {
+  fail('Control Center overview shortcuts can reach capability-restricted sections');
+}
+if (!workforceCapabilities.includes("p_resource: 'bootstrap'")
+  || !workforceCapabilities.includes("capabilities.includes('kiosk.manage')")) {
+  fail('route capability resolver is missing the authoritative Workforce bootstrap contract');
 }
 
 const contactsPage = await readFile(join(root, 'src/modules/tms/pages/Contacts.tsx'), 'utf8');
@@ -195,6 +292,229 @@ for (const requiredClause of [
   if (!tenantMigration.includes(requiredClause)) fail(`tenant migration missing: ${requiredClause}`);
 }
 
+const commercialBoundaryMigration = await readFile(
+  join(root, 'supabase/migrations/20260914154744_harden_commercial_tenant_boundaries.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'attendance_periods_organization_period_key',
+  'on conflict(organization_id,period_start,period_end)',
+  'create policy attendance_periods_read_tenant',
+  'audit_logs_organization_created_idx',
+  'create policy audit_logs_read_tenant',
+  'attendance_policies_organization_name_key',
+  'employees_organization_attendance_policy_fk',
+  'timesheets_organization_policy_fk',
+]) {
+  if (!commercialBoundaryMigration.includes(requiredClause)) {
+    fail(`commercial tenant boundary migration missing: ${requiredClause}`);
+  }
+}
+
+const approvalRoleMigration = await readFile(
+  join(root, 'supabase/migrations/20260914155809_enforce_tenant_approval_roles.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'create or replace function wf_private.approval_role_allowed',
+  "p_request_type in ('EXPLANATION','CORRECTION')",
+  "setting.key='APPROVAL_ROLES'",
+  'create trigger attendance_requests_enforce_approval_role',
+]) {
+  if (!approvalRoleMigration.includes(requiredClause)) {
+    fail(`approval role migration missing: ${requiredClause}`);
+  }
+}
+
+const approvalVisibilityMigration = await readFile(
+  join(root, 'supabase/migrations/20260914161322_enforce_approval_queue_visibility.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'create policy attendance_requests_read_scoped',
+  'wf_private.approval_role_allowed(r.organization_id,r.request_type)',
+  'config_system_validate_approval_roles',
+  'metadata->>\'organization_id\'=a.organization_id::text',
+  "values(new.id,'Chuẩn văn phòng')",
+]) {
+  if (!approvalVisibilityMigration.includes(requiredClause)) {
+    fail(`approval queue visibility migration missing: ${requiredClause}`);
+  }
+}
+
+const approvalValidationMigration = await readFile(
+  join(root, 'supabase/migrations/20260914162113_fail_closed_approval_config_validation.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  "jsonb_typeof(config->'leave') is distinct from 'array'",
+  "jsonb_typeof(config->'attendance') is distinct from 'array'",
+  'create or replace function wf_private.validate_approval_roles_configuration',
+]) {
+  if (!approvalValidationMigration.includes(requiredClause)) {
+    fail(`approval configuration validation migration missing: ${requiredClause}`);
+  }
+}
+
+const boundedDirectoryMigration = await readFile(
+  join(root, 'supabase/migrations/20260914162758_bound_dashboard_directory_context.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'create or replace function public.tms_directory_context_v1()',
+  "employee.status='Active'",
+  'limit 100',
+  "wf_private.capable('directory.read')",
+]) {
+  if (!boundedDirectoryMigration.includes(requiredClause)) {
+    fail(`bounded dashboard directory migration missing: ${requiredClause}`);
+  }
+}
+
+const reviewCapabilityMigration = await readFile(
+  join(root, 'supabase/migrations/20260914163500_require_review_capability_for_queue.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'create or replace function wf_private.approval_role_allowed',
+  "not wf_private.capable('attendance.review')",
+  "jsonb_typeof(config->'leave') is distinct from 'array'",
+]) {
+  if (!reviewCapabilityMigration.includes(requiredClause)) {
+    fail(`review capability migration missing: ${requiredClause}`);
+  }
+}
+
+const notificationHttpMigration = await readFile(
+  join(root, 'supabase/migrations/20260914164200_enable_notification_http_extension.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'create extension if not exists pg_net',
+  'with schema extensions',
+  "to_regprocedure('net.http_post(text,jsonb,jsonb,jsonb,integer)')",
+]) {
+  if (!notificationHttpMigration.includes(requiredClause)) {
+    fail(`notification HTTP dependency migration missing: ${requiredClause}`);
+  }
+}
+
+const notificationHttpRelocationMigration = await readFile(
+  join(root, 'supabase/migrations/20260915003000_relocate_pg_net_extension.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  "extension_schema='public'",
+  "to_regclass('net.http_request_queue')",
+  "to_regclass('net._http_response')",
+  'create extension pg_net with schema extensions',
+]) {
+  if (!notificationHttpRelocationMigration.includes(requiredClause)) {
+    fail(`notification HTTP relocation migration missing: ${requiredClause}`);
+  }
+}
+
+const requestAssignmentMigration = await readFile(
+  join(root, 'supabase/migrations/20260914164800_align_request_assignment_with_policy.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'create or replace function wf_private.employee_capable',
+  'create or replace function wf_private.employee_approval_eligible',
+  "employee_capable(actor_organization,actor_employee_id,'team.read')",
+  'Chưa có người duyệt phù hợp với chính sách của tổ chức.',
+  'Could not safely patch request escalation routing',
+]) {
+  if (!requestAssignmentMigration.includes(requiredClause)) {
+    fail(`request assignment policy migration missing: ${requiredClause}`);
+  }
+}
+
+const sensitiveReadMigration = await readFile(
+  join(root, 'supabase/migrations/20260914165500_enforce_sensitive_read_capabilities.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'create or replace function tms_private.can_manage_employee',
+  "employee_capable(a.organization_id,a.employee_id,'team.read')",
+  'create or replace function tms_private.can_view_audit()',
+  'and (select tms_private.can_view_audit())',
+]) {
+  if (!sensitiveReadMigration.includes(requiredClause)) {
+    fail(`sensitive read capability migration missing: ${requiredClause}`);
+  }
+}
+
+const tenantTemplateMigration = await readFile(
+  join(root, 'supabase/migrations/20260914170200_freeze_safe_tenant_provisioning_templates.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'create table if not exists wf_private.tenant_capability_templates',
+  'select role,capability,enabled',
+  'APPROVAL_ROLES sai cấu trúc ở tổ chức %',
+  'from wf_private.tenant_system_templates',
+  'organization_id,role,capability,enabled',
+]) {
+  if (!tenantTemplateMigration.includes(requiredClause)) {
+    fail(`tenant provisioning template migration missing: ${requiredClause}`);
+  }
+}
+
+const approvalCandidateMigration = await readFile(
+  join(root, 'supabase/migrations/20260914171000_optimize_approval_candidate_resolution.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'employees_active_approval_candidates_idx',
+  "role in ('Leader','Manager','Director','HR','Admin')",
+  'Could not safely optimize escalation candidates',
+]) {
+  if (!approvalCandidateMigration.includes(requiredClause)) {
+    fail(`approval candidate optimization migration missing: ${requiredClause}`);
+  }
+}
+
+const managementScopeMigration = await readFile(
+  join(root, 'supabase/migrations/20260914171600_align_direct_table_management_scope.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'create or replace function tms_private.can_manage_employee',
+  "employee_capable(a.organization_id,a.employee_id,'team.read_all')",
+  'or t.direct_manager_id=a.employee_id',
+]) {
+  if (!managementScopeMigration.includes(requiredClause)) {
+    fail(`direct-table management scope migration missing: ${requiredClause}`);
+  }
+}
+
+const assigneeLoginMigration = await readFile(
+  join(root, 'supabase/migrations/20260914172200_require_login_for_request_assignee.sql'),
+  'utf8',
+);
+if (!assigneeLoginMigration.includes('or candidate.auth_user_id is null')) {
+  fail('request assignee eligibility does not require a usable Auth identity');
+}
+
+const settingsWriteMigration = await readFile(
+  join(root, 'supabase/migrations/20260914172800_enforce_settings_write_capability.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'create or replace function tms_private.can_manage_settings',
+  "'settings.manage'",
+  'create policy config_shifts_insert_settings_capability',
+  'create policy config_system_insert_settings_capability',
+  'create policy holidays_insert_settings_capability',
+  'create policy locations_insert_settings_capability',
+  'create policy attendance_policies_insert_settings_capability',
+]) {
+  if (!settingsWriteMigration.includes(requiredClause)) {
+    fail(`settings write capability migration missing: ${requiredClause}`);
+  }
+}
+
 const attendanceRolloverMigration = await readFile(
   join(root, 'supabase/migrations/20260914114002_allow_checkin_with_stale_sessions.sql'),
   'utf8',
@@ -207,6 +527,69 @@ for (const requiredClause of [
   'timesheets_employee_unfinished_idx',
 ]) {
   if (!attendanceRolloverMigration.includes(requiredClause)) fail(`attendance rollover migration missing: ${requiredClause}`);
+}
+
+const requestIdempotencyMigration = await readFile(
+  join(root, 'supabase/migrations/20260914173000_make_request_submission_idempotent.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'attendance_requests_client_request_id_key',
+  'pg_advisory_xact_lock',
+  'client_request_id=client_id',
+  "'replayed',true",
+]) {
+  if (!requestIdempotencyMigration.includes(requiredClause)) {
+    fail(`request idempotency migration missing: ${requiredClause}`);
+  }
+}
+
+const periodSerializationMigration = await readFile(
+  join(root, 'supabase/migrations/20260915001000_serialize_period_sensitive_workflows.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'period_lock(a.organization_id,day,day,false)',
+  'period_lock(a.organization_id,first_day,last_day,false)',
+  'period_lock(a.organization_id,r.from_date,r.to_date,false)',
+  'where id=sheet.id and organization_id=a.organization_id',
+  'Active attendance lock order must be lookup/period/CLOSED/timesheet',
+  'Request replay/period-lock/CLOSED ordering is invalid',
+]) {
+  if (!periodSerializationMigration.includes(requiredClause)) {
+    fail(`period-sensitive workflow serialization migration missing: ${requiredClause}`);
+  }
+}
+
+const kioskCapabilityMigration = await readFile(
+  join(root, 'supabase/migrations/20260915002000_enforce_kiosk_capability.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  "actor.role <> 'Kiosk'",
+  'wf_private.employee_capable(',
+  "'kiosk.manage'",
+  "using errcode = '42501'",
+  'Could not safely patch create_attendance_qr_v1 authorization',
+]) {
+  if (!kioskCapabilityMigration.includes(requiredClause)) {
+    fail(`kiosk capability migration missing: ${requiredClause}`);
+  }
+}
+
+const tenantIsolationTest = await readFile(
+  join(root, 'supabase/tests/tenant_configuration_isolation.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  "'TENANT-A-ADMIN','kiosk.manage',false",
+  "'TENANT-A-MANAGER','kiosk.manage',true",
+  "public.create_attendance_qr('TENANT-A-SETTINGS')",
+  'Dedicated Kiosk account could not create QR',
+]) {
+  if (!tenantIsolationTest.includes(requiredClause)) {
+    fail(`tenant QR authorization regression test missing: ${requiredClause}`);
+  }
 }
 
 const supabaseConfig = await readFile(join(root, 'supabase/config.toml'), 'utf8');

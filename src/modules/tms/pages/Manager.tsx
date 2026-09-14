@@ -14,7 +14,7 @@ import { displayRequestCode } from '@/modules/tms/utils/requestCode';
 interface Props {
   data: DashboardData | null;
   user: Employee;
-  onRefresh: () => Promise<void>;
+  onRefresh: () => Promise<boolean | void>;
   onAlert: (title: string, msg: string, type: 'success' | 'error') => void;
 }
 
@@ -331,10 +331,6 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
 
   const locationsMap = useMemo(() => buildLocationNameMap(data), [data]);
 
-  const managedLocationsSet = useMemo(() => {
-    return new Set(user.managed_locations || []);
-  }, [user.managed_locations]);
-
   const groupedApprovals = useMemo(() => {
     const allItems = [
       ...approvals.map(a => ({ ...a, itemType: 'leave' as const })),
@@ -342,18 +338,11 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
     ];
 
     const filteredItems = allItems.filter(item => {
-      const emp = contacts.find(c => c.employee_id === item.employee_id);
-      if (!emp) return false;
-
-      // Approval right depends on the request family and the configurable role map.
+      // The Workforce query already applies tenant, assignment and management
+      // scope. Re-filtering by the separately paged directory could silently
+      // hide a valid request when the tenant has more than one directory page.
       const kind = item.itemType === 'leave' ? 'leave' : 'attendance';
-      if (!canApprove(user.role, kind, approvalRoles)) return false;
-
-      if (user.role === 'Admin' || user.role === 'HR') return true;
-
-      const isDirectReport = String(emp.direct_manager_id) === String(user.employee_id);
-      const isInManagedLocation = emp.center_id ? managedLocationsSet.has(emp.center_id) : false;
-      return isDirectReport || isInManagedLocation;
+      return canApprove(user.role, kind, approvalRoles);
     });
 
     const groups: Record<string, ApprovalItem[]> = {};
@@ -376,7 +365,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
     });
 
     return { directReports, groups };
-  }, [approvals, explanationApprovals, contacts, locationsMap, managedLocationsSet, approvalRoles, user]);
+  }, [approvals, explanationApprovals, contacts, locationsMap, approvalRoles, user]);
 
   const approvalGroups = useMemo<ApprovalGroup[]>(() => {
     const groups: ApprovalGroup[] = [];

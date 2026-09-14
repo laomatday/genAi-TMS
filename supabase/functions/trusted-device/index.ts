@@ -72,6 +72,27 @@ Deno.serve(async (request: Request) => {
 
   if (action === "admin-reset") {
     if (actor.role !== "Admin") return json({ ok: false, error: "Chỉ Admin được đặt lại thiết bị." }, 403);
+    const { data: employeeOverride, error: employeeOverrideError } = await admin
+      .from("workforce_employee_capabilities")
+      .select("enabled")
+      .eq("organization_id", actor.organization_id)
+      .eq("employee_id", actor.employee_id)
+      .eq("capability", "kiosk.manage")
+      .maybeSingle();
+    if (employeeOverrideError) return json({ ok: false, error: "Không kiểm tra được quyền quản lý thiết bị." }, 500);
+    let canManageDevices = employeeOverride?.enabled;
+    if (canManageDevices === undefined) {
+      const { data: roleCapability, error: roleCapabilityError } = await admin
+        .from("workforce_role_capabilities")
+        .select("enabled")
+        .eq("organization_id", actor.organization_id)
+        .eq("role", actor.role)
+        .eq("capability", "kiosk.manage")
+        .maybeSingle();
+      if (roleCapabilityError) return json({ ok: false, error: "Không kiểm tra được quyền quản lý thiết bị." }, 500);
+      canManageDevices = roleCapability?.enabled ?? false;
+    }
+    if (!canManageDevices) return json({ ok: false, error: "Tài khoản không có quyền quản lý thiết bị." }, 403);
     const employeeId = clean(body.employeeId, 40).toUpperCase();
     const reason = clean(body.reason, 500);
     if (!employeeId || reason.length < 3) {

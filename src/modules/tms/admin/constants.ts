@@ -8,6 +8,8 @@ export type AttendanceFilter = 'all' | 'action' | 'approved' | 'locked';
 export type SettingsSection = 'policies' | 'shifts' | 'system' | 'holidays' | 'locations' | 'permissions';
 
 export interface AdminCapability {
+  viewAttendance: boolean;
+  exportAttendance: boolean;
   manageAccounts: boolean;
   manageSchedules: boolean;
   manageSettings: boolean;
@@ -134,12 +136,28 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemConfig = {
   OFF_DAYS: [...TMS_DEFAULT_SYSTEM_CONFIG.OFF_DAYS],
 };
 
-export function getAdminCapabilities(role: EmployeeRole): AdminCapability {
+export function getAdminCapabilities(role: EmployeeRole, effectiveCapabilities?: string[]): AdminCapability {
+  if (effectiveCapabilities) {
+    const has = (capability: string) => effectiveCapabilities.includes(capability);
+    return {
+      viewAttendance: has('team.read'),
+      exportAttendance: has('attendance.export'),
+      manageAccounts: has('employee.manage'),
+      manageSchedules: has('schedule.manage'),
+      manageSettings: has('settings.manage'),
+      reviewAttendance: has('team.read') && has('attendance.review'),
+      lockAttendance: has('attendance.lock_period'),
+      manageKiosks: has('kiosk.manage'),
+      viewAudit: has('audit.view'),
+    };
+  }
   const isAdmin = role === 'Admin';
   const isHr = role === 'HR';
   const isDirector = role === 'Director';
   const canOperateAttendance = isAdmin || isHr || isDirector;
   return {
+    viewAttendance: canOperateAttendance,
+    exportAttendance: canOperateAttendance,
     manageAccounts: isAdmin,
     manageSchedules: canOperateAttendance,
     // Workforce V3 grants settings.manage only to Admin. Keeping the UI aligned

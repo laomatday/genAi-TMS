@@ -1,14 +1,24 @@
-import { describe, expect, it } from 'vitest';
-import { adjacentPagerIndex } from './EmployeePager';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it, vi } from 'vitest';
+import type { EmployeeNavTab } from './BottomNav';
+import EmployeePager from './EmployeePager';
 
-describe('employee pager boundaries', () => {
-  it('moves by exactly one tab', () => {
-    expect(adjacentPagerIndex(2, 'left', 5)).toBe(3);
-    expect(adjacentPagerIndex(2, 'right', 5)).toBe(1);
-  });
+describe('EmployeePager', () => {
+  it('renders only the screen selected from the bottom navigation', () => {
+    const renderPage = vi.fn((tab: EmployeeNavTab) => (
+      createElement('div', { 'data-page': tab }, tab)
+    ));
 
-  it('stays inside the bottom-navigation strip', () => {
-    expect(adjacentPagerIndex(0, 'right', 5)).toBeNull();
-    expect(adjacentPagerIndex(4, 'left', 5)).toBeNull();
+    const markup = renderToStaticMarkup(
+      createElement(EmployeePager, { activeTab: 'calendar', renderPage }),
+    );
+
+    expect(renderPage).toHaveBeenCalledTimes(1);
+    expect(renderPage).toHaveBeenCalledWith('calendar', true);
+    expect(markup).toContain('data-active-tab="calendar"');
+    expect(markup).toContain('data-page="calendar"');
+    expect(markup).not.toContain('data-page="contacts"');
+    expect(markup).not.toContain('data-pager-phase');
   });
 });

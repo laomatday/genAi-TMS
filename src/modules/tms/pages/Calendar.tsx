@@ -9,7 +9,7 @@ import { buildLocationNameMap } from '@/modules/tms/services/locations';
 interface Props {
   data: DashboardData | null;
   user: Employee;
-  onRefresh: () => Promise<void>;
+  onRefresh: () => Promise<boolean | void>;
   currentDate: Date;
 }
 

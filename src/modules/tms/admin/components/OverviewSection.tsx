@@ -9,12 +9,18 @@ import Avatar from '@/shared/components/common/Avatar';
 export default function OverviewSection({
   data,
   today,
+  allowedSections,
   onNavigate,
 }: {
   data: AdminData;
   today: string;
+  allowedSections: ReadonlySet<AdminSection>;
   onNavigate: (section: AdminSection) => void;
 }) {
+  const canOpenAttendance = allowedSections.has('attendance');
+  const canOpenScheduling = allowedSections.has('scheduling');
+  const canOpenKiosks = allowedSections.has('kiosks');
+  const hasOperationalShortcut = canOpenAttendance || canOpenScheduling || canOpenKiosks;
   const activeEmployees = data.employees.filter((employee) => employee.status === 'Active' && employee.role !== 'Kiosk');
   const todayTimesheets = data.timesheets.filter((timesheet) => timesheet.work_date === today);
   const checkedIn = todayTimesheets.filter((timesheet) => timesheet.actual_checkin).length;
@@ -63,7 +69,7 @@ export default function OverviewSection({
           <PanelTitle
             eyebrow="Theo thời gian thực"
             title="Tình hình hôm nay"
-            action={<button type="button" className="admin-text-button" onClick={() => onNavigate('attendance')}>Xem bảng công</button>}
+            action={canOpenAttendance ? <button type="button" className="admin-text-button" onClick={() => onNavigate('attendance')}>Xem bảng công</button> : undefined}
           />
           <div className="admin-activity-list">
             {todayTimesheets.slice(0, 10).map((timesheet) => (
@@ -84,7 +90,7 @@ export default function OverviewSection({
           <PanelTitle
             eyebrow="Hàng chờ xử lý"
             title="Cần quyết định"
-            action={<button type="button" className="admin-text-button" onClick={() => onNavigate('attendance')}>Mở hàng chờ</button>}
+            action={canOpenAttendance ? <button type="button" className="admin-text-button" onClick={() => onNavigate('attendance')}>Mở hàng chờ</button> : undefined}
           />
           <div className="admin-activity-list">
             {data.requests.slice(0, 7).map((request) => (
@@ -105,7 +111,7 @@ export default function OverviewSection({
       <ExplanationAnalytics
         requests={data.requests}
         monthlyRequests={data.monthlyRequests}
-        onNavigate={onNavigate}
+        onNavigate={canOpenAttendance ? onNavigate : undefined}
       />
 
       <div className="admin-dashboard-grid admin-insight-grid">
@@ -120,16 +126,15 @@ export default function OverviewSection({
           </div>
         </section>
 
-        <section className="admin-panel">
+        {hasOperationalShortcut ? <section className="admin-panel">
           <PanelTitle eyebrow="Nhắc việc vận hành" title="Việc cần ưu tiên" />
           <div className="admin-operation-list">
-            <button type="button" onClick={() => onNavigate('attendance')}><span className={`admin-activity-icon material-symbols-rounded ${data.requests.length ? 'attention' : ''}`}>approval</span><span><strong>Duyệt yêu cầu chấm công</strong><small>{data.requests.length ? `${data.requests.length} yêu cầu đang chờ` : 'Hàng chờ đã sạch'}</small></span><b>{data.requests.length}</b></button>
-            <button type="button" onClick={() => onNavigate('scheduling')}><span className="admin-activity-icon material-symbols-rounded">calendar_month</span><span><strong>Phân ca sắp tới</strong><small>{scheduledEmployees ? `${scheduledEmployees} nhân viên đã có lịch` : 'Chưa có lịch tương lai'}</small></span><b>{scheduledEmployees}</b></button>
-            <button type="button" onClick={() => onNavigate('kiosks')}><span className={`admin-activity-icon material-symbols-rounded ${activeKiosks > onlineKiosks ? 'attention' : ''}`}>desktop_windows</span><span><strong>Sức khỏe Kiosk</strong><small>{onlineKiosks}/{activeKiosks} trạm hoạt động đang online</small></span><b>{Math.max(0, activeKiosks - onlineKiosks)}</b></button>
+            {canOpenAttendance ? <button type="button" onClick={() => onNavigate('attendance')}><span className={`admin-activity-icon material-symbols-rounded ${data.requests.length ? 'attention' : ''}`}>approval</span><span><strong>Duyệt yêu cầu chấm công</strong><small>{data.requests.length ? `${data.requests.length} yêu cầu đang chờ` : 'Hàng chờ đã sạch'}</small></span><b>{data.requests.length}</b></button> : null}
+            {canOpenScheduling ? <button type="button" onClick={() => onNavigate('scheduling')}><span className="admin-activity-icon material-symbols-rounded">calendar_month</span><span><strong>Phân ca sắp tới</strong><small>{scheduledEmployees ? `${scheduledEmployees} nhân viên đã có lịch` : 'Chưa có lịch tương lai'}</small></span><b>{scheduledEmployees}</b></button> : null}
+            {canOpenKiosks ? <button type="button" onClick={() => onNavigate('kiosks')}><span className={`admin-activity-icon material-symbols-rounded ${activeKiosks > onlineKiosks ? 'attention' : ''}`}>desktop_windows</span><span><strong>Sức khỏe Kiosk</strong><small>{onlineKiosks}/{activeKiosks} trạm hoạt động đang online</small></span><b>{Math.max(0, activeKiosks - onlineKiosks)}</b></button> : null}
           </div>
-        </section>
+        </section> : null}
       </div>
     </div>
   );
 }
-

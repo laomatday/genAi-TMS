@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { DashboardData, ExplainableAttendanceItem } from '@/shared/types';
-import { submitExplanation } from '@/modules/tms/services/employee';
+import { requestCommandId, submitExplanation } from '@/modules/tms/services/employee';
 import { formatDateString, triggerHaptic, toISODateString } from '@/core/utils/helpers';
 import ModalHeader from '@/shared/components/modals/ModalHeader';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
@@ -64,6 +64,7 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
     const checkinRef = useRef<HTMLInputElement>(null);
     const checkoutRef = useRef<HTMLInputElement>(null);
     const initializedForOpenRef = useRef(false);
+    const clientRequestIdRef = useRef(requestCommandId());
     const dialogRef = useModalAccessibility(isOpen, onClose, { closeOnEscape: !loading });
     const swipeBackHandlers = useModalSwipeBack(onClose, loading || confirmDialog.isOpen);
     const navigateFromModal = (tab: TabType) => {
@@ -210,6 +211,7 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
             requestType: isCorrection ? 'CORRECTION' : 'EXPLANATION',
             requestedCheckin: isCorrection ? checkinTime : undefined,
             requestedCheckout: isCorrection ? checkoutTime : undefined,
+            clientRequestId: clientRequestIdRef.current,
         });
 
         if (res.success) {

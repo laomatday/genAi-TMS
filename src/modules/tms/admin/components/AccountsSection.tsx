@@ -5,7 +5,12 @@ import { EMPLOYEE_ROLES, MANAGEMENT_ROLES, TMS_LIMITS } from '@/shared/constants
 import type { Employee, EmployeeRole } from '@/shared/types';
 import { DEFAULT_EMPLOYEE } from '../constants';
 import { deleteEmployeeAccount, resetEmployeeDevice, saveEmployee, type EmployeeInput } from '../adminService';
-import { exportEmployeesExcel, parseEmployeesExcel } from '../adminExcel';
+import {
+  EmployeeImportError,
+  executeEmployeeImport,
+  exportEmployeesExcel,
+  parseEmployeesExcel,
+} from '../adminExcel';
 import type { AdminActionRunner, AdminData } from '../types';
 import { formatDateTime } from '../formatters';
 import { AdminSelect, EmptyState, Pagination, PanelTitle, SearchField, SpreadsheetActions } from './AdminCommon';
@@ -29,6 +34,9 @@ function validateEmployee(
   if (!/^\S+@\S+\.\S+$/.test(employee.email.trim())) return 'Email đăng nhập không đúng định dạng.';
   if (!EMPLOYEE_ROLES.includes(employee.role)) return 'Vai trò nhân viên không hợp lệ.';
   if (!data.locations.some((location) => location.center_id === employee.center_id)) return 'Vui lòng chọn địa điểm chính hợp lệ.';
+  if (employee.role !== 'Kiosk' && !data.policies.some((policy) => policy.id === employee.attendance_policy_id && policy.active)) {
+    return 'Vui lòng chọn chính sách chấm công đang hoạt động.';
+  }
   const locationIds = new Set(data.locations.map((location) => location.center_id));
   if ([...(employee.allowed_locations || []), ...(employee.managed_locations || [])].some((id) => !locationIds.has(id))) {
     return 'Danh sách địa điểm được gán có mục không còn tồn tại.';
@@ -102,6 +110,11 @@ export default function AccountsSection({
   const [hasAuthAccount, setHasAuthAccount] = useState(false);
   const [resetReason, setResetReason] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ employee_id: string; name: string } | null>(null);
+  const [importReport, setImportReport] = useState<{
+    tone: 'success' | 'warning';
+    title: string;
+    detail: string;
+  } | null>(null);
 
   const locationById = useMemo(
     () => new Map(data.locations.map((location) => [location.center_id, location])),
@@ -129,6 +142,7 @@ export default function AccountsSection({
   const activeDevices = useMemo(() => new Map(data.devices.filter((device) => device.status === 'ACTIVE').map((device) => [device.employee_id, device])), [data.devices]);
   const activeDevice = activeDevices.get(employee.employee_id);
   const managers = data.employees.filter((item) => item.status === 'Active' && MANAGEMENT_ROLES.includes(item.role) && item.employee_id !== employee.employee_id);
+  const activePolicies = data.policies.filter((policy) => policy.active);
 
   const startCreate = () => {
     const activeLocations = data.locations.filter((location) => location.active);
@@ -140,6 +154,7 @@ export default function AccountsSection({
       center_id: defaultCenterId,
       allowed_locations: defaultCenterId ? [defaultCenterId] : [],
       managed_locations: [],
+      attendance_policy_id: activePolicies.length === 1 ? activePolicies[0]?.id || null : null,
     });
     setEditorOpen(true);
   };
@@ -216,10 +231,46 @@ export default function AccountsSection({
   };
 
   const importEmployees = async (file: File) => {
+    setImportReport(null);
     await onRun(async () => {
-      const imported = await parseEmployeesExcel(file, data);
-      for (const item of imported) await saveEmployee(item.employee, item.mode);
-    }, 'Đã nhập và đồng bộ dữ liệu nhân sự từ Excel.');
+      try {
+        const imported = await parseEmployeesExcel(file, data);
+        // Validate the whole batch before the first Auth/database mutation. This
+        // prevents a deterministic error in a later row from leaving a partial import.
+        for (const item of imported) {
+          const existing = data.employees.find((candidate) => candidate.employee_id === item.employee.employee_id);
+          const validationError = validateEmployee(
+            item.employee,
+            item.mode,
+            Boolean(existing?.auth_user_id || existing?.uid),
+            data,
+          );
+          if (validationError) throw new Error(`Dòng ${item.rowNumber} (${item.employee.employee_id}): ${validationError}`);
+        }
+        const result = await executeEmployeeImport(imported, saveEmployee);
+        setImportReport({
+          tone: 'success',
+          title: `Đã xác nhận ${result.confirmed}/${result.total} dòng`,
+          detail: 'Supabase Auth và hồ sơ nhân viên đã được máy chủ xác nhận. Danh sách sẽ được tải lại.',
+        });
+      } catch (error) {
+        if (error instanceof EmployeeImportError) {
+          const failureDescription = error.failureState === 'unknown'
+            ? `Chưa xác định kết quả dòng ${error.failedRowNumber} do mất kết nối.`
+            : error.failureState === 'partial'
+              ? `Dòng ${error.failedRowNumber} có thể mới đồng bộ một phần giữa Auth và hồ sơ.`
+              : `Máy chủ báo lỗi ở dòng ${error.failedRowNumber}.`;
+          setImportReport({
+            tone: 'warning',
+            title: `Đã xác nhận ${error.confirmed}/${error.total} dòng`,
+            detail: `${failureDescription} Còn ${error.remaining} dòng chưa được xác nhận. Nhập lại cùng file để đối soát và tiếp tục.`,
+          });
+        }
+        throw error;
+      }
+    }, 'Đã nhập và đồng bộ dữ liệu nhân sự từ Excel.', {
+      refreshOnError: (error) => error instanceof EmployeeImportError,
+    });
   };
 
   return (
@@ -231,6 +282,13 @@ export default function AccountsSection({
             title="Tài khoản nhân viên"
             action={<div className="admin-panel-actions"><SpreadsheetActions disabled={busy} onExport={() => { void onRun(() => exportEmployeesExcel(filteredEmployees), 'Đã xuất danh sách nhân sự ra Excel.', { refresh: false }); }} onImport={importEmployees} /><button type="button" className="admin-primary-button" disabled={busy} onClick={startCreate}><span className="material-symbols-rounded">person_add</span>Thêm tài khoản</button></div>}
           />
+          {importReport ? (
+            <div className={`admin-import-report ${importReport.tone}`} role={importReport.tone === 'warning' ? 'alert' : 'status'} aria-live="polite">
+              <span className="material-symbols-rounded" aria-hidden="true">{importReport.tone === 'success' ? 'check_circle' : 'sync_problem'}</span>
+              <span><strong>{importReport.title}</strong><small>{importReport.detail}</small></span>
+              <button type="button" onClick={() => setImportReport(null)} aria-label="Đóng kết quả nhập Excel"><span className="material-symbols-rounded" aria-hidden="true">close</span></button>
+            </div>
+          ) : null}
           <div className="admin-filter-row">
             <SearchField value={query} onChange={(value) => { setQuery(value); setPage(1); }} placeholder="Tên, mã, email, phòng ban…" />
             <AdminSelect
@@ -290,7 +348,7 @@ export default function AccountsSection({
             <label><span>Họ tên</span><input required value={employee.name} onChange={(event) => setEmployee((current) => ({ ...current, name: event.target.value }))} /></label>
             <label><span>Email đăng nhập</span><input required type="email" value={employee.email} onChange={(event) => setEmployee((current) => ({ ...current, email: event.target.value }))} /></label>
             <label><span>Số điện thoại</span><input type="tel" value={employee.phone || ''} onChange={(event) => setEmployee((current) => ({ ...current, phone: event.target.value }))} /></label>
-            <div className="admin-field"><span>Vai trò</span><AdminSelect value={employee.role} onChange={(value) => setEmployee((current) => ({ ...current, role: value as EmployeeRole }))} label="Vai trò" options={EMPLOYEE_ROLES.map((role) => ({ value: role, label: role }))} /></div>
+            <div className="admin-field"><span>Vai trò</span><AdminSelect value={employee.role} onChange={(value) => setEmployee((current) => ({ ...current, role: value as EmployeeRole, attendance_policy_id: value === 'Kiosk' ? null : current.attendance_policy_id || (activePolicies.length === 1 ? activePolicies[0]?.id || null : null) }))} label="Vai trò" options={EMPLOYEE_ROLES.map((role) => ({ value: role, label: role }))} /></div>
             <div className="admin-field"><span>Địa điểm chính</span><AdminSelect required value={employee.center_id} onChange={(value) => setEmployee((current) => ({ ...current, center_id: value }))} label="Địa điểm chính" placeholder="Chọn địa điểm" options={data.locations.map((location) => ({ value: location.center_id, label: location.center_name }))} /></div>
             <label><span>Chức danh</span><input value={employee.position || ''} onChange={(event) => setEmployee((current) => ({ ...current, position: event.target.value }))} /></label>
             <label><span>Phòng ban</span><input value={employee.department || ''} onChange={(event) => setEmployee((current) => ({ ...current, department: event.target.value }))} /></label>
@@ -298,7 +356,7 @@ export default function AccountsSection({
               <>
                 <div className="admin-field"><span>Quản lý trực tiếp</span><AdminSelect value={employee.direct_manager_id || ''} onChange={(value) => setEmployee((current) => ({ ...current, direct_manager_id: value || null }))} label="Quản lý trực tiếp" options={[{ value: '', label: 'Không gán' }, ...managers.map((manager) => ({ value: manager.employee_id, label: manager.name, description: manager.role }))]} /></div>
                 <label><span>Số ngày phép còn lại</span><input type="number" min="0" max={TMS_LIMITS.MAX_ANNUAL_LEAVE_DAYS} step="0.5" value={employee.annual_leave_balance ?? 0} onChange={(event) => setEmployee((current) => ({ ...current, annual_leave_balance: Number(event.target.value) }))} /></label>
-                <div className="admin-field admin-grid-span"><span>Chính sách chấm công</span><AdminSelect value={employee.attendance_policy_id || ''} onChange={(value) => setEmployee((current) => ({ ...current, attendance_policy_id: value || null }))} label="Chính sách chấm công" options={[{ value: '', label: 'Chưa gán chính sách' }, ...data.policies.filter((policy) => policy.active).map((policy) => ({ value: policy.id, label: policy.name }))]} /></div>
+                <div className="admin-field admin-grid-span"><span>Chính sách chấm công</span><AdminSelect required value={employee.attendance_policy_id || ''} onChange={(value) => setEmployee((current) => ({ ...current, attendance_policy_id: value || null }))} label="Chính sách chấm công" placeholder="Chọn chính sách" options={activePolicies.map((policy) => ({ value: policy.id, label: policy.name }))} /></div>
               </>
             ) : null}
           </div>

@@ -193,6 +193,7 @@ export interface DashboardData {
   shifts: ShiftConfig[];
   systemConfig: SystemConfig;
   approvalRoles: { leave: EmployeeRole[]; attendance: EmployeeRole[] };
+  capabilities: string[];
 }
 
 export interface WorkforceReceipt {

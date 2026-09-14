@@ -5,6 +5,8 @@ import { recordQrAttendance } from '@/modules/tms/services/attendance';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import { triggerHaptic, playAudioChime, toISODateString } from '@/core/utils/helpers';
 import { useDashboardData } from '@/modules/tms/hooks/useDashboardData';
+import { assertValidAttendancePosition } from '@/modules/tms/utils/attendancePosition';
+import { hasControlCenterAccess } from '@/modules/tms/services/workforceCapabilities';
 import { useToast } from '@/shared/contexts/useToast';
 import { motion, AnimatePresence } from 'framer-motion';
 import TabHome from '@/modules/tms/pages/Home';
@@ -16,7 +18,11 @@ import Spinner from '@/shared/components/common/Spinner';
 import LoadingScreen from '@/shared/components/common/LoadingScreen';
 import { canApproveAny, scopedStorageKey, STORAGE_KEYS, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
 import { useAuth } from '@/core/auth/useAuth';
-import { ATTENDANCE_ACTIVITY_EVENT } from '@/shared/components/common/AppStatusBanner';
+import {
+  ATTENDANCE_ACTIVITY_EVENT,
+  DASHBOARD_SYNC_STATE_EVENT,
+  type DashboardSyncStateDetail,
+} from '@/shared/components/common/AppStatusBanner';
 
 const TabHistory = lazy(() => import('@/modules/tms/pages/History'));
 const TabRequests = lazy(() => import('@/modules/tms/pages/Requests'));
@@ -77,7 +83,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     showToast({ title, body: msg, type });
   }, [showToast]);
   const notifyShiftEnd = useCallback((title: string, body: string) => handleShowAlert(title, body, 'warning'), [handleShowAlert]);
-  const { data, loading, error, currentUser, isOnline, refresh } = useDashboardData(user, onLogout, notifyShiftEnd);
+  const { data, loading, error, currentUser, isOnline, lastSyncedAt, refresh } = useDashboardData(user, onLogout, notifyShiftEnd);
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [direction, setDirection] = useState<'left' | 'right'>('right');
   const [lastActiveTab, setLastActiveTab] = useState<TabType>('home');
@@ -110,10 +116,38 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     catch { setSeenNotiCount(0); }
   }, [notificationStorageKey]);
 
+  useEffect(() => {
+    const detail: DashboardSyncStateDetail = {
+      error: data && isOnline ? error || null : null,
+      lastSyncedAt: lastSyncedAt?.toISOString() || null,
+      retry: () => { void refresh(); },
+    };
+    window.dispatchEvent(new CustomEvent(DASHBOARD_SYNC_STATE_EVENT, { detail }));
+  }, [data, error, isOnline, lastSyncedAt, refresh]);
+
+  useEffect(() => () => {
+    const detail: DashboardSyncStateDetail = { error: null, lastSyncedAt: null };
+    window.dispatchEvent(new CustomEvent(DASHBOARD_SYNC_STATE_EVENT, { detail }));
+  }, []);
+
   const canManage = useMemo(
-    () => Boolean(currentUser?.role && canApproveAny(currentUser.role, data?.approvalRoles)),
-    [currentUser, data?.approvalRoles],
+    () => Boolean(
+      currentUser?.role
+      && data?.capabilities.includes('team.read')
+      && data?.capabilities.includes('attendance.review')
+      && canApproveAny(currentUser.role, data.approvalRoles),
+    ),
+    [currentUser, data?.approvalRoles, data?.capabilities],
   );
+  const canOpenControlCenter = Boolean(
+    onOpenWorkspace
+    && data
+    && hasControlCenterAccess(data.capabilities),
+  );
+
+  useEffect(() => {
+    if (!canManage && activeTab === 'manager') setActiveTab(lastEmployeeTab);
+  }, [activeTab, canManage, lastEmployeeTab]);
   const locationNames = useMemo(() => buildLocationNameMap(data), [data]);
 
   // On-time ratio across every shift in the loaded timesheet window. Shown on the
@@ -210,12 +244,14 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   };
 
   const validateAttendancePosition = (position: GeolocationPosition) => {
-    const { accuracy } = position.coords;
-    if (!Number.isFinite(accuracy) || accuracy <= 0 || accuracy > TMS_LIMITS.MAX_GPS_ACCURACY_METERS) {
-      throw new Error(`Tín hiệu GPS chưa đủ chính xác (±${Math.round(accuracy)}m). Hãy ra nơi thoáng và thử lại.`);
-    }
-    // Geofence, assigned location and allowed-location decisions are server-only.
-    // This avoids rejecting staff who are legitimately assigned to another branch.
+    assertValidAttendancePosition({
+      lat: position.coords.latitude,
+      lng: position.coords.longitude,
+      accuracy: position.coords.accuracy,
+    });
+    // Accuracy thresholds, geofence and assigned-location decisions are
+    // authoritative on the server because every tenant can configure a
+    // different attendance policy. The client only rejects malformed sensor data.
   };
 
   const handleQRScan = async (qrString: string) => {
@@ -362,14 +398,6 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
 
   const activeEmployeeTab = isEmployeeNavTab(activeTab) ? activeTab : null;
   const pagerTab = activeEmployeeTab ?? lastEmployeeTab;
-  const employeePagerDisabled = isAttendanceProcessing
-    || !activeEmployeeTab
-    || showQRScanner
-    || showCheckoutConfirm
-    || showCreateRequestModal
-    || showExplainWorkModal
-    || showImageCropper;
-
   const renderEmployeePage = (tab: EmployeeNavTab, isActive: boolean) => {
     switch (tab) {
       case 'home':
@@ -388,16 +416,16 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   return <div className="employee-shell" aria-busy={isAttendanceProcessing}>
     {isAttendanceProcessing && isProcessOverlayVisible ? <div className="app-process-backdrop animate-fade-in"><div className="app-process-dialog animate-scale-in" role="status" aria-live="polite"><Spinner size="lg" /><h3>Đang xử lý…</h3><p>{checkInStatus || 'Vui lòng đợi trong giây lát'}</p><small>Không đóng ứng dụng cho đến khi có xác nhận.</small><button type="button" onClick={() => setIsProcessOverlayVisible(false)}>Ẩn đi · vẫn chạy nền</button></div></div> : null}
     {isAttendanceProcessing && !isProcessOverlayVisible ? <button type="button" onClick={() => setIsProcessOverlayVisible(true)} className="app-processing-pill" aria-label="Mở trạng thái chấm công"><span className="app-processing-spinner" aria-hidden="true" />Đang chấm công</button> : null}
-    {activeTab !== 'profile' && isHeaderVisible && <Header user={currentUser} activeTab={activeTab} notificationCount={badgeCount} isOnline={isOnline} locationName={locationNames[currentUser.center_id]} onOpenProfile={() => handleTabChange('profile')} onOpenNotifications={() => activeTab === 'notifications' ? setActiveTab(lastActiveTab) : handleTabChange('notifications')} onContactSearch={() => setContactsSearchTrigger((value) => value + 1)} canManage={canManage} onOpenManager={() => handleTabChange('manager')} onOpenWorkspace={onOpenWorkspace} />}
+    {activeTab !== 'profile' && isHeaderVisible && <Header user={currentUser} activeTab={activeTab} notificationCount={badgeCount} isOnline={isOnline} locationName={locationNames[currentUser.center_id]} onOpenProfile={() => handleTabChange('profile')} onOpenNotifications={() => activeTab === 'notifications' ? setActiveTab(lastActiveTab) : handleTabChange('notifications')} onContactSearch={() => setContactsSearchTrigger((value) => value + 1)} canManage={canManage} onOpenManager={() => handleTabChange('manager')} onOpenWorkspace={canOpenControlCenter ? onOpenWorkspace : undefined} />}
     <div className="employee-scroll">
       <div className="employee-pager-layer" aria-hidden={!activeEmployeeTab} inert={!activeEmployeeTab}>
         <Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
-          <EmployeePager activeTab={pagerTab} disabled={employeePagerDisabled} onChange={handleTabChange} renderPage={renderEmployeePage} />
+          <EmployeePager activeTab={pagerTab} renderPage={renderEmployeePage} />
         </Suspense>
       </div>
       {!activeEmployeeTab ? <div className={`employee-motion-stage ${activeTab === 'profile' ? '' : 'employee-secondary-stage'}`.trim()}><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_FORWARD : UI_MOTION.PAGE_OFFSET_BACKWARD }} animate={{ x: 0 }} exit={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_BACKWARD : UI_MOTION.PAGE_OFFSET_FORWARD }} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
         {activeTab === 'manager' && <TabManager data={data} user={currentUser} onRefresh={refresh} onAlert={handleShowAlert} />}
-        {activeTab === 'profile' && <TabProfile user={currentUser} locations={data.locations || []} locationNames={locationNames} contacts={data.contacts || []} punctuality={punctuality} onLogout={onLogout} onUpdate={(profile) => { updateProfile(profile); void refresh(); }} onClose={() => { setDirection('left'); setActiveTab(lastActiveTab); }} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={() => handleTabChange('manager')} />}
+        {activeTab === 'profile' && <TabProfile user={currentUser} locations={data.locations || []} locationNames={locationNames} contacts={data.contacts || []} punctuality={punctuality} onLogout={onLogout} onUpdate={(profile) => { updateProfile(profile); void refresh(); }} onClose={() => { setDirection('left'); setActiveTab(lastActiveTab); }} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={canManage ? () => handleTabChange('manager') : undefined} />}
         {activeTab === 'notifications' && <NotificationsModal data={data} user={currentUser} onSwitchTab={handleTabChange} onRefresh={refresh} />}
       </Suspense></motion.div></AnimatePresence></div> : null}
     </div>

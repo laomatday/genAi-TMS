@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Employee, DashboardData } from '@/shared/types';
-import { submitRequest } from '@/modules/tms/services/employee';
+import { requestCommandId, submitRequest } from '@/modules/tms/services/employee';
 import { formatDateShort, triggerHaptic } from '@/core/utils/helpers';
 import ModalHeader from '@/shared/components/modals/ModalHeader';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
@@ -64,6 +64,7 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
     const fromDateRef = useRef<HTMLInputElement>(null);
     const toDateRef = useRef<HTMLInputElement>(null);
     const reasonRef = useRef<HTMLTextAreaElement>(null);
+    const clientRequestIdRef = useRef(requestCommandId());
     const dialogRef = useModalAccessibility(isOpen, onClose, { closeOnEscape: !loading });
     const swipeBackHandlers = useModalSwipeBack(onClose, loading);
     const navigateFromModal = (tab: TabType) => {
@@ -154,7 +155,7 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
 
         setFormErrors({});
         setLoading(true);
-        const res = await submitRequest(formData);
+        const res = await submitRequest({ ...formData, clientRequestId: clientRequestIdRef.current });
         setLoading(false);
 
         onAlert(res.success ? "Thành công" : "Lỗi", res.message, res.success ? 'success' : 'error');

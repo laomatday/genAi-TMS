@@ -2,9 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 
 export const PWA_UPDATE_AVAILABLE_EVENT = 'genai:pwa-update-available';
 export const ATTENDANCE_ACTIVITY_EVENT = 'genai:attendance-activity';
+export const DASHBOARD_SYNC_STATE_EVENT = 'genai:dashboard-sync-state';
 
 export interface PwaUpdateAvailableDetail {
   apply: () => void;
+}
+
+export interface DashboardSyncStateDetail {
+  error: string | null;
+  lastSyncedAt: string | null;
+  retry?: () => void;
 }
 
 export default function AppStatusBanner() {
@@ -13,6 +20,7 @@ export default function AppStatusBanner() {
   const [updateAction, setUpdateAction] = useState<(() => void) | null>(null);
   const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
   const [isAttendanceActive, setIsAttendanceActive] = useState(false);
+  const [dashboardSync, setDashboardSync] = useState<DashboardSyncStateDetail | null>(null);
   const restoredTimerRef = useRef<number | null>(null);
   const updateDismissedRef = useRef(false);
 
@@ -41,17 +49,23 @@ export default function AppStatusBanner() {
       const detail = (event as CustomEvent<{ active?: boolean }>).detail;
       setIsAttendanceActive(Boolean(detail?.active));
     };
+    const handleDashboardSync = (event: Event) => {
+      const detail = (event as CustomEvent<DashboardSyncStateDetail>).detail;
+      setDashboardSync(detail?.error ? detail : null);
+    };
 
     window.addEventListener('offline', handleOffline);
     window.addEventListener('online', handleOnline);
     window.addEventListener(PWA_UPDATE_AVAILABLE_EVENT, handleUpdate);
     window.addEventListener(ATTENDANCE_ACTIVITY_EVENT, handleAttendanceActivity);
+    window.addEventListener(DASHBOARD_SYNC_STATE_EVENT, handleDashboardSync);
     return () => {
       clearRestoredTimer();
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener(PWA_UPDATE_AVAILABLE_EVENT, handleUpdate);
       window.removeEventListener(ATTENDANCE_ACTIVITY_EVENT, handleAttendanceActivity);
+      window.removeEventListener(DASHBOARD_SYNC_STATE_EVENT, handleDashboardSync);
     };
   }, []);
 
@@ -61,7 +75,15 @@ export default function AppStatusBanner() {
     updateAction();
   };
 
-  if (isOnline && !connectionRestored && !updateAction) return null;
+  if (isOnline && !connectionRestored && !updateAction && !dashboardSync) return null;
+
+  const lastSyncedLabel = dashboardSync?.lastSyncedAt
+    ? new Date(dashboardSync.lastSyncedAt).toLocaleTimeString('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
+    : null;
 
   return (
     <div
@@ -110,6 +132,21 @@ export default function AppStatusBanner() {
           >
             <span className="material-symbols-rounded" aria-hidden="true">close</span>
           </button>
+        </div>
+      ) : null}
+
+      {isOnline && dashboardSync ? (
+        <div className="app-status-banner app-status-banner-warning" role="status">
+          <span className="material-symbols-rounded" aria-hidden="true">sync_problem</span>
+          <div className="app-status-banner-body">
+            <strong>Dữ liệu chưa đồng bộ</strong>
+            <span>{lastSyncedLabel ? `Bản gần nhất lúc ${lastSyncedLabel}.` : 'Chưa có bản đồng bộ thành công.'}</span>
+          </div>
+          {dashboardSync.retry ? (
+            <button type="button" className="app-status-banner-action" onClick={dashboardSync.retry}>
+              Thử lại
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

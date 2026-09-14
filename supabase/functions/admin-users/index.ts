@@ -67,6 +67,27 @@ Deno.serve(async (req: Request) => {
     return json({ ok: false, error: "Chỉ Admin đang hoạt động được quản lý tài khoản." }, 403);
   }
   const organizationId = operator.organization_id;
+  const { data: employeeOverride, error: employeeOverrideError } = await admin
+    .from("workforce_employee_capabilities")
+    .select("enabled")
+    .eq("organization_id", organizationId)
+    .eq("employee_id", operator.employee_id)
+    .eq("capability", "employee.manage")
+    .maybeSingle();
+  if (employeeOverrideError) return failure("CAPABILITY_CHECK_FAILED", "Không kiểm tra được quyền quản lý tài khoản.", 500);
+  let canManageEmployees = employeeOverride?.enabled;
+  if (canManageEmployees === undefined) {
+    const { data: roleCapability, error: roleCapabilityError } = await admin
+      .from("workforce_role_capabilities")
+      .select("enabled")
+      .eq("organization_id", organizationId)
+      .eq("role", operator.role)
+      .eq("capability", "employee.manage")
+      .maybeSingle();
+    if (roleCapabilityError) return failure("CAPABILITY_CHECK_FAILED", "Không kiểm tra được quyền quản lý tài khoản.", 500);
+    canManageEmployees = roleCapability?.enabled ?? false;
+  }
+  if (!canManageEmployees) return failure("CAPABILITY_DENIED", "Tài khoản không có quyền quản lý nhân sự.", 403);
 
   let body: Record<string, unknown>;
   try {
@@ -75,15 +96,55 @@ Deno.serve(async (req: Request) => {
     return json({ ok: false, error: "Dữ liệu gửi lên không hợp lệ." }, 400);
   }
 
-  const action = body.action;
+  const requestedAction = String(body.action || "");
+  const expectedAction = String(body.expected_action || "");
   const input = (body.employee || {}) as Record<string, unknown>;
-  if (action !== "create" && action !== "update" && action !== "delete") {
+  if (requestedAction !== "create" && requestedAction !== "update" && requestedAction !== "delete" && requestedAction !== "upsert") {
     return failure("INVALID_ACTION", "Thao tác không hợp lệ.");
   }
+  let action = requestedAction as "create" | "update" | "delete" | "upsert";
 
   const employeeId = cleanText(input.employee_id, 40).toUpperCase();
   if (!employeeIdPattern.test(employeeId)) {
     return failure("INVALID_EMPLOYEE_ID", "Mã nhân viên cần từ 2–40 ký tự, chỉ gồm chữ, số, gạch ngang hoặc gạch dưới.", 400, { action });
+  }
+
+  // An import response may be interrupted after the create committed. Resolve
+  // retries against the authoritative tenant row so importing the same file
+  // reconciles that employee instead of stopping at a duplicate-id error.
+  if (action === "upsert") {
+    if (expectedAction !== "create" && expectedAction !== "update") {
+      return failure("INVALID_EXPECTED_ACTION", "Thiếu trạng thái đối soát của dòng Excel.", 400, { employeeId });
+    }
+    const { data: currentEmployee, error: currentEmployeeError } = await admin
+      .from("employees")
+      .select("employee_id,email")
+      .eq("employee_id", employeeId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (currentEmployeeError) {
+      return failure("EMPLOYEE_RECONCILE_FAILED", "Không đối soát được trạng thái nhân viên trước khi nhập lại.", 500, { employeeId });
+    }
+    if (currentEmployee && expectedAction === "create") {
+      const requestedEmail = cleanText(input.email, 255).toLowerCase();
+      if (String(currentEmployee.email || "").trim().toLowerCase() !== requestedEmail) {
+        return failure(
+          "EMPLOYEE_RECONCILE_CONFLICT",
+          "Mã nhân viên đã xuất hiện với email khác. Dòng này không được tự động ghi đè; hãy tải lại file và kiểm tra hồ sơ hiện tại.",
+          409,
+          { employeeId },
+        );
+      }
+    }
+    if (!currentEmployee && expectedAction === "update") {
+      return failure(
+        "EMPLOYEE_RECONCILE_MISSING",
+        "Hồ sơ cần cập nhật không còn tồn tại. Dòng này không được tự động chuyển thành tài khoản mới.",
+        409,
+        { employeeId },
+      );
+    }
+    action = currentEmployee ? "update" : "create";
   }
 
   if (action === "delete") {
@@ -190,6 +251,9 @@ Deno.serve(async (req: Request) => {
   if (directManagerId === employeeId) {
     return json({ ok: false, error: "Nhân viên không thể là quản lý trực tiếp của chính mình." }, 400);
   }
+  if (role !== "Kiosk" && !attendancePolicyId) {
+    return failure("MISSING_ATTENDANCE_POLICY", "Vui lòng chọn chính sách chấm công cho nhân viên.", 400, { action, employeeId });
+  }
   if (action === "create" && password.length < MIN_PASSWORD_LENGTH) {
     return failure("PASSWORD_TOO_SHORT", `Mật khẩu tạm phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`, 400, { action, employeeId });
   }
@@ -289,11 +353,49 @@ Deno.serve(async (req: Request) => {
       auth_user_id: created.user.id,
     });
     if (insertError) {
-      await admin.auth.admin.deleteUser(created.user.id);
-      return failure("EMPLOYEE_INSERT_FAILED", "Đã hoàn tác tài khoản Auth vì không lưu được hồ sơ nhân viên.", 400, { action, employeeId, databaseCode: insertError.code });
+      const { error: rollbackError } = await admin.auth.admin.deleteUser(created.user.id);
+      if (rollbackError) {
+        console.error("[admin-users]", JSON.stringify({
+          code: "EMPLOYEE_CREATE_PARTIAL",
+          employeeId,
+          databaseCode: insertError.code,
+          rollbackCode: rollbackError.code,
+        }));
+        return json({
+          ok: false,
+          code: "EMPLOYEE_CREATE_PARTIAL",
+          error: "Tài khoản Auth đã được tạo nhưng hồ sơ nhân viên chưa lưu và hoàn tác tự động thất bại. Hãy tải lại rồi nhập lại cùng file; nếu lỗi còn lặp lại, cần đối soát Auth trước khi đổi email.",
+          commit_state: "AUTH_CREATED_PROFILE_PENDING",
+          retryable: true,
+        }, 500);
+      }
+      return json({
+        ok: false,
+        code: "EMPLOYEE_INSERT_FAILED",
+        error: "Không lưu được hồ sơ nhân viên; tài khoản Auth vừa tạo đã được hoàn tác.",
+        commit_state: "ROLLED_BACK",
+        retryable: true,
+      }, 400);
     }
     if (status === "Inactive") {
-      await admin.auth.admin.updateUserById(created.user.id, { ban_duration: ACCOUNT_BAN_DURATION });
+      const { error: banCreatedUserError } = await admin.auth.admin.updateUserById(created.user.id, {
+        ban_duration: ACCOUNT_BAN_DURATION,
+      });
+      if (banCreatedUserError) {
+        console.error("[admin-users]", JSON.stringify({
+          code: "EMPLOYEE_CREATE_PARTIAL",
+          employeeId,
+          commitState: "PROFILE_CREATED_AUTH_STATUS_PENDING",
+          authCode: banCreatedUserError.code,
+        }));
+        return json({
+          ok: false,
+          code: "EMPLOYEE_CREATE_PARTIAL",
+          error: "Hồ sơ và tài khoản đã tạo nhưng trạng thái khóa Auth chưa đồng bộ. Hãy tải lại rồi nhập lại cùng file để hoàn tất.",
+          commit_state: "PROFILE_CREATED_AUTH_STATUS_PENDING",
+          retryable: true,
+        }, 500);
+      }
     }
     await admin.from("audit_logs").insert({
       actor_employee_id: operator.employee_id,
@@ -304,7 +406,7 @@ Deno.serve(async (req: Request) => {
       reason: "Tạo tài khoản quản trị",
       metadata: { role, status, center_id: centerId, organization_id: organizationId },
     });
-    return json({ ok: true, employee_id: employeeId });
+    return json({ ok: true, employee_id: employeeId, actual_action: action });
   }
 
   const { data: existing, error: existingError } = await admin
@@ -400,8 +502,34 @@ Deno.serve(async (req: Request) => {
     .eq("employee_id", employeeId)
     .eq("organization_id", organizationId);
   if (updateError) {
-    if (createdAuthUserId) await admin.auth.admin.deleteUser(createdAuthUserId);
-    return failure("EMPLOYEE_UPDATE_FAILED", "Không cập nhật được hồ sơ nhân viên.", 400, { action, employeeId, databaseCode: updateError.code });
+    let commitState = "AUTH_UPDATED_PROFILE_PENDING";
+    if (createdAuthUserId) {
+      const { error: rollbackError } = await admin.auth.admin.deleteUser(createdAuthUserId);
+      commitState = rollbackError ? "AUTH_CREATED_PROFILE_PENDING" : "ROLLED_BACK";
+      if (rollbackError) {
+        console.error("[admin-users]", JSON.stringify({
+          code: "EMPLOYEE_UPDATE_ROLLBACK_FAILED",
+          employeeId,
+          databaseCode: updateError.code,
+          rollbackCode: rollbackError.code,
+        }));
+      }
+    }
+    console.error("[admin-users]", JSON.stringify({
+      code: "EMPLOYEE_UPDATE_FAILED",
+      employeeId,
+      databaseCode: updateError.code,
+      commitState,
+    }));
+    return json({
+      ok: false,
+      code: "EMPLOYEE_UPDATE_FAILED",
+      error: commitState === "ROLLED_BACK"
+        ? "Không cập nhật được hồ sơ; tài khoản Auth vừa tạo đã được hoàn tác."
+        : "Phần tài khoản Auth có thể đã cập nhật nhưng hồ sơ nhân viên chưa lưu. Hãy tải lại rồi nhập lại cùng file để đối soát.",
+      commit_state: commitState,
+      retryable: true,
+    }, 500);
   }
 
   await admin.from("audit_logs").insert({
@@ -414,5 +542,5 @@ Deno.serve(async (req: Request) => {
     metadata: { role, status, center_id: centerId, organization_id: organizationId },
   });
 
-  return json({ ok: true, employee_id: employeeId });
+  return json({ ok: true, employee_id: employeeId, actual_action: action });
 });

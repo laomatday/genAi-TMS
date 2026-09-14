@@ -37,8 +37,10 @@ export const APP_ROUTES = {
 
 export const EMPLOYEE_ROLES: readonly EmployeeRole[] = ['Staff', 'Leader', 'Manager', 'Director', 'HR', 'Admin', 'Kiosk'];
 export const MANAGEMENT_ROLES: readonly EmployeeRole[] = ['Leader', 'Manager', 'Director', 'Admin', 'HR'];
-export const ADMIN_ROUTE_ROLES: readonly EmployeeRole[] = ['Admin', 'HR', 'Director'];
-export const DEVICE_EXEMPT_ROLES: readonly EmployeeRole[] = ['Admin', 'HR', 'Director', 'Kiosk'];
+// Keep this aligned with both the trusted-device Edge Function and the
+// attendance command. HR/Director still record attendance and therefore must
+// complete the same device proof as other employees.
+export const DEVICE_EXEMPT_ROLES: readonly EmployeeRole[] = ['Admin', 'Kiosk'];
 
 // Which roles may approve which request family. Configurable from Admin →
 // Tham số hệ thống → Phân quyền duyệt (stored in config_system as APPROVAL_ROLES).
@@ -138,6 +140,9 @@ export const TMS_LIMITS = {
   MAX_GPS_ACCURACY_METERS: 150,
   GPS_TIMEOUT_MS: 12_000,
   DASHBOARD_REFRESH_MS: 120_000,
+  DASHBOARD_REFRESH_JITTER_RATIO: 0.2,
+  DASHBOARD_REFRESH_MAX_BACKOFF_MS: 15 * 60_000,
+  DASHBOARD_VISIBLE_STALE_MS: 30_000,
   QR_REFRESH_MS: 30_000,
   QR_VALIDITY_SECONDS: 45,
   QR_SCAN_FPS: 12,
@@ -179,6 +184,10 @@ export const TMS_LIMITS = {
   AVATAR_JPEG_QUALITY: 0.88,
   MAX_SPREADSHEET_FILE_BYTES: 5 * 1024 * 1024,
   MAX_SPREADSHEET_IMPORT_ROWS: 1_000,
+  // Account imports call Supabase Auth and Postgres once per employee. Keep the
+  // interactive batch deliberately smaller than schedule-only spreadsheets so
+  // an interrupted browser session has a bounded reconciliation surface.
+  MAX_EMPLOYEE_IMPORT_ROWS: 100,
   ADMIN_FETCH_BATCH_SIZE: 1_000,
   ADMIN_TABLE_PAGE_SIZE: 25,
   ADMIN_AUDIT_QUERY_LIMIT: 250,

@@ -39,6 +39,51 @@ async function edgeFunctionError(error: unknown, fallback: string) {
   return new Error(error instanceof Error && error.message ? error.message : fallback);
 }
 
+type EmployeeWriteOutcome = 'rejected' | 'partial' | 'unknown';
+
+class EmployeeWriteError extends Error {
+  readonly outcome: EmployeeWriteOutcome;
+  readonly code?: string;
+  readonly commitState?: string;
+
+  constructor(
+    message: string,
+    outcome: EmployeeWriteOutcome,
+    details: { code?: string; commitState?: string } = {},
+  ) {
+    super(message);
+    this.name = 'EmployeeWriteError';
+    this.outcome = outcome;
+    this.code = details.code;
+    this.commitState = details.commitState;
+  }
+}
+
+async function employeeWriteError(error: unknown, fallback: string) {
+  if (error instanceof FunctionsHttpError) {
+    try {
+      const payload = await error.context.json() as {
+        error?: string;
+        code?: string;
+        commit_state?: string;
+      };
+      return new EmployeeWriteError(
+        payload.error || fallback,
+        payload.commit_state && payload.commit_state !== 'ROLLED_BACK' ? 'partial' : 'rejected',
+        { code: payload.code, commitState: payload.commit_state },
+      );
+    } catch {
+      return new EmployeeWriteError(fallback, 'unknown');
+    }
+  }
+  // A fetch/relay failure can happen after the Edge Function committed. Do not
+  // tell the operator the row failed; force a reload and reconcile by upsert.
+  return new EmployeeWriteError(
+    error instanceof Error && error.message ? error.message : fallback,
+    'unknown',
+  );
+}
+
 async function workforceCommand(action: string, args: Record<string, unknown>) {
   const { data, error } = await supabase.rpc('workforce_command', {
     p_action: action,
@@ -202,7 +247,7 @@ function attachWorkDates(requests: AttendanceRequest[], timesheets: Timesheet[])
 
 export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
   if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
-  const [employees, locations, policies, stations, devices, shifts, systemSettings, holidays, auditLogs, timesheets, pendingRequestsRaw, monthlyRequestsRaw, workforce] = await Promise.all([
+  const [employees, locations, policies, stations, devices, shifts, systemSettings, holidays, auditLogs, timesheets, pendingRequestsRaw, monthlyRequestsRaw, workforce, bootstrap] = await Promise.all([
     getEmployees(),
     supabase.from('locations').select('*').order('center_name'),
     supabase.from('attendance_policies').select('*').order('name'),
@@ -216,14 +261,23 @@ export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
     getPendingRequests(),
     getMonthlyRequests(range),
     getWorkforceOperations(range),
+    supabase.rpc('workforce_query', { p_resource: 'bootstrap', p_args: {} }),
   ]);
   for (const result of [locations, policies, stations, devices, shifts, systemSettings, holidays, auditLogs]) {
     if (result.error) fail(result.error, 'Không tải được dữ liệu quản trị.');
   }
+  if (bootstrap.error) fail(bootstrap.error, 'Không tải được quyền quản trị hiện hành.');
+  const bootstrapData = bootstrap.data && typeof bootstrap.data === 'object'
+    ? bootstrap.data as DataRow
+    : {};
+  const capabilities = Array.isArray(bootstrapData.capabilities)
+    ? bootstrapData.capabilities.filter((item): item is string => typeof item === 'string')
+    : [];
 
   const requests = attachWorkDates(pendingRequestsRaw, timesheets);
   const monthlyRequests = attachWorkDates(monthlyRequestsRaw, timesheets);
   return {
+    capabilities,
     employees,
     locations: (locations.data || []) as TmsLocation[],
     policies: (policies.data || []) as AttendancePolicy[],
@@ -380,10 +434,23 @@ export interface EmployeeInput {
   reset_device_reason?: string;
 }
 
-export async function saveEmployee(employee: EmployeeInput, mode: 'create' | 'update') {
-  const { data, error } = await supabase.functions.invoke('admin-users', { body: { action: mode, employee } });
-  if (error) throw await edgeFunctionError(error, 'Không thể lưu tài khoản nhân viên.');
-  if (!data?.ok) throw new Error(data?.error || 'Không thể lưu nhân viên.');
+export async function saveEmployee(
+  employee: EmployeeInput,
+  mode: 'create' | 'update' | 'upsert',
+  options: { expectedMode?: 'create' | 'update' } = {},
+) {
+  const { data, error } = await supabase.functions.invoke('admin-users', {
+    body: { action: mode, expected_action: options.expectedMode, employee },
+  });
+  if (error) throw await employeeWriteError(error, 'Không thể lưu tài khoản nhân viên.');
+  if (!data?.ok) {
+    const commitState = typeof data?.commit_state === 'string' ? data.commit_state : undefined;
+    throw new EmployeeWriteError(
+      data?.error || 'Không thể lưu nhân viên.',
+      commitState && commitState !== 'ROLLED_BACK' ? 'partial' : 'rejected',
+      { code: typeof data?.code === 'string' ? data.code : undefined, commitState },
+    );
+  }
   return data;
 }
 

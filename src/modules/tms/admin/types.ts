@@ -202,6 +202,7 @@ export interface AuditLogInfo {
 }
 
 export interface AdminData {
+  capabilities: string[];
   employees: Employee[];
   locations: TmsLocation[];
   policies: AttendancePolicy[];
@@ -229,5 +230,8 @@ export interface AttendanceRange {
 export type AdminActionRunner = (
   task: () => Promise<unknown>,
   successMessage: string,
-  options?: { refresh?: boolean },
+  options?: {
+    refresh?: boolean;
+    refreshOnError?: boolean | ((error: unknown) => boolean);
+  },
 ) => Promise<boolean>;

@@ -11,7 +11,7 @@ import {
 } from '@/shared/gestures/horizontalSwipe';
 
 interface PullToRefreshProps {
-  onRefresh: () => Promise<void>;
+  onRefresh: () => Promise<boolean | void>;
   children: ReactNode;
   className?: string;
   style?: CSSProperties;
@@ -118,7 +118,8 @@ export default function PullToRefresh({
     triggerHaptic('medium');
 
     try {
-      await onRefresh();
+      const refreshed = await onRefresh();
+      if (refreshed === false) throw new Error('Dashboard refresh failed.');
       setRefreshStatus('Dữ liệu đã được cập nhật.');
       triggerHaptic('success');
     } catch (error) {

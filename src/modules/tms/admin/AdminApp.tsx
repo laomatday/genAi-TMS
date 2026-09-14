@@ -167,16 +167,22 @@ function AdminAccountMenu({
 
 export default function AdminApp({ user, onLogout }: { user: Employee; onLogout: () => void }) {
   const navigate = useNavigate();
-  const capabilities = getAdminCapabilities(user.role);
+  const [data, setData] = useState<AdminData | null>(null);
+  const capabilities = getAdminCapabilities(user.role, data?.capabilities);
   const navigation = useMemo(() => ADMIN_NAV.filter((item) => {
     if (item.id === 'accounts') return capabilities.manageAccounts;
     if (item.id === 'scheduling') return capabilities.manageSchedules;
+    if (item.id === 'attendance') return capabilities.viewAttendance || capabilities.exportAttendance || capabilities.reviewAttendance || capabilities.lockAttendance;
     if (item.id === 'settings') return capabilities.manageSettings;
+    if (item.id === 'kiosks') return capabilities.manageKiosks;
     if (item.id === 'audit') return capabilities.viewAudit;
     return true;
-  }), [capabilities.manageAccounts, capabilities.manageSchedules, capabilities.manageSettings, capabilities.viewAudit]);
+  }), [capabilities.exportAttendance, capabilities.lockAttendance, capabilities.manageAccounts, capabilities.manageKiosks, capabilities.manageSchedules, capabilities.manageSettings, capabilities.reviewAttendance, capabilities.viewAttendance, capabilities.viewAudit]);
+  const allowedSections = useMemo<ReadonlySet<AdminSection>>(
+    () => new Set(navigation.map((item) => item.id)),
+    [navigation],
+  );
   const [section, setSection] = useState<AdminSection>('overview');
-  const [data, setData] = useState<AdminData | null>(null);
   const [scope, setScope] = useState<AdminScope>(EMPTY_SCOPE);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -184,26 +190,58 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
   const [month, setMonth] = useState(() => toLocalMonthString());
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const loadRevisionRef = useRef(0);
+  const monthRef = useRef(month);
+  const loadedMonthRef = useRef<string | null>(null);
+  monthRef.current = month;
 
-  const load = useCallback(async (silent = false) => {
-    if (silent) setRefreshing(true);
+  const load = useCallback(async (silent = false, targetMonth = monthRef.current) => {
+    const loadRevision = loadRevisionRef.current + 1;
+    loadRevisionRef.current = loadRevision;
+    const changingMonth = loadedMonthRef.current !== targetMonth;
+    if (changingMonth) {
+      setData(null);
+      setLoading(true);
+      setRefreshing(false);
+    } else if (silent) setRefreshing(true);
     else setLoading(true);
     try {
-      setData(await getAdminData(monthRange(month)));
+      const nextData = await getAdminData(monthRange(targetMonth));
+      if (loadRevision !== loadRevisionRef.current) return;
+      loadedMonthRef.current = targetMonth;
+      setData(nextData);
       setLoadError(null);
     } catch (error) {
+      if (loadRevision !== loadRevisionRef.current) return;
       const errorMessage = error instanceof Error ? error.message : 'Không tải được dữ liệu quản trị.';
       setLoadError(errorMessage);
       setMessage({ type: 'error', text: errorMessage });
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (loadRevision === loadRevisionRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, [month]);
+  }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void load(false, month);
+  }, [load, month]);
+
+  useEffect(() => {
+    if (!navigation.some((item) => item.id === section)) setSection(navigation[0]?.id || 'overview');
+  }, [navigation, section]);
+
+  const handleMonthChange = useCallback((nextMonth: string) => {
+    if (nextMonth === monthRef.current) return;
+    monthRef.current = nextMonth;
+    loadRevisionRef.current += 1;
+    setData(null);
+    setLoading(true);
+    setRefreshing(false);
+    setLoadError(null);
+    setMonth(nextMonth);
+  }, []);
 
   const run: AdminActionRunner = useCallback(async (task, successMessage, options) => {
     setBusy(true);
@@ -211,10 +249,17 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
     try {
       await task();
       setMessage({ type: 'success', text: successMessage });
-      if (options?.refresh !== false) await load(true);
+      if (options?.refresh !== false) await load(true, monthRef.current);
       return true;
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Không hoàn tất được thao tác.' });
+      // Multi-system operations (notably Auth + employee profile imports) may
+      // have committed before a response was interrupted. Reload the tenant's
+      // authoritative state before allowing the operator to retry.
+      const shouldRefresh = typeof options?.refreshOnError === 'function'
+        ? options.refreshOnError(error)
+        : options?.refreshOnError;
+      if (shouldRefresh) await load(true, monthRef.current);
       return false;
     } finally {
       setBusy(false);
@@ -327,7 +372,7 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
           ) : null}
           <div className="admin-topbar-actions">
             {user.role !== 'Admin' ? <span className="admin-role-badge">Phạm vi {user.role}</span> : null}
-            <button type="button" className="admin-icon-button" disabled={refreshing} onClick={() => void load(true)} aria-label="Tải lại dữ liệu"><span className={`material-symbols-rounded ${refreshing ? 'spinning' : ''}`}>refresh</span></button>
+            <button type="button" className="admin-icon-button" disabled={loading || refreshing} onClick={() => void load(true)} aria-label="Tải lại dữ liệu"><span className={`material-symbols-rounded ${refreshing ? 'spinning' : ''}`}>refresh</span></button>
             <AdminAccountMenu user={currentProfile} onOpenWorkspace={() => navigate(APP_ROUTES.HOME)} onOpenAttendance={() => navigate(APP_ROUTES.ATTENDANCE)} onLogout={onLogout} />
           </div>
         </header>
@@ -366,10 +411,10 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
               </p>
             ) : null}
             <Suspense fallback={<AdminSectionFallback />}>
-              {section === 'overview' ? <OverviewSection data={scopedData} today={todayInVietnam()} onNavigate={setSection} /> : null}
+              {section === 'overview' ? <OverviewSection data={scopedData} today={todayInVietnam()} allowedSections={allowedSections} onNavigate={setSection} /> : null}
               {section === 'accounts' && capabilities.manageAccounts ? <AccountsSection data={scopedData} currentEmployeeId={user.employee_id} busy={busy} onRun={run} /> : null}
-              {section === 'scheduling' && capabilities.manageSchedules ? <SchedulingSection data={scopedData} month={month} onMonthChange={setMonth} busy={busy} onRun={run} /> : null}
-              {section === 'attendance' ? <AttendanceSection data={scopedData} month={month} onMonthChange={setMonth} busy={busy} onRun={run} /> : null}
+              {section === 'scheduling' && capabilities.manageSchedules ? <SchedulingSection data={scopedData} month={month} onMonthChange={handleMonthChange} busy={busy} onRun={run} /> : null}
+              {section === 'attendance' ? <AttendanceSection data={scopedData} month={month} onMonthChange={handleMonthChange} busy={busy} canReview={capabilities.reviewAttendance} canExport={capabilities.exportAttendance} canLock={capabilities.lockAttendance} onRun={run} /> : null}
               {section === 'settings' && capabilities.manageSettings ? <SettingsSection data={scopedData} busy={busy} onRun={run} /> : null}
               {section === 'kiosks' ? <KiosksSection data={scopedData} busy={busy} canManage={capabilities.manageKiosks} onRun={run} onOpenStation={() => navigate(APP_ROUTES.KIOSK)} /> : null}
               {section === 'audit' && capabilities.viewAudit ? <AuditSection data={scopedData} /> : null}

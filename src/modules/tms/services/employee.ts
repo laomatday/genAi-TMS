@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '@/core/supabase';
 import { timeToMinutes } from '@/core/utils/helpers';
+import { assertValidAttendancePosition } from '@/modules/tms/utils/attendancePosition';
 import {
   APPROVAL_CONFIG_KEY,
   normalizeApprovalRoles,
@@ -25,7 +26,7 @@ import type {
   SystemConfig,
   WorkforceRequestType,
 } from '@/shared/types';
-import { runAttendanceAction } from './attendance';
+import { commandId, runAttendanceAction } from './attendance';
 import { reportClientMetric } from '@/core/observability/clientTelemetry';
 
 type DataRow = Record<string, unknown>;
@@ -509,6 +510,9 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
     const profileRow = bootstrap.profile && typeof bootstrap.profile === 'object' ? bootstrap.profile as DataRow : {};
     const profile = profileFrom(profileRow);
     if (!profile.employee_id) throw new Error('Không tìm thấy hồ sơ nhân viên.');
+    const capabilities = Array.isArray(bootstrap.capabilities)
+      ? bootstrap.capabilities.filter((item): item is string => typeof item === 'string')
+      : [];
 
     const directoryContext = bundle.directory_context && typeof bundle.directory_context === 'object'
       ? bundle.directory_context as DataRow
@@ -568,6 +572,7 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
         shifts,
         systemConfig: configFrom(policy, locations, workHours),
         approvalRoles,
+        capabilities,
       },
     };
     void reportClientMetric('DASHBOARD_LOAD_OK', performance.now() - startedAt, 'LOAD');
@@ -583,6 +588,7 @@ interface SubmitRequestInput {
   fromDate: string;
   toDate: string;
   reason: string;
+  clientRequestId: string;
 }
 
 export interface SubmitExplanationInput {
@@ -591,6 +597,7 @@ export interface SubmitExplanationInput {
   requestType?: 'EXPLANATION' | 'CORRECTION';
   requestedCheckin?: string;
   requestedCheckout?: string;
+  clientRequestId: string;
 }
 
 const CLOCK_VALUE_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
@@ -608,6 +615,7 @@ export function attendanceRequestPayload(input: SubmitExplanationInput) {
     from_date: input.date,
     to_date: input.date,
     reason: input.reason,
+    client_request_id: input.clientRequestId,
   };
   if (requestType === 'EXPLANATION') return payload;
 
@@ -624,6 +632,11 @@ export function attendanceRequestPayload(input: SubmitExplanationInput) {
   return payload;
 }
 
+/** Generate once when a request form opens, then reuse for every retry. */
+export function requestCommandId() {
+  return commandId();
+}
+
 export async function submitRequest(input: SubmitRequestInput) {
   try {
     const { data, error } = await supabase.rpc('workforce_command', {
@@ -633,6 +646,7 @@ export async function submitRequest(input: SubmitRequestInput) {
         from_date: input.fromDate,
         to_date: input.toDate,
         reason: input.reason,
+        client_request_id: input.clientRequestId,
       },
     });
     if (error) throw error;
@@ -738,11 +752,7 @@ function requestCurrentPosition() {
 
 export async function doCheckOut(position: { lat: number; lng: number; accuracy: number }) {
   try {
-    const { lat, lng, accuracy } = position;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('Vui lòng bật GPS.');
-    if (!Number.isFinite(accuracy) || accuracy <= 0 || accuracy > TMS_LIMITS.MAX_GPS_ACCURACY_METERS) {
-      throw new Error(`Tín hiệu GPS chưa đủ chính xác (${Math.round(accuracy)}m).`);
-    }
+    assertValidAttendancePosition(position);
     const result = await runAttendanceAction('checkout', position);
     return { ...ok(result.message || 'Check-out thành công!'), receipt: result.receipt };
   } catch (error) {

@@ -19,7 +19,7 @@ import { PanelTitle } from './AdminCommon';
 interface ExplanationAnalyticsProps {
   requests: AttendanceRequest[];
   monthlyRequests?: AttendanceRequest[];
-  onNavigate: (section: AdminSection) => void;
+  onNavigate?: (section: AdminSection) => void;
 }
 
 /** Recharts writes its colours onto SVG attributes, so it needs a resolved value
@@ -272,16 +272,18 @@ export default function ExplanationAnalytics({
                 <span>Theo ngày</span>
               </button>
             </div>
-            <button
-              type="button"
-              className="admin-text-button flex items-center gap-1 font-semibold text-sm"
-              onClick={() => onNavigate('attendance')}
-            >
-              <span>Xử lý đơn</span>
-              <span className="material-symbols-rounded text-base" aria-hidden="true">
-                arrow_forward
-              </span>
-            </button>
+            {onNavigate ? (
+              <button
+                type="button"
+                className="admin-text-button flex items-center gap-1 font-semibold text-sm"
+                onClick={() => onNavigate('attendance')}
+              >
+                <span>Xử lý đơn</span>
+                <span className="material-symbols-rounded text-base" aria-hidden="true">
+                  arrow_forward
+                </span>
+              </button>
+            ) : null}
           </div>
         }
       />
@@ -555,7 +557,7 @@ export default function ExplanationAnalytics({
                 ? `Còn ${stats.pending} đơn giải trình đang chờ Admin duyệt trước chu kỳ chốt lương cuối tháng.`
                 : 'Toàn bộ đơn giải trình trong tháng đã được xử lý xong. Dữ liệu sẵn sàng đối soát công.'}
             </p>
-            {stats.pending > 0 && (
+            {stats.pending > 0 && onNavigate && (
               <button
                 type="button"
                 className="admin-guidance-action"
