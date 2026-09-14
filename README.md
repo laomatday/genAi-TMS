@@ -19,7 +19,7 @@
 - Domain chính thức: `genai.ai.vn`; tài khoản nội bộ dạng `mã_nhân_viên@genai.ai.vn`.
 - Email hỗ trợ: `support@genai.ai.vn`.
 - Logo master: dùng từ nguồn được cấu hình trong `APP_INFO.LOGO_URL`.
-- Font thương hiệu: `Google Sans`, fallback kỹ thuật `Arial, sans-serif`.
+- Font giao diện: `Open Sans`, fallback kỹ thuật `Arial, sans-serif`.
 - Toàn bộ bảng màu, design token và CSS giao diện dùng chung nằm trong `src/style.css` để tránh lặp hoặc lệch mã màu giữa các module.
 
 ## Kiến trúc bảo mật

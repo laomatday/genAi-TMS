@@ -6,6 +6,7 @@ import { useModalAccessibility } from '@/shared/components/modals/useModalAccess
 import { getThemeMode, setThemeMode, type ThemeMode } from '@/shared/contexts/ThemeContext';
 import { getFeedbackPrefs, setFeedbackPrefs, type FeedbackPrefs } from '@/core/utils/helpers';
 import { APP_INFO } from '@/shared/constants';
+import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
 
 interface Props {
     isOpen: boolean;
@@ -80,6 +81,7 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
     const [isGuideOpen, setIsGuideOpen] = useState(false);
     const [showSupportModal, setShowSupportModal] = useState(false);
     const dialogRef = useModalAccessibility(isOpen, onClose);
+    const swipeBackHandlers = useModalSwipeBack(onClose, isGuideOpen || showSupportModal);
 
     useEffect(() => {
         if (isOpen) {
@@ -104,7 +106,7 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
     return (
         <>
-            <div ref={dialogRef} tabIndex={-1} className="app-modal-screen app-modal-screen-solid font-sans animate-slide-up" role="dialog" aria-modal="true" aria-label="Cài đặt">
+            <div ref={dialogRef} tabIndex={-1} className="app-modal-screen app-modal-screen-solid font-sans animate-slide-up" role="dialog" aria-modal="true" aria-label="Cài đặt" {...swipeBackHandlers}>
                 <div className="app-modal-header-layer">
                     <ModalHeader title="Cài đặt" subtitle={`${APP_INFO.NAME} · v${APP_INFO.VERSION}`} onClose={onClose} />
                 </div>

@@ -9,6 +9,7 @@ import ImageCropper from '@/shared/components/common/ImageCropper';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import ModalHeader from '@/shared/components/modals/ModalHeader';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
+import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
 
 interface Props {
     user: Employee;
@@ -89,13 +90,12 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
     const [uploading, setUploading] = useState(false);
 
     const [croppingImage, setCroppingImage] = useState<string | null>(null);
+    const swipeBackHandlers = useModalSwipeBack(onClose, showPwdModal || showLogoutConfirm || Boolean(croppingImage));
+    const passwordSwipeBackHandlers = useModalSwipeBack(() => setShowPwdModal(false), loadingPwd);
 
     useEffect(() => {
         setShowImageCropper(!!croppingImage);
     }, [croppingImage, setShowImageCropper]);
-
-    const touchStart = useRef<{ x: number, y: number } | null>(null);
-    const touchEnd = useRef<{ x: number, y: number } | null>(null);
 
     const canManage = useMemo(() => user && user.role && MANAGEMENT_ROLES.includes(user.role), [user]);
 
@@ -187,9 +187,9 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
             onAlert("Lỗi mật khẩu", "Mật khẩu mới không khớp!", 'warning');
             return;
         }
-        if (passData.new.length < 6) {
+        if (passData.new.length < TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH) {
             triggerHaptic('warning');
-            onAlert("Mật khẩu yếu", "Mật khẩu mới phải có ít nhất 6 ký tự.", 'warning');
+            onAlert("Mật khẩu yếu", `Mật khẩu mới phải có ít nhất ${TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} ký tự.`, 'warning');
             return;
         }
 
@@ -208,34 +208,6 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
         }
     };
 
-    const onTouchStart = (e: React.TouchEvent) => {
-        touchEnd.current = null;
-        const touch = e.targetTouches[0];
-        if (touch) touchStart.current = { x: touch.clientX, y: touch.clientY };
-    };
-
-    const onTouchMove = (e: React.TouchEvent) => {
-        const touch = e.targetTouches[0];
-        if (touch) touchEnd.current = { x: touch.clientX, y: touch.clientY };
-    };
-
-    const onTouchEnd = (e: React.TouchEvent) => {
-        if (!touchStart.current || !touchEnd.current) return;
-
-        const distanceX = touchStart.current.x - touchEnd.current.x;
-        const distanceY = touchStart.current.y - touchEnd.current.y;
-
-        if (Math.abs(distanceX) < Math.abs(distanceY)) {
-            return;
-        }
-
-        if (distanceX > TMS_LIMITS.SWIPE_MODAL_CLOSE_PX) {
-            e.stopPropagation();
-            triggerHaptic('light');
-            onClose();
-        }
-    };
-
     const isOnline = user.status === 'Active';
     const deviceBound = Boolean(user.trusted_device_id);
 
@@ -243,16 +215,18 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
         <div
             ref={profileDialogRef}
             tabIndex={-1}
-            className="fixed inset-0 z-30 page-bg flex flex-col animate-slide-up transition-colors duration-300"
+            className="app-modal-swipe-surface fixed inset-0 z-30 page-bg flex flex-col animate-slide-up transition-colors duration-300"
             role="dialog"
             aria-modal="true"
             aria-label="Hồ sơ cá nhân"
-            onTouchStart={onTouchStart}
-            onTouchMove={onTouchMove}
-            onTouchEnd={onTouchEnd}
+            {...swipeBackHandlers}
         >
             <div className="fixed top-0 left-0 w-full z-40">
-                <ModalHeader title="Hồ sơ cá nhân" onClose={() => { triggerHaptic('light'); onClose(); }} />
+                <ModalHeader
+                    title="Hồ sơ cá nhân"
+                    onBack={() => { triggerHaptic('light'); onClose(); }}
+                    onClose={() => { triggerHaptic('light'); onClose(); }}
+                />
             </div>
 
             <div className="employee-page employee-page-profile flex-1 overflow-y-auto no-scrollbar">
@@ -288,7 +262,7 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
                                     type="file"
                                     ref={fileInputRef}
                                     className="hidden"
-                                    accept="image/*"
+                                    accept={TMS_STORAGE.AVATAR_MIME_TYPES.join(',')}
                                     onChange={handleFileSelect}
                                 />
                                 {uploading && (
@@ -508,6 +482,7 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
                         aria-labelledby="profile-password-dialog-title"
                         aria-describedby="profile-password-dialog-description"
                         aria-busy={loadingPwd}
+                        {...passwordSwipeBackHandlers}
                     >
                         <div className="confirm-content">
                             <div className="confirm-icon confirm-icon-warning">
@@ -545,7 +520,7 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
                                         onChange={e => setPassData({ ...passData, new: e.target.value })}
                                     />
                                     <span id="profile-new-password-hint" className="ui-field-foot">
-                                        <span>Ít nhất 6 ký tự.</span>
+                                        <span>Ít nhất {TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} ký tự.</span>
                                     </span>
                                 </div>
 

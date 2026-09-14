@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { Attendance, DashboardData } from '@/shared/types';
 import { toISODateString, triggerHaptic } from '@/core/utils/helpers';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
-import { STORAGE_KEYS, TMS_DEFAULT_SYSTEM_CONFIG } from '@/shared/constants';
+import { STORAGE_KEYS, TMS_DEFAULT_SYSTEM_CONFIG, TMS_LIMITS } from '@/shared/constants';
 import type { RegisterSwipeHandler } from '@/modules/tms/components/BottomNav';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
 
@@ -26,9 +26,6 @@ interface HistoryDayItem {
     lateMins: number;
     earlyMins: number;
     shiftInfo: string;
-    icon: string;
-    iconClass: string;
-    dotClass: string;
     showExplain: boolean;
     isExplained: boolean;
     explainReason: string;
@@ -121,8 +118,9 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                 rDate.getFullYear() === targetYear;
         }).length;
 
-        if (count >= 5) {
-            onAlert("Đạt giới hạn", "Bạn chỉ được gửi tối đa 5 giải trình mỗi tháng.", "error");
+        const maxPerMonth = data.systemConfig.MAX_EXPLANATIONS_PER_MONTH ?? TMS_LIMITS.MAX_EXPLANATIONS_PER_MONTH;
+        if (count >= maxPerMonth) {
+            onAlert("Đạt giới hạn", `Bạn chỉ được gửi tối đa ${maxPerMonth} giải trình mỗi tháng.`, "error");
             return;
         }
 
@@ -140,9 +138,9 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
         today.setHours(0, 0, 0, 0);
 
         const { systemConfig } = data;
-        const minFull = systemConfig?.MIN_HOURS_FULL || 7;
-        const minHalf = systemConfig?.MIN_HOURS_HALF || 3.5;
-        const offDays = Array.isArray(systemConfig?.OFF_DAYS) ? systemConfig.OFF_DAYS : [0];
+        const minFull = systemConfig?.MIN_HOURS_FULL ?? TMS_DEFAULT_SYSTEM_CONFIG.MIN_HOURS_FULL;
+        const minHalf = systemConfig?.MIN_HOURS_HALF ?? TMS_DEFAULT_SYSTEM_CONFIG.MIN_HOURS_HALF;
+        const offDays = Array.isArray(systemConfig?.OFF_DAYS) ? systemConfig.OFF_DAYS : TMS_DEFAULT_SYSTEM_CONFIG.OFF_DAYS;
 
         let startDate: Date, endDate: Date, title: string;
 
@@ -188,9 +186,6 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                 lateMins: 0,
                 earlyMins: 0,
                 shiftInfo: "Không chấm công",
-                icon: 'close',
-                iconClass: 'bg-secondary-red/10 dark:bg-secondary-red/20 text-secondary-red dark:text-secondary-red',
-                dotClass: 'bg-secondary-red',
                 showExplain: false,
                 isExplained: false,
                 explainReason: '',
@@ -220,26 +215,20 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
 
             if (leave) {
                 dayItem.status = 'Leave';
-                dayItem.shiftInfo = "Nghỉ phép";
+                dayItem.shiftInfo = leave.type;
                 dayItem.leaveType = leave.type;
-                dayItem.icon = 'redeem';
-                dayItem.iconClass = 'bg-secondary-purple/10 dark:bg-secondary-purple/20 text-secondary-purple dark:text-secondary-purple';
-                dayItem.dotClass = 'bg-secondary-purple';
-                dayItem.workHours = 8;
+                dayItem.workHours = minFull;
                 stats.workDays += 1;
             } else {
-                const holiday = data.holidays?.find(h => h.from_date <= dateStr && h.to_date >= dateStr);
+                const holiday = data.holidays?.find(h => h.active !== false && h.from_date <= dateStr && h.to_date >= dateStr);
                 if (holiday) {
                     dayItem.status = 'Holiday';
                     dayItem.shiftInfo = holiday.name || "Ngày Lễ";
                     dayItem.isHoliday = true;
-                    dayItem.icon = 'celebration';
-                    dayItem.iconClass = 'bg-secondary-red/10 dark:bg-secondary-red/20 text-secondary-red dark:text-secondary-red ring-1 ring-secondary-red/20 dark:ring-secondary-red/30';
-                    dayItem.dotClass = 'bg-secondary-red';
-                    dayItem.workHours = 8;
+                    dayItem.workHours = minFull;
                     stats.workDays += 1;
                 } else {
-                    const dailyRecords = data.history.history.filter(h => h.date === dateStr);
+                    const dailyRecords = data.history.history.filter(h => h.date === dateStr && Boolean(h.time_in));
 
                     if (dailyRecords.length > 0) {
                         dayItem.records = dailyRecords;
@@ -267,28 +256,16 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
 
                         if (isApproved) {
                             stats.workDays += (totalHours >= minFull ? 1 : totalHours >= minHalf ? 0.5 : 1);
-                            dayItem.workHours = Math.max(dayItem.workHours, 8);
+                            dayItem.workHours = Math.max(dayItem.workHours, minFull);
                             dayItem.status = 'Full';
-                            dayItem.icon = 'check';
-                            dayItem.iconClass = 'bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary';
-                            dayItem.dotClass = 'bg-primary';
                         } else if (totalHours >= minFull) {
                             stats.workDays += 1;
                             dayItem.status = 'Full';
-                            dayItem.icon = 'check';
-                            dayItem.iconClass = 'bg-primary/10 dark:bg-primary/20 text-primary dark:text-primary';
-                            dayItem.dotClass = 'bg-primary';
                         } else if (totalHours >= minHalf) {
                             stats.workDays += 0.5;
                             dayItem.status = 'Half';
-                            dayItem.icon = 'star_half';
-                            dayItem.iconClass = 'bg-secondary-green/10 dark:bg-secondary-green/20 text-secondary-green dark:text-secondary-green';
-                            dayItem.dotClass = 'bg-secondary-green';
                         } else {
                             dayItem.status = 'Working';
-                            dayItem.icon = 'work';
-                            dayItem.iconClass = 'bg-secondary-yellow/10 dark:bg-secondary-yellow/20 text-secondary-yellow dark:text-secondary-yellow';
-                            dayItem.dotClass = 'bg-secondary-yellow';
                         }
 
                         const hasMissingOut = dailyRecords.some(r => !r.time_out);
@@ -299,7 +276,6 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                             }
                             dayItem.showExplain = true;
                             dayItem.explainReason = "[Lỗi] ";
-                            dayItem.dotClass = isApproved ? 'bg-primary' : 'bg-secondary-red';
                         }
 
                         if (totalLate > 0 && dateStr !== toISODateString(today)) {
@@ -307,40 +283,29 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                             stats.lateDays += 1;
                             dayItem.showExplain = true;
                             if (!dayItem.explainReason) dayItem.explainReason = "[Trễ] ";
-                            if (!dayItem.isMissingCheckout) dayItem.dotClass = isApproved ? 'bg-primary' : 'bg-secondary-yellow';
                         }
 
                         if (totalEarly > 0 && dateStr !== toISODateString(today)) {
                             dayItem.isEarly = true;
                             dayItem.showExplain = true;
                             if (!dayItem.explainReason) dayItem.explainReason = "[Sớm] ";
-                            if (!dayItem.isMissingCheckout && !dayItem.isLate) dayItem.dotClass = isApproved ? 'bg-primary' : 'bg-secondary-yellow';
                         }
                     } else {
                         if (offDays.includes(dayOfWeek)) {
                             dayItem.status = 'Weekend';
                             dayItem.shiftInfo = "Nghỉ toàn hệ thống";
-                            dayItem.icon = 'local_cafe';
-                            dayItem.iconClass = 'history-icon-idle';
-                            dayItem.dotClass = 'history-dot-idle';
                         } else if (loopPtr < today) {
                             if (isApproved) {
                                 dayItem.status = 'Full';
                                 dayItem.shiftInfo = "Đã duyệt giải trình";
-                                dayItem.workHours = 8;
+                                dayItem.workHours = minFull;
                                 stats.workDays += 1;
                                 dayItem.showExplain = true;
-                                dayItem.icon = 'verified';
-                                dayItem.iconClass = 'bg-secondary-green/10 dark:bg-secondary-green/20 text-secondary-green dark:text-secondary-green';
-                                dayItem.dotClass = 'bg-secondary-green';
                             } else {
                                 dayItem.status = 'Absent';
                                 dayItem.shiftInfo = "Vắng mặt";
                                 dayItem.showExplain = true;
                                 dayItem.explainReason = "[Vắng] ";
-                                dayItem.icon = 'close';
-                                dayItem.iconClass = 'bg-secondary-red/10 dark:bg-secondary-red/20 text-secondary-red dark:text-secondary-red';
-                                dayItem.dotClass = 'bg-secondary-red';
 
                                 const todayStr = toISODateString(today);
                                 if (dateStr < todayStr) {
@@ -350,13 +315,9 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                         } else if (loopPtr.getTime() === today.getTime()) {
                             dayItem.status = 'Future';
                             dayItem.shiftInfo = "Chưa có dữ liệu";
-                            dayItem.dotClass = 'bg-transparent';
-                            dayItem.iconClass = 'history-icon-blank';
                         } else {
                             dayItem.status = 'Future';
                             dayItem.shiftInfo = "-";
-                            dayItem.dotClass = 'bg-transparent';
-                            dayItem.iconClass = 'history-icon-blank';
                         }
                     }
                 }
@@ -397,6 +358,9 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
             newDate.setDate(newDate.getDate() + (delta * 7));
         }
         setViewDate(newDate);
+        if (viewMode === 'month') {
+            setSelectedDate(toISODateString(newDate));
+        }
     };
 
     const isCurrentView = useMemo(() => {
@@ -421,6 +385,7 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
     const switchViewMode = (mode: 'week' | 'month') => {
         triggerHaptic('light');
         setViewMode(mode);
+        if (mode === 'month') setSelectedDate(toISODateString(viewDate));
     };
 
     /** Explanations close on the configured lock day of the following month.
@@ -446,20 +411,30 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
         <PullToRefresh onRefresh={onRefresh} className="page-bg font-sans">
             <div className="employee-page employee-page-standard history-page animate-fade-in ui-stack">
 
-                <div className="app-segmented">
+                <div className="requests-switch history-view-switch">
                     <button
                         type="button"
+                        aria-pressed={viewMode === 'week'}
                         onClick={() => switchViewMode('week')}
-                        className={`app-segmented-option ${viewMode === 'week' ? 'app-segmented-option-active' : ''}`}
+                        className={`requests-switch-option ${viewMode === 'week' ? 'requests-switch-option-active' : ''}`.trim()}
                     >
-                        Tuần này
+                        <span className="material-symbols-rounded" aria-hidden="true">date_range</span>
+                        <span className="requests-switch-text">
+                            <span className="requests-switch-label">Tuần này</span>
+                            <span className="requests-switch-sub">7 ngày gần nhất</span>
+                        </span>
                     </button>
                     <button
                         type="button"
+                        aria-pressed={viewMode === 'month'}
                         onClick={() => switchViewMode('month')}
-                        className={`app-segmented-option ${viewMode === 'month' ? 'app-segmented-option-active' : ''}`}
+                        className={`requests-switch-option ${viewMode === 'month' ? 'requests-switch-option-active' : ''}`.trim()}
                     >
-                        Tháng này
+                        <span className="material-symbols-rounded" aria-hidden="true">calendar_month</span>
+                        <span className="requests-switch-text">
+                            <span className="requests-switch-label">Tháng này</span>
+                            <span className="requests-switch-sub">Theo kỳ công tháng</span>
+                        </span>
                     </button>
                 </div>
 
@@ -595,14 +570,7 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
 
                             return (
                                 <section key={item.date} className={`ui-card ${hasError && !item.isExplained ? 'ui-card-attention' : ''}`.trim()}>
-                                    <div
-                                        role="button"
-                                        tabIndex={0}
-                                        aria-expanded={isExpanded}
-                                        onClick={() => { triggerHaptic('light'); setExpandedDate(isExpanded ? null : item.date); }}
-                                        onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); triggerHaptic('light'); setExpandedDate(isExpanded ? null : item.date); } }}
-                                        className="history-day"
-                                    >
+                                    <div className="history-day">
                                         <div className="history-day-head">
                                             <span className={`ui-daytag ui-daytag-toned ui-tone-${tone}`} aria-hidden="true">
                                                 <span className="ui-daytag-dow">{getDayName(item.dayOfWeek)}</span>
@@ -652,6 +620,17 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                                                             {item.explainStatus === 'Rejected' ? 'Gửi lại' : 'Giải trình'}
                                                         </button>
                                                     )
+                                                )}
+                                                {records.length > 0 && (
+                                                    <button
+                                                        type="button"
+                                                        className="history-expand-button"
+                                                        aria-expanded={isExpanded}
+                                                        aria-label={isExpanded ? 'Thu gọn chi tiết chấm công' : 'Mở chi tiết chấm công'}
+                                                        onClick={() => { triggerHaptic('light'); setExpandedDate(isExpanded ? null : item.date); }}
+                                                    >
+                                                        <span className={`material-symbols-rounded ${isExpanded ? 'history-expand-icon-open' : ''}`.trim()} aria-hidden="true">expand_more</span>
+                                                    </button>
                                                 )}
                                             </div>
                                         </div>

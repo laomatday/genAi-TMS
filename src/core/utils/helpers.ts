@@ -163,8 +163,3 @@ export function playAudioChime(type: 'success' | 'warning' | 'error' = 'success'
     // Graceful fallback if AudioContext is not allowed without prior user interaction
   }
 }
-
-export function formatVietnameseDayHeader(date = new Date()): string {
-  const days = ['CHỦ NHẬT', 'THỨ HAI', 'THỨ BA', 'THỨ TƯ', 'THỨ NĂM', 'THỨ SÁU', 'THỨ BẢY'] as const;
-  return `${days[date.getDay()]}, ${date.getDate()} THÁNG ${date.getMonth() + 1}`;
-}

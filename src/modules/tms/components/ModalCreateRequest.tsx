@@ -6,7 +6,8 @@ import ModalHeader from '@/shared/components/modals/ModalHeader';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { useListboxNavigation } from '@/shared/components/common/useListboxNavigation';
 import BottomNav, { TabType } from './BottomNav';
-import { LEAVE_REQUEST_TYPES, TMS_LIMITS } from '@/shared/constants';
+import { LEAVE_REQUEST_TYPES } from '@/shared/constants';
+import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
 
 interface Props {
     user: Employee;
@@ -60,12 +61,11 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
     const [formErrors, setFormErrors] = useState<RequestFormErrors>({});
     const activeTab: TabType = 'requests';
 
-    const touchStart = useRef<{ x: number, y: number } | null>(null);
-    const touchEnd = useRef<{ x: number, y: number } | null>(null);
     const fromDateRef = useRef<HTMLInputElement>(null);
     const toDateRef = useRef<HTMLInputElement>(null);
     const reasonRef = useRef<HTMLTextAreaElement>(null);
     const dialogRef = useModalAccessibility(isOpen, onClose, { closeOnEscape: !loading });
+    const swipeBackHandlers = useModalSwipeBack(onClose, loading);
     const typeListbox = useListboxNavigation({
         isOpen: isTypeOpen,
         optionCount: LEAVE_REQUEST_TYPES.length,
@@ -175,32 +175,6 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
         window.requestAnimationFrame(() => typeListbox.triggerRef.current?.focus());
     };
 
-    const onTouchStart = (e: React.TouchEvent) => {
-        touchEnd.current = null;
-        const touch = e.targetTouches[0];
-        if (touch) touchStart.current = { x: touch.clientX, y: touch.clientY };
-    };
-
-    const onTouchMove = (e: React.TouchEvent) => {
-        const touch = e.targetTouches[0];
-        if (touch) touchEnd.current = { x: touch.clientX, y: touch.clientY };
-    };
-
-    const onTouchEnd = (e: React.TouchEvent) => {
-        if (!touchStart.current || !touchEnd.current) return;
-
-        const distanceX = touchStart.current.x - touchEnd.current.x;
-        const distanceY = touchStart.current.y - touchEnd.current.y;
-
-        if (Math.abs(distanceX) < Math.abs(distanceY)) return;
-
-        if (distanceX > TMS_LIMITS.SWIPE_MODAL_CLOSE_PX) {
-            e.stopPropagation();
-            triggerHaptic('light');
-            onClose();
-        }
-    };
-
     if (!isOpen) return null;
 
     const selectedType = typeConfig(formData.type);
@@ -218,6 +192,7 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
             aria-modal="true"
             aria-labelledby="create-request-title"
             aria-busy={loading}
+            {...swipeBackHandlers}
         >
             <div className="app-modal-header-layer">
                 <ModalHeader
@@ -227,12 +202,7 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
                 />
             </div>
 
-            <div
-                className="app-modal-content no-scrollbar"
-                onTouchStart={onTouchStart}
-                onTouchMove={onTouchMove}
-                onTouchEnd={onTouchEnd}
-            >
+            <div className="app-modal-content no-scrollbar">
                 <div className="ui-stack animate-fade-in">
                     {/* What this sheet is for ----------------------------- */}
                     <section className="ui-sheet-hero">

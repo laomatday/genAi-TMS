@@ -13,6 +13,7 @@ interface Props {
     user: Employee;
     onRefresh: () => Promise<void>;
     onCreateRequest?: (type?: string) => void;
+    onCreateExplanation?: () => void;
     registerSwipeHandler?: RegisterSwipeHandler;
 }
 
@@ -54,7 +55,7 @@ function shortCode(item: RequestListItem) {
     return `#${String(raw).slice(-8).toUpperCase()}`;
 }
 
-const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, registerSwipeHandler }) => {
+const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, onCreateExplanation, registerSwipeHandler }) => {
     const [viewMode, setViewMode] = useState<'leaves' | 'explanations'>('leaves');
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'leave' | 'explanation' } | null>(null);
@@ -187,14 +188,17 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
                                 {leaveQuota.remaining}
                                 <span className="ui-metric-unit">ngày</span>
                             </span>
-                            <span className="ui-progress" role="img" aria-label={`Còn ${leaveQuota.remaining} trên ${leaveQuota.total} ngày phép`}>
-                                <span style={{ width: `${Math.min(100, Math.max(0, leaveQuota.ratio))}%` }} />
-                            </span>
+                            <progress
+                                className="ui-progress"
+                                max={100}
+                                value={Math.min(100, Math.max(0, leaveQuota.ratio))}
+                                aria-label={`Còn ${leaveQuota.remaining} trên ${leaveQuota.total} ngày phép`}
+                            />
                         </div>
                     </div>
 
                     {/* Create --------------------------------------------- */}
-                    {onCreateRequest && (
+                    {isLeaveView && onCreateRequest ? (
                         <>
                             <button type="button" className="ui-cta" onClick={() => { triggerHaptic('light'); onCreateRequest(); }}>
                                 <span className="material-symbols-rounded" aria-hidden="true">add_circle</span>
@@ -215,7 +219,12 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
                                 ))}
                             </div>
                         </>
-                    )}
+                    ) : !isLeaveView && onCreateExplanation ? (
+                        <button type="button" className="ui-cta" onClick={() => { triggerHaptic('light'); onCreateExplanation(); }}>
+                            <span className="material-symbols-rounded" aria-hidden="true">edit_document</span>
+                            Tạo giải trình mới
+                        </button>
+                    ) : null}
 
                     {/* History -------------------------------------------- */}
                     <div>

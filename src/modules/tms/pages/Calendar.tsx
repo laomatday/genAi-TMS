@@ -33,7 +33,7 @@ const isAnnualLeave = (type: string) => type.includes('Nghỉ phép');
 
 const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) => {
   const [viewDate, setViewDate] = useState<Date>(() => new Date(currentDate.getFullYear(), currentDate.getMonth(), 1));
-  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
+  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date(currentDate));
   const [activeCenter, setActiveCenter] = useState<string>(ALL_CENTERS);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
 
@@ -170,13 +170,16 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
 
   const shiftMonth = (delta: number) => {
     triggerHaptic('light');
-    setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
+    const nextMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + delta, 1);
+    const selectedDay = Math.min(selectedDate.getDate(), new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate());
+    setViewDate(nextMonth);
+    setSelectedDate(new Date(nextMonth.getFullYear(), nextMonth.getMonth(), selectedDay));
   };
 
   const jumpToToday = () => {
     triggerHaptic('light');
     setViewDate(new Date(today.getFullYear(), today.getMonth(), 1));
-    setSelectedDate(new Date());
+    setSelectedDate(new Date(today));
   };
 
   const selectedLabel = selectedKey === todayKey

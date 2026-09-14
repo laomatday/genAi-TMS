@@ -13,12 +13,12 @@ interface Props {
 }
 
 /** Labels must match the header title for the same tab (see TAB_IDENTITY in
- *  Header.tsx) — they are the accessible name for an icon-only control. */
+ *  Header.tsx). They remain available to assistive technology and tooltips. */
 const NAV_ITEMS: Array<{ name: TabType; icon: string; label: string }> = [
   { name: 'home', icon: 'home', label: 'Trang chủ' },
   { name: 'history', icon: 'history', label: 'Chấm công' },
   { name: 'requests', icon: 'description', label: 'Đề xuất' },
-  { name: 'calendar', icon: 'calendar_month', label: 'Lịch làm việc' },
+  { name: 'calendar', icon: 'calendar_month', label: 'Lịch' },
   { name: 'contacts', icon: 'group', label: 'Danh bạ' },
 ];
 
@@ -42,15 +42,15 @@ const NavItem = ({ name, icon, label, activeTab, onChange }: {
       onClick={() => onChange(name)}
       className={`app-nav-item ${isActive ? 'app-nav-item-selected' : ''}`.trim()}
     >
+      {isActive ? (
+        <motion.span
+          aria-hidden="true"
+          layoutId="telegramGlassActiveTab"
+          className="app-nav-track"
+          transition={UI_MOTION.NAVIGATION_SPRING}
+        />
+      ) : null}
       <span className="app-nav-icon">
-        {isActive && (
-          <motion.span
-            aria-hidden="true"
-            layoutId="telegramGlassActiveTab"
-            className="app-nav-track"
-            transition={UI_MOTION.NAVIGATION_SPRING}
-          />
-        )}
         <span className="material-symbols-rounded" aria-hidden="true">{icon}</span>
       </span>
     </button>

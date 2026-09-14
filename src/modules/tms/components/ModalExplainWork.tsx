@@ -8,6 +8,7 @@ import { useModalAccessibility } from '@/shared/components/modals/useModalAccess
 import { useListboxNavigation } from '@/shared/components/common/useListboxNavigation';
 import BottomNav, { TabType } from './BottomNav';
 import { TMS_LIMITS } from '@/shared/constants';
+import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
 
 interface Props {
     isOpen: boolean;
@@ -16,6 +17,7 @@ interface Props {
     onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
     initialData?: { date: string, reason: string };
     explainableItems: { date: string, explainReason: string }[];
+    sourceTab?: 'history' | 'requests';
     onNavigate: (tab: TabType) => void;
     data: DashboardData | null;
 }
@@ -44,19 +46,18 @@ const ReasonDisplay = ({ reasons }: { reasons: string }) => (
     </>
 );
 
-const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert, initialData, explainableItems, onNavigate, data }) => {
+const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert, initialData, explainableItems, sourceTab = 'history', onNavigate, data }) => {
     const [selectedDate, setSelectedDate] = useState(initialData?.date || '');
     const [reason, setReason] = useState(initialData?.reason || '');
     const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, isPastMonth: boolean }>({ isOpen: false, isPastMonth: false });
     const [loading, setLoading] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [formErrors, setFormErrors] = useState<ExplanationFormErrors>({});
-    const activeTab: TabType = 'history';
+    const activeTab: TabType = sourceTab;
 
-    const touchStart = useRef<{ x: number, y: number } | null>(null);
-    const touchEnd = useRef<{ x: number, y: number } | null>(null);
     const reasonRef = useRef<HTMLTextAreaElement>(null);
     const dialogRef = useModalAccessibility(isOpen, onClose, { closeOnEscape: !loading });
+    const swipeBackHandlers = useModalSwipeBack(onClose, loading || confirmDialog.isOpen);
     const dateListbox = useListboxNavigation({
         isOpen: isDropdownOpen,
         optionCount: explainableItems.length,
@@ -192,32 +193,6 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
         window.requestAnimationFrame(() => dateListbox.triggerRef.current?.focus());
     };
 
-    const onTouchStart = (e: React.TouchEvent) => {
-        touchEnd.current = null;
-        const touch = e.targetTouches[0];
-        if (touch) touchStart.current = { x: touch.clientX, y: touch.clientY };
-    };
-
-    const onTouchMove = (e: React.TouchEvent) => {
-        const touch = e.targetTouches[0];
-        if (touch) touchEnd.current = { x: touch.clientX, y: touch.clientY };
-    };
-
-    const onTouchEnd = (e: React.TouchEvent) => {
-        if (!touchStart.current || !touchEnd.current) return;
-
-        const distanceX = touchStart.current.x - touchEnd.current.x;
-        const distanceY = touchStart.current.y - touchEnd.current.y;
-
-        if (Math.abs(distanceX) < Math.abs(distanceY)) return;
-
-        if (distanceX > TMS_LIMITS.SWIPE_MODAL_CLOSE_PX) {
-            e.stopPropagation();
-            triggerHaptic('light');
-            onClose();
-        }
-    };
-
     if (!isOpen) return null;
 
     const selectedItem = selectedDate ? explainableItems.find(i => i.date === selectedDate) : null;
@@ -238,6 +213,7 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
                 aria-modal="true"
                 aria-labelledby="explain-work-title"
                 aria-busy={loading}
+                {...swipeBackHandlers}
             >
                 <div className="app-modal-header-layer">
                     <ModalHeader
@@ -247,12 +223,7 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
                     />
                 </div>
 
-                <div
-                    className="app-modal-content no-scrollbar"
-                    onTouchStart={onTouchStart}
-                    onTouchMove={onTouchMove}
-                    onTouchEnd={onTouchEnd}
-                >
+                <div className="app-modal-content no-scrollbar">
                     <div className="ui-stack animate-fade-in">
                         {/* What this sheet is for ------------------------- */}
                         <section className="ui-sheet-hero ui-sheet-hero-teal">

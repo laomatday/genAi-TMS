@@ -28,6 +28,18 @@ describe('determineShift', () => {
     expect(determineShift('18:30', FIXTURE_SHIFTS).name).toBe('CHARLIE');
   });
 
+  it('selects a later shift at its exact configured start time', () => {
+    expect(determineShift('16:00', FIXTURE_SHIFTS).name).toBe('CHARLIE');
+  });
+
+  it('keeps an overnight shift available after midnight', () => {
+    const overnightShifts: ShiftConfig[] = [
+      { name: 'DAY', start: '08:00', end: '17:00', break_point: '17:30' },
+      { name: 'NIGHT', start: '22:00', end: '02:00', break_point: '02:30' },
+    ];
+    expect(determineShift('01:15', overnightShifts).name).toBe('NIGHT');
+  });
+
   it('sorts unordered input before resolving', () => {
     const shuffled = [FIXTURE_SHIFTS[2], FIXTURE_SHIFTS[0], FIXTURE_SHIFTS[1]] as ShiftConfig[];
     expect(determineShift('08:15', shuffled).name).toBe('ALPHA');

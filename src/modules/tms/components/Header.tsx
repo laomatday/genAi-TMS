@@ -9,6 +9,8 @@ interface Props {
     user: Employee;
     activeTab: TabType;
     notificationCount: number;
+    isOnline?: boolean;
+    locationName?: string;
     onOpenProfile: () => void;
     onOpenNotifications: () => void;
     onContactSearch?: () => void;
@@ -29,10 +31,14 @@ const TAB_IDENTITY: Partial<Record<TabType, { title: string; tag?: string }>> = 
     notifications: { title: 'Thông báo' },
 };
 
-const Header: React.FC<Props> = ({ user, activeTab, notificationCount, onOpenProfile, onOpenNotifications, onContactSearch, canManage, onOpenManager, onOpenWorkspace }) => {
+const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline = true, locationName, onOpenProfile, onOpenNotifications, onContactSearch, canManage, onOpenManager, onOpenWorkspace }) => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const identity = TAB_IDENTITY[activeTab] ?? { title: 'genAi TMS' };
-    const subtitle = [user.name, user.position].filter(Boolean).join(' • ');
+    const isHome = activeTab === 'home';
+    const title = isHome ? user.name : identity.title;
+    const subtitle = isHome
+        ? [user.position, locationName || user.center_id].filter(Boolean).join(' • ')
+        : [user.name, user.position].filter(Boolean).join(' • ');
 
     useEffect(() => {
         setIsSettingsOpen(false);
@@ -40,7 +46,7 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, onOpenPro
 
     return (
         <>
-            <header className="app-header">
+            <header className={`app-header ${isHome ? 'app-header-home' : ''}`.trim()}>
                 <div className="app-header-inner">
                     <div className="app-header-identity">
                         <button
@@ -63,8 +69,12 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, onOpenPro
 
                         <div className="app-header-titles">
                             <div className="app-header-title-row">
-                                <h1 className="app-header-title">{identity.title}</h1>
-                                {identity.tag ? <span className="app-header-tag">{identity.tag}</span> : null}
+                                <h1 className="app-header-title">{title}</h1>
+                                {isHome ? (
+                                    <span className={`app-header-online ${isOnline ? '' : 'app-header-online-off'}`.trim()}>
+                                        <i aria-hidden="true" />{isOnline ? 'Online' : 'Offline'}
+                                    </span>
+                                ) : identity.tag ? <span className="app-header-tag">{identity.tag}</span> : null}
                             </div>
                             <p className="app-header-subtitle">{subtitle}</p>
                         </div>

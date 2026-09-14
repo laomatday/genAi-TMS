@@ -10,25 +10,23 @@ export interface ApprovalGroup { id: string; title: string; items: ApprovalItem[
 export interface ApprovalTypeConfig { label: string; icon: string; tone: string; }
 
 interface Props {
-  processing: string | null;
-  handleAction: (docId: string, status: 'Approved' | 'Rejected', type: 'leave' | 'explanation') => void;
   expandedApprovalGroup: string | null;
   setExpandedApprovalGroup: React.Dispatch<React.SetStateAction<string | null>>;
   totalPending: number;
   approvalGroups: ApprovalGroup[];
   renderDateRange: (from: string, to: string) => string;
   getTypeConfig: (type: string, isLeave: boolean) => ApprovalTypeConfig;
+  onOpenDetail: (item: ApprovalItem) => void;
 }
 
 const ModalListRequest: React.FC<Props> = ({
-  processing,
-  handleAction,
   expandedApprovalGroup,
   setExpandedApprovalGroup,
   totalPending,
   approvalGroups,
   renderDateRange,
   getTypeConfig,
+  onOpenDetail,
 }) => {
   return (
     <motion.div
@@ -92,66 +90,44 @@ const ModalListRequest: React.FC<Props> = ({
                           ? renderDateRange(item.from_date, item.to_date)
                           : formatDateString(item.date.split('T')[0]);
                         const itemName = item.name || item.emp?.name || item.employee_id;
-                        const isProcessing = processing === item.id;
-
                         return (
                           <article key={item.id} className="approval-item">
-                            <div className="approval-head">
-                              <span className="approval-figure">
-                                <Avatar
-                                  src={item.emp?.face_ref_url}
-                                  name={itemName}
-                                  className="w-10 h-10 rounded-xl"
-                                  textSize="text-xs"
-                                />
-                                <span className={`approval-badge ui-tone-${config.tone}`} aria-hidden="true">
-                                  <span className="material-symbols-rounded">{config.icon}</span>
+                            <button type="button" className="approval-open" onClick={() => onOpenDetail(item)}>
+                              <span className="approval-head">
+                                <span className="approval-figure">
+                                  <Avatar
+                                    src={item.emp?.face_ref_url || item.emp?.avatar_url}
+                                    name={itemName}
+                                    className="w-10 h-10 rounded-xl"
+                                    textSize="text-xs"
+                                  />
+                                  <span className={`approval-badge ui-tone-${config.tone}`} aria-hidden="true">
+                                    <span className="material-symbols-rounded">{config.icon}</span>
+                                  </span>
+                                </span>
+
+                                <span className="approval-title">
+                                  <span className="approval-name">{itemName}</span>
+                                  <span className="approval-meta">
+                                    <span className={`ui-pill ui-pill-${config.tone === 'muted' ? 'muted' : config.tone}`}>{config.label}</span>
+                                    <span className="approval-date">{dateInfo}</span>
+                                  </span>
+                                  <span className="approval-meta">
+                                    {item.emp?.department ? <span className="ui-pill ui-pill-muted">{item.emp.department}</span> : null}
+                                    {item.emp?.position ? <span className="ui-pill ui-pill-muted">{item.emp.position}</span> : null}
+                                  </span>
                                 </span>
                               </span>
 
-                              <span className="approval-title">
-                                <span className="approval-name">{itemName}</span>
-                                <span className="approval-meta">
-                                  <span className={`ui-pill ui-pill-${config.tone === 'muted' ? 'muted' : config.tone}`}>{config.label}</span>
-                                  <span className="approval-date">{dateInfo}</span>
-                                </span>
-                                <span className="approval-meta">
-                                  {item.emp?.department ? <span className="ui-pill ui-pill-muted">{item.emp.department}</span> : null}
-                                  {item.emp?.position ? <span className="ui-pill ui-pill-muted">{item.emp.position}</span> : null}
-                                </span>
+                              <span className="request-card-reason request-card-reason-clamped">
+                                <strong>Lý do:</strong> {item.reason}
                               </span>
-                            </div>
 
-                            <p className="request-card-reason request-card-reason-clamped">
-                              <strong>Lý do:</strong> {item.reason}
-                            </p>
-
-                            <div className="approval-actions">
-                              <button
-                                type="button"
-                                disabled={!!processing}
-                                onClick={() => handleAction(item.id, 'Approved', item.itemType)}
-                                className="approval-action approval-action-approve"
-                              >
-                                {isProcessing ? (
-                                  <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span>
-                                ) : (
-                                  <>
-                                    <span className="material-symbols-rounded" aria-hidden="true">check</span>
-                                    Duyệt
-                                  </>
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={!!processing}
-                                onClick={() => handleAction(item.id, 'Rejected', item.itemType)}
-                                className="approval-action approval-action-reject"
-                              >
-                                <span className="material-symbols-rounded" aria-hidden="true">close</span>
-                                Từ chối
-                              </button>
-                            </div>
+                              <span className="approval-open-cta">
+                                Xem chi tiết
+                                <span className="material-symbols-rounded" aria-hidden="true">arrow_forward</span>
+                              </span>
+                            </button>
                           </article>
                         );
                       })}

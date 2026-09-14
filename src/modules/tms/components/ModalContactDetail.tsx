@@ -1,11 +1,11 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { Employee, LocationConfig } from '@/shared/types';
 import Avatar from '@/shared/components/common/Avatar';
 import ModalHeader from '@/shared/components/modals/ModalHeader';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { triggerHaptic } from '@/core/utils/helpers';
 import BottomNav, { TabType } from './BottomNav';
-import { TMS_LIMITS } from '@/shared/constants';
+import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
 
 interface Props {
     contact: Employee | null;
@@ -44,10 +44,9 @@ const ContactDetailRow: React.FC<ContactDetailRowProps> = ({ icon, tone, label, 
 };
 
 const ModalContactDetail: React.FC<Props> = ({ contact, isOpen, onClose, locationsMap, empNameMap, locations, onNavigate }) => {
-    const touchStart = useRef<{ x: number, y: number } | null>(null);
-    const touchEnd = useRef<{ x: number, y: number } | null>(null);
     const activeTab: TabType = 'contacts';
     const dialogRef = useModalAccessibility(isOpen && !!contact, onClose);
+    const swipeBackHandlers = useModalSwipeBack(onClose);
 
     const contactAddress = useMemo(() => {
         if (!contact) return '';
@@ -62,31 +61,6 @@ const ModalContactDetail: React.FC<Props> = ({ contact, isOpen, onClose, locatio
 
     if (!contact || !isOpen) return null;
 
-    const onTouchStart = (e: React.TouchEvent) => {
-        touchEnd.current = null;
-        const touch = e.targetTouches[0];
-        if (touch) touchStart.current = { x: touch.clientX, y: touch.clientY };
-    };
-
-    const onTouchMove = (e: React.TouchEvent) => {
-        const touch = e.targetTouches[0];
-        if (touch) touchEnd.current = { x: touch.clientX, y: touch.clientY };
-    };
-
-    const onTouchEnd = (e: React.TouchEvent) => {
-        if (!touchStart.current || !touchEnd.current) return;
-        const distanceX = touchStart.current.x - touchEnd.current.x;
-        const distanceY = touchStart.current.y - touchEnd.current.y;
-
-        if (Math.abs(distanceX) < Math.abs(distanceY)) return;
-
-        if (distanceX > TMS_LIMITS.SWIPE_MODAL_CLOSE_PX) {
-            e.stopPropagation();
-            triggerHaptic('light');
-            onClose();
-        }
-    };
-
     const shortId = contact.employee_id ? String(contact.employee_id) : '';
 
     return (
@@ -97,6 +71,7 @@ const ModalContactDetail: React.FC<Props> = ({ contact, isOpen, onClose, locatio
             role="dialog"
             aria-modal="true"
             aria-labelledby="contact-detail-title"
+            {...swipeBackHandlers}
         >
             <div className="app-modal-header-layer app-contact-header-layer">
                 <ModalHeader
@@ -106,12 +81,7 @@ const ModalContactDetail: React.FC<Props> = ({ contact, isOpen, onClose, locatio
                 />
             </div>
 
-            <div
-                className="app-modal-content no-scrollbar"
-                onTouchStart={onTouchStart}
-                onTouchMove={onTouchMove}
-                onTouchEnd={onTouchEnd}
-            >
+            <div className="app-modal-content no-scrollbar">
                 <div className="ui-stack ui-stack-lg animate-fade-in">
                     {/* Identity ------------------------------------------- */}
                     <section className="profile-hero">

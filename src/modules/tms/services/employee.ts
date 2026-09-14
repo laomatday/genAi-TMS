@@ -460,6 +460,21 @@ export function determineShift(timeStr: string, shifts: ShiftConfig[]): ShiftCon
   const sorted = [...shifts].sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));
   const current = timeToMinutes(timeStr);
   const firstShift = sorted[0] ?? fallback;
+
+  // A night shift can finish after midnight. Resolve that carried-over window
+  // before treating an early-morning time as "before the first shift".
+  const carriedOverShift = sorted.find((shift) => {
+    const start = timeToMinutes(shift.start);
+    const boundary = timeToMinutes(shift.break_point || shift.end);
+    return boundary < start && current <= boundary;
+  });
+  if (carriedOverShift) return carriedOverShift;
+
+  // When two configured shifts meet at the same minute, that minute belongs
+  // to the shift that starts now, not to the preceding shift that just ended.
+  const startingShift = sorted.find((shift) => timeToMinutes(shift.start) === current);
+  if (startingShift) return startingShift;
+
   if (current < timeToMinutes(firstShift.start)) return firstShift;
 
   for (const shift of sorted) {

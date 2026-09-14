@@ -1,18 +1,46 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardData } from '@/shared/types';
 import {
   formatDateString,
-  formatVietnameseDayHeader,
   getCurrentTimeStr,
   timeToMinutes,
   toISODateString,
   triggerHaptic,
 } from '@/core/utils/helpers';
 import { determineShift, togglePause } from '@/modules/tms/services/employee';
+import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import Spinner from '@/shared/components/common/Spinner';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
-import { TMS_LIMITS } from '@/shared/constants';
+import { LEAVE_REQUEST_TYPES, TMS_LIMITS } from '@/shared/constants';
+
+const MINUTES_PER_HOUR = 60;
+const MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR;
+
+function formatWorkedDuration(minutes: number) {
+  const safeMinutes = Math.max(0, Math.floor(minutes));
+  const hours = Math.floor(safeMinutes / MINUTES_PER_HOUR);
+  return `${hours}h ${safeMinutes % MINUTES_PER_HOUR}m`;
+}
+
+function monthContext(date: Date) {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  return {
+    key: `${year}-${String(month + 1).padStart(2, '0')}`,
+    title: `Chỉ số tháng ${month + 1}`,
+    period: `${formatDateString(new Date(year, month, 1)).slice(0, 5)} – ${formatDateString(new Date(year, month + 1, 0)).slice(0, 5)}`,
+  };
+}
+
+function formatHomeDate(date: Date) {
+  return new Intl.DateTimeFormat('vi-VN', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
+}
 
 interface Props {
   data: DashboardData | null;
@@ -23,6 +51,8 @@ interface Props {
   onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
   onExplain?: (date: string, reason: string) => void;
   explainableItems?: { date: string; explainReason: string }[];
+  onNavigate?: (tab: 'history' | 'requests' | 'calendar') => void;
+  onCreateRequest?: (type: string) => void;
 }
 
 const TabHome: React.FC<Props> = ({
@@ -34,10 +64,14 @@ const TabHome: React.FC<Props> = ({
   onAlert,
   onExplain,
   explainableItems,
+  onNavigate,
+  onCreateRequest,
 }) => {
   const [timeStr, setTimeStr] = useState(() => getCurrentTimeStr());
-  const [dateStr, setDateStr] = useState(() => formatVietnameseDayHeader(new Date()));
+  const [secondsStr, setSecondsStr] = useState(() => String(new Date().getSeconds()).padStart(2, '0'));
+  const [dateStr, setDateStr] = useState(() => formatHomeDate(new Date()));
   const [isPausing, setIsPausing] = useState(false);
+  const pauseInFlightRef = useRef(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [holidayConfirm, setHolidayConfirm] = useState<{ isOpen: boolean; name: string }>({ isOpen: false, name: '' });
   const [earlyCheckoutConfirm, setEarlyCheckoutConfirm] = useState<{ isOpen: boolean; minutes: number }>({ isOpen: false, minutes: 0 });
@@ -46,19 +80,13 @@ const TabHome: React.FC<Props> = ({
     const update = () => {
       const now = new Date();
       setTimeStr(now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false }));
-      setDateStr(formatVietnameseDayHeader(now));
+      setSecondsStr(String(now.getSeconds()).padStart(2, '0'));
+      setDateStr(formatHomeDate(now));
     };
     update();
     const timer = window.setInterval(update, TMS_LIMITS.CLOCK_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, []);
-
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Chào buổi sáng';
-    if (hour < 18) return 'Chào buổi chiều';
-    return 'Chào buổi tối';
-  }, [timeStr]);
 
   const todaysAtt = useMemo(() => {
     const today = toISODateString(new Date());
@@ -117,9 +145,54 @@ const TabHome: React.FC<Props> = ({
   const pendingExplanation = explainableItems?.[0] || null;
   const summary = data?.history.summary;
   const lateMinutes = summary?.lateMins ?? 0;
+  const month = useMemo(() => monthContext(new Date()), [dateStr]);
+  const monthRows = useMemo(
+    () => data?.history.history.filter((item) => item.date.startsWith(month.key)) || [],
+    [data?.history.history, month.key],
+  );
+  const lateOccurrences = useMemo(
+    () => monthRows.filter((item) => Number(item.late_minutes || 0) > 0).length,
+    [monthRows],
+  );
   const workProgress = summary?.standardDays
     ? Math.min(100, Math.max(0, ((summary.workDays ?? 0) / summary.standardDays) * 100))
     : 0;
+
+  const workedMinutes = useMemo(() => {
+    if (!todaysAtt?.time_in) return 0;
+    if (checkedOut) return Math.round(Math.max(0, Number(todaysAtt.work_hours || 0)) * MINUTES_PER_HOUR);
+    const checkinMinutes = timeToMinutes(todaysAtt.time_in);
+    let currentMinutes = timeToMinutes(timeStr);
+    if (currentMinutes < checkinMinutes) currentMinutes += MINUTES_PER_DAY;
+    return Math.max(0, currentMinutes - checkinMinutes - Number(todaysAtt.total_break_mins || 0));
+  }, [checkedOut, timeStr, todaysAtt]);
+
+  const activeCenterId = todaysAtt?.center_id || data?.userProfile?.center_id || '';
+  const locationNames = useMemo(() => buildLocationNameMap(data), [data]);
+  const activeLocation = useMemo(
+    () => data?.locations.find((location) => location.center_id === activeCenterId) || null,
+    [activeCenterId, data?.locations],
+  );
+  const directoryLocationName = data?.locationDirectory.find((location) => location.center_id === activeCenterId)?.center_name;
+  const recordedLocationName = todaysAtt?.location_name && todaysAtt.location_name !== activeCenterId
+    ? todaysAtt.location_name
+    : '';
+  const locationName = recordedLocationName
+    || activeLocation?.location_name
+    || activeLocation?.center_name
+    || locationNames[activeCenterId]
+    || directoryLocationName
+    || locationNames[data?.userProfile?.center_id || '']
+    || activeCenterId
+    || 'Chưa xác định';
+  const geofenceRadius = activeLocation?.radius_meters || data?.systemConfig.MAX_DISTANCE_METERS;
+  const shiftHeadline = paused
+    ? 'Đang tạm dừng'
+    : todaysAtt?.time_out
+      ? `Đã check-out lúc ${todaysAtt.time_out}`
+      : todaysAtt?.time_in
+        ? `Đã check-in lúc ${todaysAtt.time_in}`
+        : attendanceLabel;
 
   const handleCheckIn = () => {
     triggerHaptic('medium');
@@ -151,27 +224,38 @@ const TabHome: React.FC<Props> = ({
   };
 
   const handlePause = async () => {
-    if (isPausing) return;
+    if (pauseInFlightRef.current) return;
+    pauseInFlightRef.current = true;
     triggerHaptic('medium');
     setIsPausing(true);
-    const result = await togglePause();
-    if (result.success) await onRefresh();
-    else onAlert('Không thể cập nhật', result.message, 'error');
-    setIsPausing(false);
+    try {
+      const result = await togglePause();
+      if (!result.success) {
+        onAlert('Không thể cập nhật', result.message, 'error');
+        return;
+      }
+      await onRefresh();
+      onAlert('Đã cập nhật trạng thái ca', result.message, 'success');
+    } catch (error) {
+      onAlert('Không thể cập nhật', error instanceof Error ? error.message : 'Vui lòng thử lại.', 'error');
+    } finally {
+      pauseInFlightRef.current = false;
+      setIsPausing(false);
+    }
   };
 
   const action = paused
-    ? { label: 'Tiếp tục làm việc', icon: 'play_arrow', run: handlePause, disabled: isPausing }
+    ? { label: 'Tiếp tục làm việc', hint: 'Chạm để tiếp tục', icon: 'play_arrow', run: handlePause, disabled: isPausing }
     : working
-      ? { label: 'Check-out', icon: 'logout', run: handleCheckOut, disabled: false }
+      ? { label: 'Check-out', hint: 'Chạm để xác nhận', icon: 'logout', run: handleCheckOut, disabled: false }
       : checkedOut
-        ? { label: 'Đã hoàn tất hôm nay', icon: 'task_alt', run: () => undefined, disabled: true }
-        : { label: 'Quét QR chấm công', icon: 'qr_code_scanner', run: handleCheckIn, disabled: false };
+        ? { label: 'Đã hoàn tất', hint: 'Đã ghi nhận hôm nay', icon: 'task_alt', run: () => undefined, disabled: true }
+        : { label: 'Chấm công', hint: 'Chạm để quét QR', icon: 'qr_code_scanner', run: handleCheckIn, disabled: false };
 
   if (loading && !data) {
     return (
-      <div className="employee-page flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
+      <div className="employee-page home-loading">
+        <div className="home-loading-content">
           <Spinner size="lg" />
           <p className="app-loading-note">Đang tải trạng thái làm việc…</p>
         </div>
@@ -181,15 +265,27 @@ const TabHome: React.FC<Props> = ({
 
   return (
     <>
-      <PullToRefresh onRefresh={onRefresh} className="home-page page-bg transition-colors duration-300">
+      <PullToRefresh onRefresh={onRefresh} className="home-page page-bg">
         <div className="employee-page employee-page-home home-dashboard animate-fade-in">
-          <section className="home-hero">
-            <div className="home-greeting">
-              <span>{greeting}</span>
-              <h2>{data?.userProfile?.name?.split(' ').pop() || ''}!</h2>
+          <section className="home-hero home-panel">
+            <div className="home-hero-topline">
+              <span className="home-date-chip">
+                <span className="material-symbols-rounded" aria-hidden="true">calendar_today</span>
+                {dateStr}
+              </span>
+              <span className={`home-shift-chip home-shift-chip-${attendanceState}`}>
+                <span className="home-status-dot" aria-hidden="true" />
+                {currentShift.name}
+              </span>
             </div>
-            <h1 className="clock-display tabular-nums">{timeStr}</h1>
-            <p className="home-date">{dateStr}</p>
+
+            <h1 className="clock-display tabular-nums">
+              {timeStr}<span>:{secondsStr}</span>
+            </h1>
+            <p className="home-worked-pill">
+              <span className="material-symbols-rounded" aria-hidden="true">schedule</span>
+              Đã làm: <strong className="tabular-nums">{formatWorkedDuration(workedMinutes)}</strong> hôm nay
+            </p>
 
             <div className="home-status">
               <button
@@ -202,9 +298,15 @@ const TabHome: React.FC<Props> = ({
                   setIsDetailsOpen((value) => !value);
                 }}
               >
-                <span className={`home-status-dot home-status-dot-${attendanceState}`} aria-hidden="true" />
-                <span>{attendanceLabel}</span>
-                <span className={`material-symbols-rounded ${isDetailsOpen ? 'rotate-180' : ''}`} aria-hidden="true">expand_more</span>
+                <span className="home-status-icon" aria-hidden="true">
+                  <span className="material-symbols-rounded">{paused ? 'pause_circle' : checkedOut ? 'task_alt' : working ? 'verified_user' : 'schedule'}</span>
+                </span>
+                <span className="home-status-copy">
+                  <strong>{shiftHeadline}</strong>
+                  <small>Khung giờ quy định {currentShift.start} – {currentShift.end}</small>
+                </span>
+                <span className="home-status-detail-label">Chi tiết</span>
+                <span className={`material-symbols-rounded home-status-chevron ${isDetailsOpen ? 'rotate-180' : ''}`} aria-hidden="true">expand_more</span>
               </button>
               <div id="home-shift-details" className={`home-status-details ${isDetailsOpen ? 'home-status-details-open' : ''}`} aria-hidden={!isDetailsOpen}>
                 <dl>
@@ -219,8 +321,10 @@ const TabHome: React.FC<Props> = ({
 
           </section>
 
-          <section className="home-action" aria-label="Thao tác chấm công">
+          <section className="home-action home-panel" aria-label="Thao tác chấm công">
             <div className={`home-action-radar home-action-radar-${attendanceState}`}>
+              <span className="home-action-orbit home-action-orbit-outer" aria-hidden="true" />
+              <span className="home-action-orbit home-action-orbit-inner" aria-hidden="true" />
               {action.disabled ? null : (
                 <>
                   <span className="home-action-ring" aria-hidden="true" />
@@ -231,105 +335,134 @@ const TabHome: React.FC<Props> = ({
                 type="button"
                 className={`home-action-button home-action-button-${attendanceState}`}
                 disabled={action.disabled}
+                aria-busy={isPausing}
                 onClick={() => void action.run()}
               >
                 {isPausing ? <Spinner size="sm" /> : <span className="material-symbols-rounded" aria-hidden="true">{action.icon}</span>}
                 <span>{action.label}</span>
+                <small>{action.hint}</small>
               </button>
             </div>
-            {working && !paused ? (
-              <button type="button" className="home-pause-button" disabled={isPausing} onClick={() => void handlePause()}>
-                <span className="material-symbols-rounded" aria-hidden="true">pause</span>
-                Tạm dừng
+
+            <div className="home-location-pill">
+              <span className={`home-status-dot home-status-dot-${attendanceState}`} aria-hidden="true" />
+              <span>{locationName}</span>
+              {geofenceRadius ? <><span className="home-location-separator" aria-hidden="true">•</span><strong>Bán kính {Math.round(geofenceRadius)}m</strong></> : null}
+            </div>
+
+            <div className="home-secondary-actions">
+              {working ? (
+                <button type="button" className={`home-pause-button ${paused ? 'home-pause-button-active' : ''}`} disabled={isPausing} onClick={() => void handlePause()}>
+                  <span className="material-symbols-rounded" aria-hidden="true">{paused ? 'play_arrow' : 'pause_circle'}</span>
+                  {paused ? 'Tiếp tục làm việc' : 'Nghỉ giữa ca (Break)'}
+                </button>
+              ) : <span />}
+              <button type="button" className="home-history-button" onClick={() => onNavigate?.('history')}>
+                <span className="material-symbols-rounded" aria-hidden="true">history</span>
+                Lịch sử hôm nay
               </button>
-            ) : null}
+            </div>
           </section>
 
-          {/* Month to date ------------------------------------------ */}
-          <div>
-            <div className="ui-label-row">
-              <span className="ui-label">Tháng này</span>
-              <span className="ui-label">Cập nhật liên tục</span>
-            </div>
-
-            <div className="ui-metrics ui-metrics-half animate-slide-up">
-              <div className="ui-metric">
-                <span className="ui-metric-head">
-                  <span>Công chuẩn</span>
-                  <span className="material-symbols-rounded ui-tone-primary" aria-hidden="true">calendar_today</span>
-                </span>
-                <span className="ui-metric-value">
-                  {summary?.standardDays ?? 0}
-                  <span className="ui-metric-unit">ngày</span>
-                </span>
-                <span className="ui-metric-foot">Định mức kỳ công</span>
-              </div>
-
-              <div className="ui-metric">
-                <span className="ui-metric-head">
-                  <span>Công thực tế</span>
-                  <span className="material-symbols-rounded ui-tone-success" aria-hidden="true">task_alt</span>
-                </span>
-                <span className="ui-metric-value ui-tone-success">
-                  {summary?.workDays ?? 0}
-                  <span className="ui-metric-unit">ngày</span>
-                </span>
-                <span className="ui-progress" role="img" aria-label={`Đã đạt ${summary?.workDays ?? 0} trên ${summary?.standardDays ?? 0} ngày công`}>
-                  <span style={{ width: `${workProgress}%` }} />
-                </span>
-              </div>
-
-              <div className="ui-metric">
-                <span className="ui-metric-head">
-                  <span>Phép đã dùng</span>
-                  <span className="material-symbols-rounded ui-tone-info" aria-hidden="true">beach_access</span>
-                </span>
-                <span className="ui-metric-value ui-tone-info">
-                  {summary?.leaveDays ?? 0}
-                  <span className="ui-metric-unit">ngày</span>
-                </span>
-                <span className="ui-metric-foot">Còn {summary?.remainingLeave ?? 0} ngày</span>
-              </div>
-
-              <div className={`ui-metric ${lateMinutes > 0 ? 'ui-metric-attention' : ''}`.trim()}>
-                <span className="ui-metric-head">
-                  <span>Đi trễ</span>
-                  <span className={`material-symbols-rounded ${lateMinutes > 0 ? 'ui-tone-danger' : 'ui-tone-muted'}`} aria-hidden="true">schedule</span>
-                </span>
-                <span className={`ui-metric-value ${lateMinutes > 0 ? 'ui-tone-danger' : ''}`.trim()}>
-                  {lateMinutes}
-                  <span className="ui-metric-unit">phút</span>
-                </span>
-                <span className="ui-metric-foot">{lateMinutes > 0 ? 'Có vi phạm giờ vào' : 'Không vi phạm'}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Something needs you ------------------------------------- */}
           {pendingExplanation && onExplain ? (
-            <section className="ui-card ui-card-attention ui-card-pad animate-slide-up home-prompt" aria-label="Cần giải trình">
-              <div className="home-prompt-head">
-                <span className="ui-tile ui-tile-soft ui-tone-danger" aria-hidden="true">
-                  <span className="material-symbols-rounded">notification_important</span>
-                </span>
-                <span className="home-prompt-text">
-                  <span className="home-prompt-title">Cần giải trình · {formatDateString(pendingExplanation.date)}</span>
-                  <span className="home-prompt-reason">{pendingExplanation.explainReason}</span>
-                </span>
-              </div>
+            <section className="home-prompt animate-slide-up" aria-label="Cần giải trình">
+              <span className="home-prompt-icon" aria-hidden="true"><span className="material-symbols-rounded">warning_amber</span></span>
+              <span className="home-prompt-text">
+                <span className="home-prompt-meta"><strong>Cần giải trình</strong><span aria-hidden="true">•</span>{formatDateString(pendingExplanation.date).slice(0, 5)}</span>
+                <span className="home-prompt-title">{pendingExplanation.explainReason}</span>
+                <span className="home-prompt-reason">Ca {currentShift.start} – {currentShift.end} · Thiếu dữ liệu chấm công</span>
+              </span>
               <button
                 type="button"
-                className="ui-cta"
+                className="home-prompt-action"
                 onClick={() => {
                   triggerHaptic('light');
                   onExplain(pendingExplanation.date, pendingExplanation.explainReason);
                 }}
               >
-                <span className="material-symbols-rounded" aria-hidden="true">edit_document</span>
-                Giải trình ngay
+                Xử lý
               </button>
             </section>
           ) : null}
+
+          <section className="home-metrics-section">
+            <div className="home-section-heading">
+              <span><strong>{month.title}</strong><i aria-hidden="true" /></span>
+              <small className="tabular-nums">{month.period}</small>
+            </div>
+
+            <div className="home-metrics ui-metrics ui-metrics-half animate-slide-up">
+              <div className="ui-metric home-metric-standard">
+                <span className="ui-metric-head">
+                  <span>Công chuẩn</span>
+                  <span className="home-metric-icon material-symbols-rounded" aria-hidden="true">event_available</span>
+                </span>
+                <span className="ui-metric-value">
+                  {summary?.standardDays ?? 0}
+                  <span className="ui-metric-unit">ngày</span>
+                </span>
+                <progress className="ui-progress" value={summary?.standardDays ?? 0} max={summary?.standardDays || 1} aria-label={`${summary?.standardDays ?? 0} ngày công chuẩn`} />
+              </div>
+
+              <div className="ui-metric home-metric-worked">
+                <span className="ui-metric-head">
+                  <span>Công thực tế</span>
+                  <span className="home-metric-icon material-symbols-rounded ui-tone-success" aria-hidden="true">done_all</span>
+                </span>
+                <span className="ui-metric-value ui-tone-success">
+                  {summary?.workDays ?? 0}
+                  <span className="ui-metric-unit">ngày</span>
+                </span>
+                <progress
+                  className="ui-progress"
+                  value={summary?.workDays ?? 0}
+                  max={summary?.standardDays || 1}
+                  aria-label={`Đã đạt ${summary?.workDays ?? 0} trên ${summary?.standardDays ?? 0} ngày công`}
+                >
+                  {workProgress}%
+                </progress>
+              </div>
+
+              <div className="ui-metric home-metric-leave">
+                <span className="ui-metric-head">
+                  <span>Phép đã dùng</span>
+                  <span className="home-metric-icon material-symbols-rounded ui-tone-warning" aria-hidden="true">beach_access</span>
+                </span>
+                <span className="ui-metric-value ui-tone-info">
+                  {summary?.leaveDays ?? 0}
+                  <span className="ui-metric-unit">ngày</span>
+                </span>
+                <span className="ui-metric-foot"><span>Khả dụng</span><strong>{summary?.remainingLeave ?? 0} ngày</strong></span>
+              </div>
+
+              <div className={`ui-metric home-metric-late ${lateMinutes > 0 ? 'ui-metric-attention' : ''}`.trim()}>
+                <span className="ui-metric-head">
+                  <span>Đi trễ</span>
+                  <span className={`home-metric-icon material-symbols-rounded ${lateMinutes > 0 ? 'ui-tone-danger' : 'ui-tone-muted'}`} aria-hidden="true">timer_off</span>
+                </span>
+                <span className={`ui-metric-value ${lateMinutes > 0 ? 'ui-tone-danger' : ''}`.trim()}>
+                  {lateMinutes}
+                  <span className="ui-metric-unit">phút</span>
+                </span>
+                <span className="ui-metric-foot"><span>Tần suất</span><strong>{lateOccurrences} lần</strong></span>
+              </div>
+            </div>
+          </section>
+
+          <section className="home-shortcuts" aria-label="Thao tác nhanh">
+            <button type="button" onClick={() => onCreateRequest?.(LEAVE_REQUEST_TYPES[0])}>
+              <span className="home-shortcut-icon material-symbols-rounded" aria-hidden="true">event_busy</span>
+              <span>Xin nghỉ</span>
+            </button>
+            <button type="button" onClick={() => onNavigate?.('requests')}>
+              <span className="home-shortcut-icon material-symbols-rounded" aria-hidden="true">description</span>
+              <span>Đề xuất</span>
+            </button>
+            <button type="button" onClick={() => onNavigate?.('calendar')}>
+              <span className="home-shortcut-icon material-symbols-rounded" aria-hidden="true">calendar_month</span>
+              <span>Lịch làm việc</span>
+            </button>
+          </section>
         </div>
       </PullToRefresh>
 
