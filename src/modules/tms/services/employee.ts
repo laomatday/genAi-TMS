@@ -7,6 +7,7 @@ import {
   TMS_DEFAULT_SYSTEM_CONFIG,
   TMS_LIMITS,
   TMS_STORAGE,
+  TMS_TIME,
   type ApprovalRoleConfig,
 } from '@/shared/constants';
 import type {
@@ -584,6 +585,45 @@ interface SubmitRequestInput {
   reason: string;
 }
 
+export interface SubmitExplanationInput {
+  date: string;
+  reason: string;
+  requestType?: 'EXPLANATION' | 'CORRECTION';
+  requestedCheckin?: string;
+  requestedCheckout?: string;
+}
+
+const CLOCK_VALUE_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+function addCalendarDay(date: string) {
+  const [year, month, day] = date.split('-').map(Number);
+  const value = new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, (day ?? 1) + 1));
+  return value.toISOString().slice(0, 10);
+}
+
+export function attendanceRequestPayload(input: SubmitExplanationInput) {
+  const requestType = input.requestType ?? 'EXPLANATION';
+  const payload: Record<string, string> = {
+    request_type: requestType,
+    from_date: input.date,
+    to_date: input.date,
+    reason: input.reason,
+  };
+  if (requestType === 'EXPLANATION') return payload;
+
+  const checkin = input.requestedCheckin?.trim() ?? '';
+  const checkout = input.requestedCheckout?.trim() ?? '';
+  if (!CLOCK_VALUE_PATTERN.test(checkin) || !CLOCK_VALUE_PATTERN.test(checkout)) {
+    throw new Error('Điều chỉnh công cần đủ giờ check-in và check-out hợp lệ.');
+  }
+  const checkinMinutes = timeToMinutes(checkin);
+  const checkoutMinutes = timeToMinutes(checkout);
+  const checkoutDate = checkoutMinutes <= checkinMinutes ? addCalendarDay(input.date) : input.date;
+  payload.requested_checkin = `${input.date}T${checkin}:00${TMS_TIME.UTC_OFFSET}`;
+  payload.requested_checkout = `${checkoutDate}T${checkout}:00${TMS_TIME.UTC_OFFSET}`;
+  return payload;
+}
+
 export async function submitRequest(input: SubmitRequestInput) {
   try {
     const { data, error } = await supabase.rpc('workforce_command', {
@@ -603,16 +643,11 @@ export async function submitRequest(input: SubmitRequestInput) {
   }
 }
 
-export async function submitExplanation(input: { date: string; reason: string }) {
+export async function submitExplanation(input: SubmitExplanationInput) {
   try {
     const { data, error } = await supabase.rpc('workforce_command', {
       p_action: 'request.submit',
-      p_args: {
-        request_type: 'EXPLANATION',
-        from_date: input.date,
-        to_date: input.date,
-        reason: input.reason,
-      },
+      p_args: attendanceRequestPayload(input),
     });
     if (error) throw error;
     if (!data || typeof data !== 'object' || (data as DataRow).ok !== true) throw new Error('Không gửi được giải trình.');

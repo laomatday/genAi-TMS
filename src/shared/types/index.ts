@@ -120,6 +120,15 @@ export interface Explanation {
   created_at: string;
 }
 
+export interface ExplainableAttendanceItem {
+  date: string;
+  explainReason: string;
+  missingCheckin: boolean;
+  missingCheckout: boolean;
+  recordedCheckin?: string;
+  recordedCheckout?: string;
+}
+
 export interface LocationConfig {
   id?: string;
   center_id: string;

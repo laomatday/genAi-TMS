@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import IconButton from '@/shared/components/common/IconButton';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { TMS_LIMITS } from '@/shared/constants';
+import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
 
 interface Props {
   onClose: () => void;
@@ -91,6 +92,7 @@ const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const dialogRef = useModalAccessibility(true, onClose);
+  const swipeBackHandlers = useModalSwipeBack(onClose, scanHandledRef.current);
   handlersRef.current = { onScan, onError };
 
   useEffect(() => {
@@ -216,7 +218,7 @@ const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
   };
 
   return (
-    <div ref={dialogRef} tabIndex={-1} className="scanner-modal" role="dialog" aria-modal="true" aria-labelledby="qr-scanner-title">
+    <div ref={dialogRef} tabIndex={-1} className="scanner-modal" role="dialog" aria-modal="true" aria-labelledby="qr-scanner-title" data-swipe-surface="modal" {...swipeBackHandlers}>
       <header className="scanner-toolbar">
         <div className="scanner-title">
           <span className="scanner-title-icon material-symbols-rounded" aria-hidden="true">qr_code_scanner</span>

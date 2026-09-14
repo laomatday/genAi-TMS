@@ -1,7 +1,14 @@
-import { useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from 'react';
+import { useCallback, useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from 'react';
 import { triggerHaptic } from '@/core/utils/helpers';
 import Spinner from '@/shared/components/common/Spinner';
 import { useToast } from '@/shared/contexts/useToast';
+import { TMS_LIMITS } from '@/shared/constants';
+import {
+  resolveGestureAxis,
+  shouldIgnoreHorizontalSwipe,
+  type GestureAxis,
+  type GesturePoint,
+} from '@/shared/gestures/horizontalSwipe';
 
 interface PullToRefreshProps {
   onRefresh: () => Promise<void>;
@@ -15,10 +22,10 @@ type PullToRefreshStyle = CSSProperties & {
   '--pull-opacity': number;
 };
 
-const DRAG_START_THRESHOLD = 10;
-const REFRESH_THRESHOLD = 60;
-const MAX_PULL_DISTANCE = 120;
-const DRAG_RESISTANCE = 0.4;
+interface PullGesture {
+  start: GesturePoint;
+  axis: GestureAxis;
+}
 
 export default function PullToRefresh({
   onRefresh,
@@ -26,40 +33,87 @@ export default function PullToRefresh({
   className = '',
   style = {},
 }: PullToRefreshProps) {
-  const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState('');
-  const touchStartY = useRef<number | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const refreshingRef = useRef(false);
+  const gestureRef = useRef<PullGesture | null>(null);
+  const pullDistanceRef = useRef(0);
+  const thresholdHapticRef = useRef(false);
   const { showToast } = useToast();
 
+  const setVisualPullDistance = useCallback((distance: number) => {
+    const nextDistance = Math.max(0, distance);
+    pullDistanceRef.current = nextDistance;
+    const element = contentRef.current;
+    if (!element) return;
+    element.style.setProperty('--pull-distance', `${nextDistance}px`);
+    element.style.setProperty('--pull-opacity', String(Math.min(nextDistance / 40, 1)));
+  }, []);
+
+  const resetGesture = useCallback(() => {
+    gestureRef.current = null;
+    thresholdHapticRef.current = false;
+  }, []);
+
   const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    resetGesture();
+    if (
+      event.touches.length !== 1
+      || refreshingRef.current
+      || (contentRef.current?.scrollTop ?? 0) > 0
+      || shouldIgnoreHorizontalSwipe(event.target, event.currentTarget)
+    ) return;
     const touch = event.touches[0];
-    touchStartY.current = contentRef.current?.scrollTop === 0
-      ? touch?.clientY ?? null
-      : null;
+    if (!touch) return;
+    gestureRef.current = {
+      start: { x: touch.clientX, y: touch.clientY, time: event.timeStamp },
+      axis: 'pending',
+    };
   };
 
   const handleTouchMove = (event: TouchEvent<HTMLDivElement>) => {
-    if (touchStartY.current === null || contentRef.current?.scrollTop !== 0 || isRefreshing) return;
-
+    const gesture = gestureRef.current;
+    if (!gesture || event.touches.length !== 1 || refreshingRef.current) return;
     const touch = event.touches[0];
     if (!touch) return;
-    const dragDistance = touch.clientY - touchStartY.current;
-    if (dragDistance <= DRAG_START_THRESHOLD) return;
+    const current = { x: touch.clientX, y: touch.clientY, time: event.timeStamp };
+    if (gesture.axis === 'pending') {
+      gesture.axis = resolveGestureAxis(gesture.start, current, {
+        lockDistancePx: TMS_LIMITS.TOUCH_AXIS_LOCK_PX,
+        dominanceRatio: TMS_LIMITS.TOUCH_AXIS_DOMINANCE_RATIO,
+      });
+    }
+    if (gesture.axis === 'horizontal') {
+      setVisualPullDistance(0);
+      return;
+    }
+    if (gesture.axis !== 'vertical' || (contentRef.current?.scrollTop ?? 0) > 0) return;
 
-    setPullDistance(Math.min(
-      (dragDistance - DRAG_START_THRESHOLD) * DRAG_RESISTANCE,
-      MAX_PULL_DISTANCE,
-    ));
+    const dragDistance = current.y - gesture.start.y;
+    if (dragDistance <= TMS_LIMITS.PULL_REFRESH_START_PX) {
+      setVisualPullDistance(0);
+      return;
+    }
+    event.preventDefault();
+    const visualDistance = Math.min(
+      (dragDistance - TMS_LIMITS.PULL_REFRESH_START_PX) * TMS_LIMITS.PULL_REFRESH_RESISTANCE,
+      TMS_LIMITS.PULL_REFRESH_MAX_PX,
+    );
+    setVisualPullDistance(visualDistance);
+    if (visualDistance >= TMS_LIMITS.PULL_REFRESH_TRIGGER_PX && !thresholdHapticRef.current) {
+      thresholdHapticRef.current = true;
+      triggerHaptic('light');
+    } else if (visualDistance < TMS_LIMITS.PULL_REFRESH_TRIGGER_PX) {
+      thresholdHapticRef.current = false;
+    }
   };
 
   const runRefresh = async () => {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
     setIsRefreshing(true);
-    setPullDistance(REFRESH_THRESHOLD);
+    setVisualPullDistance(TMS_LIMITS.PULL_REFRESH_TRIGGER_PX);
     setRefreshStatus('Đang cập nhật dữ liệu.');
     triggerHaptic('medium');
 
@@ -81,23 +135,29 @@ export default function PullToRefresh({
     } finally {
       refreshingRef.current = false;
       setIsRefreshing(false);
-      setPullDistance(0);
+      setVisualPullDistance(0);
     }
   };
 
   const handleTouchEnd = async () => {
-    touchStartY.current = null;
-    if (pullDistance <= REFRESH_THRESHOLD || isRefreshing) {
-      setPullDistance(0);
+    const shouldRefresh = pullDistanceRef.current >= TMS_LIMITS.PULL_REFRESH_TRIGGER_PX;
+    resetGesture();
+    if (!shouldRefresh || refreshingRef.current) {
+      setVisualPullDistance(0);
       return;
     }
     await runRefresh();
   };
 
+  const handleTouchCancel = () => {
+    resetGesture();
+    if (!refreshingRef.current) setVisualPullDistance(0);
+  };
+
   const pullStyle = {
     ...style,
-    '--pull-distance': `${pullDistance}px`,
-    '--pull-opacity': Math.min(pullDistance / 40, 1),
+    '--pull-distance': `${pullDistanceRef.current}px`,
+    '--pull-opacity': Math.min(pullDistanceRef.current / 40, 1),
   } as PullToRefreshStyle;
 
   return (
@@ -108,6 +168,7 @@ export default function PullToRefresh({
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={() => void handleTouchEnd()}
+      onTouchCancel={handleTouchCancel}
       aria-busy={isRefreshing}
     >
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">{refreshStatus}</p>

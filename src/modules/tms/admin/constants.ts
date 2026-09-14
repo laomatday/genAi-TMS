@@ -43,6 +43,7 @@ export const ATTENDANCE_STATUS_LABELS: Record<TimesheetStatus, string> = {
 export const EXCEPTION_LABELS: Record<string, string> = {
   MISSING_CHECKIN: 'Thiếu check-in',
   MISSING_CHECKOUT: 'Thiếu check-out',
+  SUPERSEDED_BY_NEW_CHECKIN: 'Ca cũ được đóng khi mở ca mới',
   LATE: 'Đi trễ',
   EARLY_LEAVE: 'Về sớm',
   UNSCHEDULED_DAY: 'Ngoài lịch làm',

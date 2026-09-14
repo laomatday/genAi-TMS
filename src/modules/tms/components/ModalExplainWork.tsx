@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { DashboardData } from '@/shared/types';
+import type { DashboardData, ExplainableAttendanceItem } from '@/shared/types';
 import { submitExplanation } from '@/modules/tms/services/employee';
 import { formatDateString, triggerHaptic, toISODateString } from '@/core/utils/helpers';
 import ModalHeader from '@/shared/components/modals/ModalHeader';
@@ -16,7 +16,7 @@ interface Props {
     onSuccess: () => void;
     onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
     initialData?: { date: string, reason: string };
-    explainableItems: { date: string, explainReason: string }[];
+    explainableItems: ExplainableAttendanceItem[];
     sourceTab?: 'history' | 'requests';
     onNavigate: (tab: TabType) => void;
     data: DashboardData | null;
@@ -25,13 +25,15 @@ interface Props {
 interface ExplanationFormErrors {
     date?: string;
     reason?: string;
+    checkin?: string;
+    checkout?: string;
 }
 
-const REASON_MAX_LENGTH = 500;
+type ExplanationMode = 'EXPLANATION' | 'CORRECTION';
 
 /** An attendance flag carries its severity in its wording; the pill tone follows. */
 function flagTone(reason: string) {
-    if (reason.includes('Vắng') || reason.includes('Quên') || reason.includes('vi phạm')) return 'danger';
+    if (reason.includes('Vắng') || reason.includes('Quên') || reason.includes('Thiếu') || reason.includes('Không có') || reason.includes('vi phạm')) return 'danger';
     if (reason.includes('Trễ')) return 'warning';
     if (reason.includes('sớm') || reason.includes('lễ') || reason.includes('phép')) return 'info';
     return 'muted';
@@ -53,9 +55,15 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
     const [loading, setLoading] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [formErrors, setFormErrors] = useState<ExplanationFormErrors>({});
+    const [mode, setMode] = useState<ExplanationMode>('EXPLANATION');
+    const [checkinTime, setCheckinTime] = useState('');
+    const [checkoutTime, setCheckoutTime] = useState('');
     const activeTab: TabType = sourceTab;
 
     const reasonRef = useRef<HTMLTextAreaElement>(null);
+    const checkinRef = useRef<HTMLInputElement>(null);
+    const checkoutRef = useRef<HTMLInputElement>(null);
+    const initializedForOpenRef = useRef(false);
     const dialogRef = useModalAccessibility(isOpen, onClose, { closeOnEscape: !loading });
     const swipeBackHandlers = useModalSwipeBack(onClose, loading || confirmDialog.isOpen);
     const dateListbox = useListboxNavigation({
@@ -68,6 +76,12 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
 
     const lockDate = data?.systemConfig?.LOCK_DATE ?? TMS_LIMITS.LOCK_DATE;
     const maxPerMonth = data?.systemConfig?.MAX_EXPLANATIONS_PER_MONTH ?? TMS_LIMITS.MAX_EXPLANATIONS_PER_MONTH;
+    const selectedItem = useMemo(
+        () => selectedDate ? explainableItems.find((item) => item.date === selectedDate) ?? null : null,
+        [explainableItems, selectedDate],
+    );
+    const selectedItemHasMissingTime = Boolean(selectedItem?.missingCheckin || selectedItem?.missingCheckout);
+    const isCorrection = mode === 'CORRECTION' && selectedItemHasMissingTime;
 
     const { monthExplanationsCount, isPastMonthSelected } = useMemo(() => {
         if (!selectedDate) return { monthExplanationsCount: 0, isPastMonthSelected: false };
@@ -82,26 +96,43 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
     }, [selectedDate, data?.myExplanations]);
 
     useEffect(() => {
-        if (isOpen) {
-            setSelectedDate(initialData?.date || '');
-            setReason(initialData?.reason || '');
-            setFormErrors({});
-            setIsDropdownOpen(false);
+        if (!isOpen) {
+            initializedForOpenRef.current = false;
+            return;
         }
-    }, [isOpen, initialData]);
+        if (initializedForOpenRef.current) return;
+        initializedForOpenRef.current = true;
+        const initialDate = initialData?.date || '';
+        const initialItem = explainableItems.find((item) => item.date === initialDate);
+        setSelectedDate(initialDate);
+        setReason(initialData?.reason || '');
+        setMode(initialItem?.missingCheckin || initialItem?.missingCheckout ? 'CORRECTION' : 'EXPLANATION');
+        setCheckinTime(initialItem?.recordedCheckin || '');
+        setCheckoutTime(initialItem?.recordedCheckout || '');
+        setFormErrors({});
+        setIsDropdownOpen(false);
+    }, [explainableItems, initialData, isOpen]);
 
     const handlePreSubmit = () => {
         triggerHaptic('light');
         const requiredErrors: ExplanationFormErrors = {};
         if (!selectedDate) requiredErrors.date = 'Vui lòng chọn ngày cần giải trình.';
-        if (!reason.trim()) requiredErrors.reason = 'Vui lòng nhập lý do giải trình.';
+        if (reason.trim().length < TMS_LIMITS.REQUEST_REASON_MIN_LENGTH) {
+            requiredErrors.reason = `Lý do cần ít nhất ${TMS_LIMITS.REQUEST_REASON_MIN_LENGTH} ký tự.`;
+        }
+        if (isCorrection && !checkinTime) requiredErrors.checkin = 'Vui lòng nhập giờ check-in thực tế.';
+        if (isCorrection && !checkoutTime) requiredErrors.checkout = 'Vui lòng nhập giờ check-out thực tế.';
         if (Object.keys(requiredErrors).length > 0) {
             setFormErrors(requiredErrors);
             window.requestAnimationFrame(() => {
                 if (requiredErrors.date) dateListbox.triggerRef.current?.focus();
+                else if (requiredErrors.checkin) checkinRef.current?.focus();
+                else if (requiredErrors.checkout) checkoutRef.current?.focus();
                 else reasonRef.current?.focus();
             });
-            onAlert("Thiếu thông tin", "Vui lòng chọn ngày và nhập lý do giải trình.", 'error');
+            onAlert("Thiếu thông tin", isCorrection
+                ? "Vui lòng nhập đủ giờ thực tế và lý do điều chỉnh."
+                : "Vui lòng chọn ngày và nhập lý do giải trình.", 'error');
             return;
         }
 
@@ -168,11 +199,17 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
 
     const handleSubmitExplanation = async () => {
         setLoading(true);
-        const res = await submitExplanation({ date: selectedDate, reason });
+        const res = await submitExplanation({
+            date: selectedDate,
+            reason,
+            requestType: isCorrection ? 'CORRECTION' : 'EXPLANATION',
+            requestedCheckin: isCorrection ? checkinTime : undefined,
+            requestedCheckout: isCorrection ? checkoutTime : undefined,
+        });
 
         if (res.success) {
             triggerHaptic('success');
-            onAlert("Thành công", "Đã gửi giải trình.", 'success');
+            onAlert("Thành công", isCorrection ? "Đã gửi yêu cầu bổ sung giờ công." : "Đã gửi giải trình.", 'success');
             onSuccess();
             onClose();
         } else {
@@ -184,10 +221,13 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
         setConfirmDialog({ isOpen: false, isPastMonth: false });
     };
 
-    const handleDateSelect = (date: string, suggestedReason: string) => {
+    const handleDateSelect = (item: ExplainableAttendanceItem) => {
         triggerHaptic('light');
-        setSelectedDate(date);
-        setReason(suggestedReason);
+        setSelectedDate(item.date);
+        setReason(item.explainReason || '');
+        setMode(item.missingCheckin || item.missingCheckout ? 'CORRECTION' : 'EXPLANATION');
+        setCheckinTime(item.recordedCheckin || '');
+        setCheckoutTime(item.recordedCheckout || '');
         setFormErrors({});
         setIsDropdownOpen(false);
         window.requestAnimationFrame(() => dateListbox.triggerRef.current?.focus());
@@ -195,8 +235,7 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
 
     if (!isOpen) return null;
 
-    const selectedItem = selectedDate ? explainableItems.find(i => i.date === selectedDate) : null;
-    const firstError = formErrors.date || formErrors.reason || '';
+    const firstError = formErrors.date || formErrors.checkin || formErrors.checkout || formErrors.reason || '';
     const quotaTone = monthExplanationsCount >= maxPerMonth
         ? 'ui-field-foot-danger'
         : monthExplanationsCount >= maxPerMonth - 1
@@ -213,11 +252,12 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
                 aria-modal="true"
                 aria-labelledby="explain-work-title"
                 aria-busy={loading}
+                data-swipe-surface="modal"
                 {...swipeBackHandlers}
             >
                 <div className="app-modal-header-layer">
                     <ModalHeader
-                        title="Giải trình công"
+                        title={isCorrection ? "Điều chỉnh công" : "Giải trình công"}
                         subtitle={`Còn ${Math.max(0, maxPerMonth - monthExplanationsCount)}/${maxPerMonth} lượt trong tháng`}
                         onClose={() => { triggerHaptic('light'); onClose(); }}
                     />
@@ -231,8 +271,10 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
                                 <span className="material-symbols-rounded">edit_document</span>
                             </span>
                             <span className="ui-sheet-hero-body">
-                                <span id="explain-work-title" className="ui-sheet-hero-title">Bổ sung dữ liệu chấm công</span>
-                                <span className="ui-sheet-hero-sub">Chọn ngày bị đánh dấu lỗi và nêu lý do để quản lý đối soát.</span>
+                                <span id="explain-work-title" className="ui-sheet-hero-title">{isCorrection ? 'Bổ sung giờ chấm công' : 'Giải trình ngày công'}</span>
+                                <span className="ui-sheet-hero-sub">{isCorrection
+                                    ? 'Nhập giờ thực tế đã làm để quản lý kiểm tra trước khi cập nhật bảng công.'
+                                    : 'Nêu rõ sự việc để quản lý đối soát; giải trình không tự tạo thêm giờ công.'}</span>
                             </span>
                         </section>
 
@@ -306,7 +348,7 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
                                                                 key={item.date}
                                                                 role="option"
                                                                 aria-selected={isSelected}
-                                                                onClick={() => handleDateSelect(item.date, item.explainReason || '')}
+                                                                onClick={() => handleDateSelect(item)}
                                                                 onKeyDown={(event) => dateListbox.handleOptionKeyDown(event, index)}
                                                                 className={`ui-menu-item ${isSelected ? 'ui-menu-item-active' : ''}`.trim()}
                                                             >
@@ -323,13 +365,73 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
                                         )}
                                     </div>
 
+                                    {selectedItemHasMissingTime ? (
+                                        <div className="ui-field">
+                                            <span className="ui-field-label">Cách xử lý</span>
+                                            <div className="app-segmented attendance-resolution-switch" role="group" aria-label="Cách xử lý dữ liệu thiếu">
+                                                <button
+                                                    type="button"
+                                                    className={`app-segmented-option ${mode === 'CORRECTION' ? 'app-segmented-option-active' : ''}`.trim()}
+                                                    aria-pressed={mode === 'CORRECTION'}
+                                                    onClick={() => { setMode('CORRECTION'); setFormErrors((current) => ({ ...current, checkin: undefined, checkout: undefined })); }}
+                                                >
+                                                    Bổ sung giờ
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className={`app-segmented-option ${mode === 'EXPLANATION' ? 'app-segmented-option-active' : ''}`.trim()}
+                                                    aria-pressed={mode === 'EXPLANATION'}
+                                                    onClick={() => { setMode('EXPLANATION'); setFormErrors((current) => ({ ...current, checkin: undefined, checkout: undefined })); }}
+                                                >
+                                                    Chỉ giải trình
+                                                </button>
+                                            </div>
+                                            <span className="ui-field-foot">“Chỉ giải trình” không cộng giờ công bị thiếu.</span>
+                                        </div>
+                                    ) : null}
+
+                                    {isCorrection ? (
+                                        <div className="ui-form-grid">
+                                            <div className="ui-field">
+                                                <label className="ui-field-label ui-field-label-required" htmlFor="explain-checkin-time">Giờ check-in thực tế</label>
+                                                <input
+                                                    ref={checkinRef}
+                                                    id="explain-checkin-time"
+                                                    type="time"
+                                                    required
+                                                    className={`ui-control ${formErrors.checkin ? 'ui-control-invalid' : ''}`.trim()}
+                                                    value={checkinTime}
+                                                    onChange={(event) => { setCheckinTime(event.target.value); setFormErrors((current) => ({ ...current, checkin: undefined })); }}
+                                                    aria-invalid={!!formErrors.checkin}
+                                                    aria-describedby={formErrors.checkin ? 'explain-checkin-error' : undefined}
+                                                />
+                                                {formErrors.checkin ? <p id="explain-checkin-error" className="ui-field-error">{formErrors.checkin}</p> : null}
+                                            </div>
+                                            <div className="ui-field">
+                                                <label className="ui-field-label ui-field-label-required" htmlFor="explain-checkout-time">Giờ check-out thực tế</label>
+                                                <input
+                                                    ref={checkoutRef}
+                                                    id="explain-checkout-time"
+                                                    type="time"
+                                                    required
+                                                    className={`ui-control ${formErrors.checkout ? 'ui-control-invalid' : ''}`.trim()}
+                                                    value={checkoutTime}
+                                                    onChange={(event) => { setCheckoutTime(event.target.value); setFormErrors((current) => ({ ...current, checkout: undefined })); }}
+                                                    aria-invalid={!!formErrors.checkout}
+                                                    aria-describedby={formErrors.checkout ? 'explain-checkout-error' : undefined}
+                                                />
+                                                {formErrors.checkout ? <p id="explain-checkout-error" className="ui-field-error">{formErrors.checkout}</p> : null}
+                                            </div>
+                                        </div>
+                                    ) : null}
+
                                     <div className="ui-field">
                                         <label className="ui-field-label ui-field-label-required" htmlFor="explain-reason-textarea">Lý do giải trình</label>
                                         <textarea
                                             ref={reasonRef}
                                             id="explain-reason-textarea"
                                             required
-                                            maxLength={REASON_MAX_LENGTH}
+                                            maxLength={TMS_LIMITS.REQUEST_REASON_MAX_LENGTH}
                                             className={`ui-control ${formErrors.reason ? 'ui-control-invalid' : ''}`.trim()}
                                             placeholder="Mô tả điều đã xảy ra trong ngày này…"
                                             value={reason}
@@ -348,7 +450,7 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
                                         ) : (
                                             <span className="ui-field-foot">
                                                 <span>Nội dung này đi kèm đơn khi quản lý duyệt.</span>
-                                                <span>{reason.length}/{REASON_MAX_LENGTH}</span>
+                                                <span>{reason.length}/{TMS_LIMITS.REQUEST_REASON_MAX_LENGTH}</span>
                                             </span>
                                         )}
                                     </div>
@@ -373,7 +475,7 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
                             ) : (
                                 <>
                                     <span className="material-symbols-rounded" aria-hidden="true">send</span>
-                                    Gửi giải trình
+                                    {isCorrection ? 'Gửi bổ sung giờ' : 'Gửi giải trình'}
                                 </>
                             )}
                         </button>
@@ -391,10 +493,12 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
 
             <ConfirmDialog
                 isOpen={confirmDialog.isOpen}
-                title="Gửi giải trình?"
+                title={isCorrection ? "Gửi điều chỉnh công?" : "Gửi giải trình?"}
                 message={confirmDialog.isPastMonth
-                    ? <>Bạn đang giải trình cho <strong>tháng trước</strong>. Đơn này có thể bị tính là trễ hạn.</>
-                    : <>Hệ thống sẽ ghi nhận giải trình của bạn cho ngày <strong>{formatDateString(selectedDate)}</strong>.</>
+                    ? <>Bạn đang gửi yêu cầu cho <strong>tháng trước</strong>. Đơn này có thể bị tính là trễ hạn.</>
+                    : isCorrection
+                        ? <>Đề nghị cập nhật ngày <strong>{formatDateString(selectedDate)}</strong> thành <strong>{checkinTime}–{checkoutTime}</strong> sau khi quản lý duyệt.</>
+                        : <>Hệ thống sẽ ghi nhận giải trình của bạn cho ngày <strong>{formatDateString(selectedDate)}</strong> mà không tự cộng giờ công.</>
                 }
                 confirmLabel="Xác nhận gửi"
                 onConfirm={handleSubmitExplanation}

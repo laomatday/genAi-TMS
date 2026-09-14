@@ -252,11 +252,7 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                             dayItem.shiftInfo = `Đã chấm công`;
                         }
 
-                        if (isApproved) {
-                            stats.workDays += (totalHours >= minFull ? 1 : totalHours >= minHalf ? 0.5 : 1);
-                            dayItem.workHours = Math.max(dayItem.workHours, minFull);
-                            dayItem.status = 'Full';
-                        } else if (totalHours >= minFull) {
+                        if (totalHours >= minFull) {
                             stats.workDays += 1;
                             dayItem.status = 'Full';
                         } else if (totalHours >= minHalf) {
@@ -273,20 +269,20 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                                 stats.errors += 1;
                             }
                             dayItem.showExplain = true;
-                            dayItem.explainReason = "[Lỗi] ";
+                            dayItem.explainReason = "Quên Check-out";
                         }
 
                         if (totalLate > 0 && dateStr !== toISODateString(today)) {
                             dayItem.isLate = true;
                             stats.lateDays += 1;
                             dayItem.showExplain = true;
-                            if (!dayItem.explainReason) dayItem.explainReason = "[Trễ] ";
+                            if (!dayItem.explainReason) dayItem.explainReason = `Đi trễ ${totalLate} phút`;
                         }
 
                         if (totalEarly > 0 && dateStr !== toISODateString(today)) {
                             dayItem.isEarly = true;
                             dayItem.showExplain = true;
-                            if (!dayItem.explainReason) dayItem.explainReason = "[Sớm] ";
+                            if (!dayItem.explainReason) dayItem.explainReason = `Về sớm ${totalEarly} phút`;
                         }
                     } else {
                         if (offDays.includes(dayOfWeek)) {
@@ -294,16 +290,15 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain, regi
                             dayItem.shiftInfo = "Nghỉ toàn hệ thống";
                         } else if (loopPtr < today) {
                             if (isApproved) {
-                                dayItem.status = 'Full';
-                                dayItem.shiftInfo = "Đã duyệt giải trình";
-                                dayItem.workHours = minFull;
-                                stats.workDays += 1;
-                                dayItem.showExplain = true;
+                                dayItem.status = 'Absent';
+                                dayItem.shiftInfo = "Đã duyệt giải trình · Không có giờ công";
+                                dayItem.workHours = 0;
+                                dayItem.showExplain = false;
                             } else {
                                 dayItem.status = 'Absent';
                                 dayItem.shiftInfo = "Vắng mặt";
                                 dayItem.showExplain = true;
-                                dayItem.explainReason = "[Vắng] ";
+                                dayItem.explainReason = "Không có dữ liệu chấm công";
 
                                 const todayStr = toISODateString(today);
                                 if (dateStr < todayStr) {

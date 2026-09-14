@@ -219,12 +219,12 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
             role="dialog"
             aria-modal="true"
             aria-label="Hồ sơ cá nhân"
+            data-swipe-surface="modal"
             {...swipeBackHandlers}
         >
             <div className="fixed top-0 left-0 w-full z-40">
                 <ModalHeader
                     title="Hồ sơ cá nhân"
-                    onBack={() => { triggerHaptic('light'); onClose(); }}
                     onClose={() => { triggerHaptic('light'); onClose(); }}
                 />
             </div>
@@ -472,7 +472,7 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
             </div>
 
             {showPwdModal && (
-                <div className="confirm-backdrop animate-fade-in">
+                <div className="confirm-backdrop app-modal-swipe-surface animate-fade-in" data-swipe-surface="modal" {...passwordSwipeBackHandlers}>
                     <section
                         ref={passwordDialogRef}
                         tabIndex={-1}
@@ -482,7 +482,6 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
                         aria-labelledby="profile-password-dialog-title"
                         aria-describedby="profile-password-dialog-description"
                         aria-busy={loadingPwd}
-                        {...passwordSwipeBackHandlers}
                     >
                         <div className="confirm-content">
                             <div className="confirm-icon confirm-icon-warning">

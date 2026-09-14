@@ -1,6 +1,7 @@
 import { useRef, useState, type CSSProperties, type PointerEvent, type SyntheticEvent } from 'react';
 import { TMS_LIMITS } from '@/shared/constants';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
+import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
 
 interface Props {
   imageSrc: string;
@@ -22,6 +23,7 @@ export default function ImageCropper({ imageSrc, onCancel, onCropComplete }: Pro
   const [isUploading, setIsUploading] = useState(false);
   const [displaySize, setDisplaySize] = useState<{ width: number; height: number } | null>(null);
   const dialogRef = useModalAccessibility(true, onCancel, { closeOnEscape: !isUploading });
+  const swipeBackHandlers = useModalSwipeBack(onCancel, isUploading || isDragging);
 
   const handleImageLoad = (event: SyntheticEvent<HTMLImageElement>) => {
     const { naturalWidth, naturalHeight } = event.currentTarget;
@@ -108,10 +110,10 @@ export default function ImageCropper({ imageSrc, onCancel, onCropComplete }: Pro
   } as CSSProperties : undefined;
 
   return (
-    <div ref={dialogRef} tabIndex={-1} className="crop-screen animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="image-crop-title" aria-busy={isUploading}>
+    <div ref={dialogRef} tabIndex={-1} className="crop-screen app-modal-swipe-surface animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="image-crop-title" aria-busy={isUploading} data-swipe-surface="modal" {...swipeBackHandlers}>
       <div className="crop-stage">
         <h2 id="image-crop-title" className="crop-title">Cắt ảnh đại diện</h2>
-        <div className="image-crop-viewport relative z-20">
+        <div className="image-crop-viewport relative z-20" data-swipe-ignore="true">
           <div
             className="absolute inset-0 z-30 cursor-move"
             onPointerDown={handlePointerDown}

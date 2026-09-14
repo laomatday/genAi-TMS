@@ -529,6 +529,7 @@
   flex: 1;
   overflow: hidden;
   overscroll-behavior-x: none;
+  touch-action: pan-y pinch-zoom;
 }
 
 .employee-motion-stage,
@@ -1168,6 +1169,8 @@
 .app-segmented-option:hover { color: var(--color-text-primary); }
 .app-segmented-option-active { background: var(--color-card); color: var(--color-primary); box-shadow: var(--shadow-card); }
 
+.attendance-resolution-switch { width: 100%; margin: 0; }
+
 
 .app-process-backdrop {
   position: fixed;
@@ -1355,7 +1358,7 @@
 .app-modal-swipe-surface,
 .scanner-modal {
   overscroll-behavior-x: none;
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
 }
 .app-modal-header-layer { position: fixed; z-index: calc(var(--layer-modal) + 10); top: 0; left: 0; width: 100%; }
 .app-contact-header-layer { z-index: calc(var(--layer-modal) + 20); }
@@ -1494,6 +1497,11 @@
   height: var(--pull-distance, 0);
   opacity: var(--pull-opacity, 0);
   transition: height 200ms, opacity 200ms;
+}
+
+.pull-to-refresh {
+  overscroll-behavior: contain;
+  touch-action: pan-y pinch-zoom;
 }
 
 .pull-to-refresh-content {
@@ -2835,6 +2843,8 @@ button.ui-card-head:active { background: var(--surface-tint); }
   overflow-x: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pinch-zoom;
 }
 
 .ui-chips::-webkit-scrollbar { display: none; }

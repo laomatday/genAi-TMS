@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ShiftConfig } from '@/shared/types';
-import { determineShift } from './employee';
+import { attendanceRequestPayload, determineShift } from './employee';
 
 // Synthetic fixtures only. In production `determineShift` is always called with
 // `data.shifts`, which comes from Supabase (tms_dashboard_bundle_v1 → metadata.shifts).
@@ -47,5 +47,49 @@ describe('determineShift', () => {
 
   it('falls back to a default shift when none are configured', () => {
     expect(determineShift('10:00', []).name).toBeTruthy();
+  });
+});
+
+describe('attendanceRequestPayload', () => {
+  it('keeps a reason-only explanation separate from a time correction', () => {
+    expect(attendanceRequestPayload({ date: '2026-09-10', reason: 'Xe hỏng giữa đường' })).toEqual({
+      request_type: 'EXPLANATION',
+      from_date: '2026-09-10',
+      to_date: '2026-09-10',
+      reason: 'Xe hỏng giữa đường',
+    });
+  });
+
+  it('builds explicit timestamps for a missing attendance correction', () => {
+    expect(attendanceRequestPayload({
+      date: '2026-09-10',
+      reason: 'Quên check-out',
+      requestType: 'CORRECTION',
+      requestedCheckin: '08:30',
+      requestedCheckout: '17:35',
+    })).toMatchObject({
+      request_type: 'CORRECTION',
+      requested_checkin: '2026-09-10T08:30:00+07:00',
+      requested_checkout: '2026-09-10T17:35:00+07:00',
+    });
+  });
+
+  it('rolls an overnight checkout into the following calendar day', () => {
+    expect(attendanceRequestPayload({
+      date: '2026-09-10',
+      reason: 'Ca đêm thiếu giờ ra',
+      requestType: 'CORRECTION',
+      requestedCheckin: '22:00',
+      requestedCheckout: '02:00',
+    }).requested_checkout).toBe('2026-09-11T02:00:00+07:00');
+  });
+
+  it('rejects an incomplete correction before calling the backend', () => {
+    expect(() => attendanceRequestPayload({
+      date: '2026-09-10',
+      reason: 'Quên check-out',
+      requestType: 'CORRECTION',
+      requestedCheckin: '08:30',
+    })).toThrow('Điều chỉnh công cần đủ giờ check-in và check-out hợp lệ.');
   });
 });

@@ -10,12 +10,15 @@ import type { ApprovalGroup, ApprovalItem, ApprovalTypeConfig } from '@/modules/
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import { displayRequestCode } from '@/modules/tms/utils/requestCode';
+import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
+import type { RegisterSwipeHandler } from '@/modules/tms/components/BottomNav';
 
 interface Props {
   data: DashboardData | null;
   user: Employee;
   onRefresh: () => Promise<void>;
   onAlert: (title: string, msg: string, type: 'success' | 'error') => void;
+  registerSwipeHandler?: RegisterSwipeHandler;
 }
 
 const MINUTE_MS = 60_000;
@@ -300,7 +303,7 @@ const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
   );
 };
 
-const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
+const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert, registerSwipeHandler }) => {
   const [processing, setProcessing] = useState<string | null>(null);
   const [expandedApprovalGroup, setExpandedApprovalGroup] = useState<string | null>(null);
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
@@ -312,11 +315,26 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
     type: 'leave' | 'explanation';
     reason: string;
   }>({ isOpen: false, docId: '', type: 'leave', reason: '' });
+  const closeRejectModal = useCallback(() => {
+    setRejectModal((current) => ({ ...current, isOpen: false }));
+  }, []);
   const rejectDialogRef = useModalAccessibility(
     rejectModal.isOpen,
-    () => setRejectModal((current) => ({ ...current, isOpen: false })),
+    closeRejectModal,
     { closeOnEscape: !processing },
   );
+  const rejectSwipeBackHandlers = useModalSwipeBack(closeRejectModal, Boolean(processing));
+
+  useEffect(() => {
+    if (!registerSwipeHandler) return undefined;
+    return registerSwipeHandler((direction) => {
+      if (direction !== 'left' || !selectedApprovalId || rejectModal.isOpen) return false;
+      triggerHaptic('light');
+      setSelectedApprovalId(null);
+      setApprovalNote('');
+      return true;
+    });
+  }, [registerSwipeHandler, rejectModal.isOpen, selectedApprovalId]);
 
   const contacts = useMemo(() => data?.contacts || [], [data?.contacts]);
   const approvalRoles = data?.approvalRoles || DEFAULT_APPROVAL_ROLES;
@@ -559,7 +577,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
       </div>
 
       {rejectModal.isOpen && (
-        <div className="confirm-backdrop animate-fade-in">
+        <div className="confirm-backdrop app-modal-swipe-surface animate-fade-in" data-swipe-surface="modal" {...rejectSwipeBackHandlers}>
           <section
             ref={rejectDialogRef}
             tabIndex={-1}
@@ -599,7 +617,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
             <div className="confirm-actions">
               <button
                 type="button"
-                onClick={() => setRejectModal({ ...rejectModal, isOpen: false })}
+                onClick={closeRejectModal}
                 disabled={!!processing}
                 className="ui-button ui-button-quiet"
               >

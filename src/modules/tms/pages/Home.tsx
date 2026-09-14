@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { DashboardData } from '@/shared/types';
+import type { DashboardData, ExplainableAttendanceItem } from '@/shared/types';
 import {
   formatDateString,
   getCurrentTimeStr,
@@ -50,7 +50,7 @@ interface Props {
   onRefresh: () => Promise<void>;
   onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
   onExplain?: (date: string, reason: string) => void;
-  explainableItems?: { date: string; explainReason: string }[];
+  explainableItems?: ExplainableAttendanceItem[];
   onNavigate?: (tab: 'history' | 'requests' | 'calendar') => void;
   onCreateRequest?: (type: string) => void;
 }

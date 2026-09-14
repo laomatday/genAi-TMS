@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Employee } from '@/shared/types';
+import type { Employee, ExplainableAttendanceItem } from '@/shared/types';
 import { doCheckOut } from '@/modules/tms/services/employee';
 import { recordQrAttendance } from '@/modules/tms/services/attendance';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
@@ -8,7 +8,7 @@ import { useDashboardData } from '@/modules/tms/hooks/useDashboardData';
 import { useToast } from '@/shared/contexts/useToast';
 import { motion, AnimatePresence } from 'framer-motion';
 import TabHome from '@/modules/tms/pages/Home';
-import BottomNav, { EMPLOYEE_NAV_TABS, type RegisterSwipeHandler, type SwipeDirection, type SwipeHandler, type TabType } from './BottomNav';
+import BottomNav, { EMPLOYEE_NAV_TABS, type RegisterSwipeHandler, type SwipeHandler, type TabType } from './BottomNav';
 import Header from './Header';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import Spinner from '@/shared/components/common/Spinner';
@@ -16,6 +16,7 @@ import LoadingScreen from '@/shared/components/common/LoadingScreen';
 import { canApproveAny, scopedStorageKey, STORAGE_KEYS, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
 import { useAuth } from '@/core/auth/useAuth';
 import { ATTENDANCE_ACTIVITY_EVENT } from '@/shared/components/common/AppStatusBanner';
+import { useHorizontalSwipe } from '@/shared/hooks/useHorizontalSwipe';
 
 const TabHistory = lazy(() => import('@/modules/tms/pages/History'));
 const TabRequests = lazy(() => import('@/modules/tms/pages/Requests'));
@@ -66,18 +67,6 @@ function receiptTime(value?: string) {
   });
 }
 
-function blocksGlobalSwipe(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.closest('input, textarea, select, button, a, [role="button"]')) return true;
-  let element: HTMLElement | null = target;
-  while (element && element !== document.body) {
-    const overflowX = window.getComputedStyle(element).overflowX;
-    if ((overflowX === 'auto' || overflowX === 'scroll') && element.scrollWidth > element.clientWidth) return true;
-    element = element.parentElement;
-  }
-  return false;
-}
-
 const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   const { updateProfile } = useAuth();
   const { showToast } = useToast();
@@ -113,8 +102,6 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     try { return parseInt(localStorage.getItem(notificationStorageKey) || '0', 10); } catch { return 0; }
   });
   const managerDate = new Date();
-  const touchStart = useRef<{ x: number; y: number; allowGlobalNavigation: boolean } | null>(null);
-  const touchEnd = useRef<{ x: number; y: number } | null>(null);
   const swipeHandlerRef = useRef<SwipeHandler | null>(null);
   const attendanceLockRef = useRef(false);
 
@@ -203,6 +190,24 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     if (showExplainWorkModal) setShowExplainWorkModal(false);
   };
 
+  const navigationSwipeHandlers = useHorizontalSwipe({
+    disabled: isAttendanceProcessing,
+    onSwipe: (swipeDirection) => {
+      if (swipeHandlerRef.current?.(swipeDirection)) return;
+
+      if (swipeDirection === 'left' && ['manager', 'notifications', 'profile'].includes(activeTab)) {
+        handleTabChange(lastActiveTab);
+        return;
+      }
+
+      const currentIndex = EMPLOYEE_NAV_TABS.indexOf(activeTab);
+      if (currentIndex < 0) return;
+      const targetIndex = currentIndex + (swipeDirection === 'left' ? 1 : -1);
+      const targetTab = EMPLOYEE_NAV_TABS[targetIndex];
+      if (targetTab) handleTabChange(targetTab);
+    },
+  });
+
   const beginAttendanceTransaction = (status: string) => {
     if (attendanceLockRef.current) {
       setIsProcessOverlayVisible(true);
@@ -288,44 +293,12 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     }
   };
 
-  const resetSwipe = () => { touchStart.current = null; touchEnd.current = null; };
-  const onTouchStart = (event: React.TouchEvent) => {
-    if (event.targetTouches.length !== 1) { resetSwipe(); return; }
-    const touch = event.targetTouches[0];
-    if (!touch) { resetSwipe(); return; }
-    const point = { x: touch.clientX, y: touch.clientY, allowGlobalNavigation: !blocksGlobalSwipe(event.target) };
-    touchStart.current = point;
-    touchEnd.current = { x: point.x, y: point.y };
-  };
-  const onTouchMove = (event: React.TouchEvent) => {
-    const touch = event.targetTouches[0];
-    if (touch) touchEnd.current = { x: touch.clientX, y: touch.clientY };
-  };
-  const onTouchEnd = () => {
-    const start = touchStart.current;
-    const end = touchEnd.current;
-    resetSwipe();
-    if (!start || !end) return;
-    const dX = start.x - end.x;
-    const dY = start.y - end.y;
-    if (Math.abs(dX) > Math.abs(dY) && Math.abs(dX) > TMS_LIMITS.SWIPE_NAVIGATION_PX) {
-      const swipeDirection: SwipeDirection = dX > 0 ? 'left' : 'right';
-      if (swipeHandlerRef.current?.(swipeDirection)) return;
-      if (!start.allowGlobalNavigation) return;
-      const currentIndex = EMPLOYEE_NAV_TABS.indexOf(activeTab);
-      if (currentIndex < 0) return;
-      const targetIndex = currentIndex + (swipeDirection === 'left' ? 1 : -1);
-      const targetTab = EMPLOYEE_NAV_TABS[targetIndex];
-      if (targetTab) handleTabChange(targetTab);
-    }
-  };
-
   const explainableItems = useMemo(() => {
     if (!data) return [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayString = toISODateString(today);
-    const list: { date: string; explainReason: string }[] = [];
+    const list: ExplainableAttendanceItem[] = [];
     const loop = new Date();
     loop.setDate(loop.getDate() - TMS_LIMITS.EXPLANATION_LOOKBACK_DAYS);
     const holidays = Array.isArray(data.holidays) ? data.holidays : [];
@@ -335,21 +308,44 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
       const dateString = toISODateString(loop);
       const rows = data.history.history.filter((row) => row.date === dateString);
       const reasons: string[] = [];
+      let missingCheckin = false;
+      let missingCheckout = false;
       if (rows.length) {
         const hasActualCheckin = rows.some((row) => Boolean(row.time_in));
-        if (hasActualCheckin && rows.some((row) => !row.time_out) && dateString !== todayString) reasons.push('Quên Check-out');
-        if (!hasActualCheckin && dateString !== todayString && rows.some((row) => row.status === 'Invalid' || row.note.includes('MISSING_CHECKIN'))) reasons.push('Vắng');
+        missingCheckout = hasActualCheckin && rows.some((row) => !row.time_out) && dateString !== todayString;
+        missingCheckin = !hasActualCheckin
+          && dateString !== todayString
+          && rows.some((row) => row.status === 'Invalid' || row.note.includes('MISSING_CHECKIN'));
+        if (missingCheckin) {
+          missingCheckout = true;
+          reasons.push('Thiếu Check-in và Check-out');
+        } else if (missingCheckout) {
+          reasons.push('Quên Check-out');
+        }
         const late = rows.reduce((sum, row) => sum + Number(row.late_minutes || 0), 0);
         if (late) reasons.push(`Trễ ${late} phút`);
         const early = rows.reduce((sum, row) => sum + Number(row.early_minutes || 0), 0);
         if (early) reasons.push(`Về sớm ${early} phút`);
       } else {
         const offDays = Array.isArray(data.systemConfig?.OFF_DAYS) ? data.systemConfig.OFF_DAYS : [0, 6];
-        if (dateString !== todayString && !offDays.includes(loop.getDay()) && !isHoliday(dateString)) reasons.push('Vắng');
+        if (dateString !== todayString && !offDays.includes(loop.getDay()) && !isHoliday(dateString)) {
+          missingCheckin = true;
+          missingCheckout = true;
+          reasons.push('Không có dữ liệu chấm công');
+        }
       }
       const explained = data.myExplanations.some((request) => request.date === dateString && request.status !== 'Rejected');
       const requested = data.myRequests.some((request) => dateString >= request.from_date && dateString <= request.to_date && request.status === 'Approved');
-      if (reasons.length && !explained && !requested) list.push({ date: dateString, explainReason: reasons.join(', ') });
+      if (reasons.length && !explained && !requested) {
+        list.push({
+          date: dateString,
+          explainReason: reasons.join(', '),
+          missingCheckin,
+          missingCheckout,
+          recordedCheckin: rows.find((row) => Boolean(row.time_in))?.time_in,
+          recordedCheckout: rows.find((row) => Boolean(row.time_out))?.time_out,
+        });
+      }
       loop.setDate(loop.getDate() + 1);
     }
 
@@ -390,13 +386,13 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     {isAttendanceProcessing && isProcessOverlayVisible ? <div className="app-process-backdrop animate-fade-in"><div className="app-process-dialog animate-scale-in" role="status" aria-live="polite"><Spinner size="lg" /><h3>Đang xử lý…</h3><p>{checkInStatus || 'Vui lòng đợi trong giây lát'}</p><small>Không đóng ứng dụng cho đến khi có xác nhận.</small><button type="button" onClick={() => setIsProcessOverlayVisible(false)}>Ẩn đi · vẫn chạy nền</button></div></div> : null}
     {isAttendanceProcessing && !isProcessOverlayVisible ? <button type="button" onClick={() => setIsProcessOverlayVisible(true)} className="app-processing-pill" aria-label="Mở trạng thái chấm công"><span className="app-processing-spinner" aria-hidden="true" />Đang chấm công</button> : null}
     {activeTab !== 'profile' && isHeaderVisible && <Header user={currentUser} activeTab={activeTab} notificationCount={badgeCount} isOnline={isOnline} locationName={locationNames[currentUser.center_id]} onOpenProfile={() => handleTabChange('profile')} onOpenNotifications={() => activeTab === 'notifications' ? setActiveTab(lastActiveTab) : handleTabChange('notifications')} onContactSearch={() => setContactsSearchTrigger((value) => value + 1)} canManage={canManage} onOpenManager={() => handleTabChange('manager')} onOpenWorkspace={onOpenWorkspace} />}
-    <div className="employee-scroll" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={resetSwipe}><div className="employee-motion-stage"><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_PX : -UI_MOTION.PAGE_OFFSET_PX, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: direction === 'right' ? -UI_MOTION.PAGE_OFFSET_PX : UI_MOTION.PAGE_OFFSET_PX, opacity: 0 }} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
+    <div className="employee-scroll" data-swipe-surface="navigation" {...navigationSwipeHandlers}><div className="employee-motion-stage"><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_PX : -UI_MOTION.PAGE_OFFSET_PX, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: direction === 'right' ? -UI_MOTION.PAGE_OFFSET_PX : UI_MOTION.PAGE_OFFSET_PX, opacity: 0 }} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
       {activeTab === 'home' && <TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} explainableItems={explainableItems} onNavigate={handleTabChange} onCreateRequest={(type) => { setCreateRequestType(type); setShowCreateRequestModal(true); }} />}
       {activeTab === 'history' && <TabHistory data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} registerSwipeHandler={registerSwipeHandler} />}
       {activeTab === 'requests' && <TabRequests data={data} user={currentUser} onRefresh={refresh} onCreateRequest={(type) => { setCreateRequestType(type); setShowCreateRequestModal(true); }} onCreateExplanation={() => { setExplainWorkInitialData(null); setShowExplainWorkModal(true); }} registerSwipeHandler={registerSwipeHandler} />}
       {activeTab === 'calendar' && <CalendarPage data={data} user={currentUser} onRefresh={refresh} currentDate={managerDate} />}
       {activeTab === 'contacts' && <TabContacts data={data} resetTrigger={contactsResetTrigger} searchTrigger={contactsSearchTrigger} setIsHeaderVisible={setIsHeaderVisible} registerSwipeHandler={registerSwipeHandler} onNavigate={handleTabChange} />}
-      {activeTab === 'manager' && <TabManager data={data} user={currentUser} onRefresh={refresh} onAlert={handleShowAlert} />}
+      {activeTab === 'manager' && <TabManager data={data} user={currentUser} onRefresh={refresh} onAlert={handleShowAlert} registerSwipeHandler={registerSwipeHandler} />}
       {activeTab === 'profile' && <TabProfile user={currentUser} locations={data.locations || []} locationNames={locationNames} contacts={data.contacts || []} punctuality={punctuality} onLogout={onLogout} onUpdate={(profile) => { updateProfile(profile); void refresh(); }} onClose={() => { setDirection('left'); setActiveTab(lastActiveTab); }} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={() => handleTabChange('manager')} />}
       {activeTab === 'notifications' && <NotificationsModal data={data} user={currentUser} onSwitchTab={handleTabChange} onRefresh={refresh} />}
     </Suspense></motion.div></AnimatePresence></div></div>

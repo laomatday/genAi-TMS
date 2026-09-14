@@ -1,7 +1,8 @@
-import { useRef, useState, type TouchEvent } from 'react';
+import { useState } from 'react';
 import { triggerHaptic } from '@/core/utils/helpers';
-import { STORAGE_KEYS } from '@/shared/constants';
+import { STORAGE_KEYS, TMS_LIMITS } from '@/shared/constants';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
+import { useHorizontalSwipe } from '@/shared/hooks/useHorizontalSwipe';
 
 interface Props {
   isOpen: boolean;
@@ -57,7 +58,6 @@ const GUIDE_SECTIONS = [
 
 export default function UserGuideModal({ isOpen, onClose }: Props) {
   const [activeTab, setActiveTab] = useState(0);
-  const touchStartX = useRef<number | null>(null);
 
   const close = () => {
     triggerHaptic('medium');
@@ -65,22 +65,25 @@ export default function UserGuideModal({ isOpen, onClose }: Props) {
     onClose();
   };
   const dialogRef = useModalAccessibility(isOpen, close);
+  const guideSwipeHandlers = useHorizontalSwipe({
+    disabled: !isOpen,
+    minDistancePx: TMS_LIMITS.SWIPE_NAVIGATION_PX,
+    viewportRatio: TMS_LIMITS.SWIPE_NAVIGATION_VIEWPORT_RATIO,
+    onSwipe: (direction) => {
+      const nextTab = Math.max(
+        0,
+        Math.min(GUIDE_SECTIONS.length - 1, activeTab + (direction === 'left' ? 1 : -1)),
+      );
+      if (nextTab === activeTab) return;
+      triggerHaptic('light');
+      setActiveTab(nextTab);
+    },
+  });
 
   if (!isOpen) return null;
 
   const section = GUIDE_SECTIONS[activeTab] ?? GUIDE_SECTIONS[0];
   const isLastSection = activeTab === GUIDE_SECTIONS.length - 1;
-
-  const handleTouchEnd = (event: TouchEvent) => {
-    if (touchStartX.current === null) return;
-    const touch = event.changedTouches[0];
-    if (!touch) return;
-    const distance = touchStartX.current - touch.clientX;
-    if (Math.abs(distance) > 50) {
-      setActiveTab((current) => Math.max(0, Math.min(GUIDE_SECTIONS.length - 1, current + (distance > 0 ? 1 : -1))));
-    }
-    touchStartX.current = null;
-  };
 
   return (
     <div
@@ -91,8 +94,8 @@ export default function UserGuideModal({ isOpen, onClose }: Props) {
       aria-modal="true"
       aria-labelledby="user-guide-title"
       aria-describedby="user-guide-subtitle"
-      onTouchStart={(event) => { const touch = event.touches[0]; if (touch) touchStartX.current = touch.clientX; }}
-      onTouchEnd={handleTouchEnd}
+      data-swipe-surface="guide"
+      {...guideSwipeHandlers}
     >
       <div className="guide-head">
         <span className={`ui-tile ui-tile-soft ui-tone-${section.tone} guide-head-icon`} aria-hidden="true">

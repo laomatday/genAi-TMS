@@ -36,6 +36,8 @@ jobs:
         run: bunx supabase@2.117.0 db start
       - name: Verify tenant configuration isolation
         run: docker exec -i supabase_db_genai-tms psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/tests/tenant_configuration_isolation.sql
+      - name: Verify attendance session rollover and corrections
+        run: docker exec -i supabase_db_genai-tms psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/tests/attendance_session_rollover.sql
       - name: Run database lint and advisors
         run: |
           bunx supabase@2.117.0 db lint --local --schema public --level warning --fail-on error

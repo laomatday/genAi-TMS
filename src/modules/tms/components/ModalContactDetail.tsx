@@ -71,6 +71,7 @@ const ModalContactDetail: React.FC<Props> = ({ contact, isOpen, onClose, locatio
             role="dialog"
             aria-modal="true"
             aria-labelledby="contact-detail-title"
+            data-swipe-surface="modal"
             {...swipeBackHandlers}
         >
             <div className="app-modal-header-layer app-contact-header-layer">

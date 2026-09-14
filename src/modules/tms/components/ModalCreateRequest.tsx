@@ -192,6 +192,7 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
             aria-modal="true"
             aria-labelledby="create-request-title"
             aria-busy={loading}
+            data-swipe-surface="modal"
             {...swipeBackHandlers}
         >
             <div className="app-modal-header-layer">

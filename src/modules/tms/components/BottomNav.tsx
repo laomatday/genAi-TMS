@@ -1,10 +1,10 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { UI_MOTION } from '@/shared/constants';
+import type { HorizontalSwipeDirection } from '@/shared/gestures/horizontalSwipe';
 
 export type TabType = 'home' | 'history' | 'requests' | 'contacts' | 'manager' | 'profile' | 'notifications' | 'calendar';
-export type SwipeDirection = 'left' | 'right';
-export type SwipeHandler = (direction: SwipeDirection) => boolean;
+export type SwipeHandler = (direction: HorizontalSwipeDirection) => boolean;
 export type RegisterSwipeHandler = (handler: SwipeHandler) => () => void;
 
 interface Props {

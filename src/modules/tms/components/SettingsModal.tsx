@@ -106,7 +106,7 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
     return (
         <>
-            <div ref={dialogRef} tabIndex={-1} className="app-modal-screen app-modal-screen-solid font-sans animate-slide-up" role="dialog" aria-modal="true" aria-label="Cài đặt" {...swipeBackHandlers}>
+            <div ref={dialogRef} tabIndex={-1} className="app-modal-screen app-modal-screen-solid font-sans animate-slide-up" role="dialog" aria-modal="true" aria-label="Cài đặt" data-swipe-surface="modal" {...swipeBackHandlers}>
                 <div className="app-modal-header-layer">
                     <ModalHeader title="Cài đặt" subtitle={`${APP_INFO.NAME} · v${APP_INFO.VERSION}`} onClose={onClose} />
                 </div>

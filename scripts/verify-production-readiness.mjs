@@ -70,7 +70,9 @@ const requiredFiles = [
   'supabase/migrations/20260905043727_workforce_enable_scheduled_maintenance.sql',
   'supabase/migrations/20260906070000_tms_workforce_v3_hardening.sql',
   'supabase/migrations/20260914102118_tenantize_workforce_configuration.sql',
+  'supabase/migrations/20260914114002_allow_checkin_with_stale_sessions.sql',
   'supabase/tests/tenant_configuration_isolation.sql',
+  'supabase/tests/attendance_session_rollover.sql',
   'supabase/config.toml',
   'src/core/errors/AppErrorBoundary.tsx',
   'src/core/observability/clientTelemetry.ts',
@@ -189,6 +191,20 @@ for (const requiredClause of [
   'create or replace function wf_private.seed_organization_configuration()',
 ]) {
   if (!tenantMigration.includes(requiredClause)) fail(`tenant migration missing: ${requiredClause}`);
+}
+
+const attendanceRolloverMigration = await readFile(
+  join(root, 'supabase/migrations/20260914114002_allow_checkin_with_stale_sessions.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'SUPERSEDED_BY_NEW_CHECKIN',
+  "work_date=day",
+  'TIMESHEET_EXPLANATION_APPROVED',
+  "source='ADJUSTED'",
+  'timesheets_employee_unfinished_idx',
+]) {
+  if (!attendanceRolloverMigration.includes(requiredClause)) fail(`attendance rollover migration missing: ${requiredClause}`);
 }
 
 const supabaseConfig = await readFile(join(root, 'supabase/config.toml'), 'utf8');
