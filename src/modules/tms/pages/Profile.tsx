@@ -91,7 +91,6 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
 
     const [croppingImage, setCroppingImage] = useState<string | null>(null);
     const swipeBackHandlers = useModalSwipeBack(onClose, showPwdModal || showLogoutConfirm || Boolean(croppingImage));
-    const passwordSwipeBackHandlers = useModalSwipeBack(() => setShowPwdModal(false), loadingPwd);
 
     useEffect(() => {
         setShowImageCropper(!!croppingImage);
@@ -472,7 +471,7 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
             </div>
 
             {showPwdModal && (
-                <div className="confirm-backdrop app-modal-swipe-surface animate-fade-in" data-swipe-surface="modal" {...passwordSwipeBackHandlers}>
+                <div className="confirm-backdrop animate-fade-in">
                     <section
                         ref={passwordDialogRef}
                         tabIndex={-1}

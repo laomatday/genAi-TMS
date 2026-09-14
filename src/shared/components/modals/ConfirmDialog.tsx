@@ -1,6 +1,5 @@
 import { useId, type ReactNode } from 'react';
 import { useModalAccessibility } from './useModalAccessibility';
-import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
 
 interface Props { isOpen:boolean; title:string; message:ReactNode; confirmLabel?:string; cancelLabel?:string; onConfirm:()=>void; onCancel:()=>void; type?:'danger'|'success'|'info'|'warning'|'error'; isLoading?:boolean; }
 
@@ -10,11 +9,10 @@ const ConfirmDialog = ({isOpen,title,message,confirmLabel='Xác nhận',cancelLa
   const titleId = useId();
   const messageId = useId();
   const dialogRef = useModalAccessibility<HTMLElement>(isOpen, onCancel, { closeOnEscape: !isLoading });
-  const swipeBackHandlers = useModalSwipeBack(onCancel, !isOpen || isLoading);
   if(!isOpen) return null;
   const single = !cancelLabel;
 
-  return <div className="confirm-backdrop app-modal-swipe-surface animate-fade-in" data-swipe-surface="modal" {...swipeBackHandlers}>
+  return <div className="confirm-backdrop animate-fade-in">
     <section ref={dialogRef} tabIndex={-1} className="confirm-dialog animate-scale-in" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={messageId} aria-busy={isLoading}>
       <div className="confirm-content">
         <div className={`confirm-icon confirm-icon-${type}`}><span className="material-symbols-rounded" aria-hidden="true">{ICONS[type]}</span></div>

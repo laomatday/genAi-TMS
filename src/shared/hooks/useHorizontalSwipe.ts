@@ -16,7 +16,7 @@ interface HorizontalSwipeOptions {
   disabled?: boolean;
   minDistancePx?: number;
   viewportRatio?: number;
-  shouldStart?: (target: EventTarget | null, boundary: HTMLElement) => boolean;
+  shouldStart?: (target: EventTarget | null, boundary: HTMLElement, start: GesturePoint) => boolean;
   canSwipe?: (direction: HorizontalSwipeDirection) => boolean;
   completeBeforeSwipe?: boolean;
 }
@@ -113,14 +113,13 @@ export function useHorizontalSwipe({
     const touch = event.touches[0];
     if (!touch) return;
     const boundary = event.currentTarget;
-    const canStart = shouldStartRef.current
-      ? shouldStartRef.current(event.target, boundary)
-      : !shouldIgnoreHorizontalSwipe(event.target, boundary);
+    const start = pointFromTouch(touch, event.timeStamp);
+    const canStart = !shouldIgnoreHorizontalSwipe(event.target, boundary)
+      && (shouldStartRef.current?.(event.target, boundary, start) ?? true);
     if (!canStart) {
       reset();
       return;
     }
-    const start = pointFromTouch(touch, event.timeStamp);
     clearFinishTimer();
     clearClickSuppression();
     clearSurface(boundary);

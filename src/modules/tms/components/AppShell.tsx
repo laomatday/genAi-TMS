@@ -8,7 +8,8 @@ import { useDashboardData } from '@/modules/tms/hooks/useDashboardData';
 import { useToast } from '@/shared/contexts/useToast';
 import { motion, AnimatePresence } from 'framer-motion';
 import TabHome from '@/modules/tms/pages/Home';
-import BottomNav, { EMPLOYEE_NAV_TABS, type RegisterSwipeHandler, type SwipeHandler, type TabType } from './BottomNav';
+import BottomNav, { EMPLOYEE_NAV_TABS, isEmployeeNavTab, type EmployeeNavTab, type TabType } from './BottomNav';
+import EmployeePager from './EmployeePager';
 import Header from './Header';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import Spinner from '@/shared/components/common/Spinner';
@@ -16,7 +17,6 @@ import LoadingScreen from '@/shared/components/common/LoadingScreen';
 import { canApproveAny, scopedStorageKey, STORAGE_KEYS, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
 import { useAuth } from '@/core/auth/useAuth';
 import { ATTENDANCE_ACTIVITY_EVENT } from '@/shared/components/common/AppStatusBanner';
-import { useHorizontalSwipe } from '@/shared/hooks/useHorizontalSwipe';
 
 const TabHistory = lazy(() => import('@/modules/tms/pages/History'));
 const TabRequests = lazy(() => import('@/modules/tms/pages/Requests'));
@@ -81,6 +81,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [direction, setDirection] = useState<'left' | 'right'>('right');
   const [lastActiveTab, setLastActiveTab] = useState<TabType>('home');
+  const [lastEmployeeTab, setLastEmployeeTab] = useState<EmployeeNavTab>('home');
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [isAttendanceProcessing, setIsAttendanceProcessing] = useState(false);
@@ -102,7 +103,6 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     try { return parseInt(localStorage.getItem(notificationStorageKey) || '0', 10); } catch { return 0; }
   });
   const managerDate = new Date();
-  const swipeHandlerRef = useRef<SwipeHandler | null>(null);
   const attendanceLockRef = useRef(false);
 
   useEffect(() => {
@@ -110,10 +110,6 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     catch { setSeenNotiCount(0); }
   }, [notificationStorageKey]);
 
-  const registerSwipeHandler: RegisterSwipeHandler = useCallback((handler) => {
-    swipeHandlerRef.current = handler;
-    return () => { if (swipeHandlerRef.current === handler) swipeHandlerRef.current = null; };
-  }, []);
   const canManage = useMemo(
     () => Boolean(currentUser?.role && canApproveAny(currentUser.role, data?.approvalRoles)),
     [currentUser, data?.approvalRoles],
@@ -171,14 +167,14 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     triggerHaptic('light');
     if (activeTab === tab && tab === 'contacts') { setContactsResetTrigger((value) => value + 1); return; }
     if (activeTab !== tab) {
-      swipeHandlerRef.current = null;
       setIsHeaderVisible(true);
-      const activeIndex = EMPLOYEE_NAV_TABS.indexOf(activeTab);
-      const fallbackIndex = EMPLOYEE_NAV_TABS.indexOf(lastActiveTab);
-      const targetIndex = EMPLOYEE_NAV_TABS.indexOf(tab);
+      const activeIndex = EMPLOYEE_NAV_TABS.findIndex((item) => item === activeTab);
+      const fallbackIndex = EMPLOYEE_NAV_TABS.findIndex((item) => item === lastActiveTab);
+      const targetIndex = EMPLOYEE_NAV_TABS.findIndex((item) => item === tab);
       const sourceIndex = activeIndex >= 0 ? activeIndex : fallbackIndex;
       setDirection(targetIndex >= 0 && targetIndex > sourceIndex ? 'right' : 'left');
       if (activeTab !== 'profile' && activeTab !== 'notifications') setLastActiveTab(activeTab);
+      if (isEmployeeNavTab(activeTab)) setLastEmployeeTab(activeTab);
       setActiveTab(tab);
       if (activeTab === 'contacts') setContactsSearchTrigger(0);
     }
@@ -189,33 +185,6 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     if (showCreateRequestModal) setShowCreateRequestModal(false);
     if (showExplainWorkModal) setShowExplainWorkModal(false);
   };
-
-  const navigationSwipeHandlers = useHorizontalSwipe({
-    disabled: isAttendanceProcessing,
-    canSwipe: (swipeDirection) => {
-      if (swipeHandlerRef.current) return true;
-      if (['manager', 'notifications', 'profile'].includes(activeTab)) return swipeDirection === 'left';
-      const currentIndex = EMPLOYEE_NAV_TABS.indexOf(activeTab);
-      if (currentIndex < 0) return false;
-      return Boolean(EMPLOYEE_NAV_TABS[currentIndex + (swipeDirection === 'left' ? 1 : -1)]);
-    },
-    onSwipe: (swipeDirection) => {
-      if (swipeHandlerRef.current?.(swipeDirection)) return true;
-
-      if (swipeDirection === 'left' && ['manager', 'notifications', 'profile'].includes(activeTab)) {
-        handleTabChange(lastActiveTab);
-        return true;
-      }
-
-      const currentIndex = EMPLOYEE_NAV_TABS.indexOf(activeTab);
-      if (currentIndex < 0) return false;
-      const targetIndex = currentIndex + (swipeDirection === 'left' ? 1 : -1);
-      const targetTab = EMPLOYEE_NAV_TABS[targetIndex];
-      if (!targetTab) return false;
-      handleTabChange(targetTab);
-      return true;
-    },
-  });
 
   const beginAttendanceTransaction = (status: string) => {
     if (attendanceLockRef.current) {
@@ -391,23 +360,50 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   if (loading) return <LoadingScreen />;
   if (!data) return <div className="h-full w-full page-bg flex items-center justify-center p-6"><div className="empty-state-card"><span className="material-symbols-rounded empty-state-icon" aria-hidden="true">cloud_off</span><h2>Không tải được dữ liệu</h2><p>{error || 'Vui lòng kiểm tra kết nối rồi thử lại.'}</p><button type="button" className="btn btn-primary btn-md" onClick={() => void refresh(true)}>Thử lại</button></div></div>;
 
+  const activeEmployeeTab = isEmployeeNavTab(activeTab) ? activeTab : null;
+  const pagerTab = activeEmployeeTab ?? lastEmployeeTab;
+  const employeePagerDisabled = isAttendanceProcessing
+    || !activeEmployeeTab
+    || showQRScanner
+    || showCheckoutConfirm
+    || showCreateRequestModal
+    || showExplainWorkModal
+    || showImageCropper;
+
+  const renderEmployeePage = (tab: EmployeeNavTab, isActive: boolean) => {
+    switch (tab) {
+      case 'home':
+        return <TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} explainableItems={explainableItems} onNavigate={handleTabChange} onCreateRequest={(type) => { setCreateRequestType(type); setShowCreateRequestModal(true); }} />;
+      case 'history':
+        return <TabHistory data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} />;
+      case 'requests':
+        return <TabRequests data={data} user={currentUser} onRefresh={refresh} onCreateRequest={(type) => { setCreateRequestType(type); setShowCreateRequestModal(true); }} onCreateExplanation={() => { setExplainWorkInitialData(null); setShowExplainWorkModal(true); }} />;
+      case 'calendar':
+        return <CalendarPage data={data} user={currentUser} onRefresh={refresh} currentDate={managerDate} />;
+      case 'contacts':
+        return <TabContacts data={data} resetTrigger={isActive ? contactsResetTrigger : 0} searchTrigger={isActive ? contactsSearchTrigger : 0} setIsHeaderVisible={isActive ? setIsHeaderVisible : undefined} onNavigate={handleTabChange} />;
+    }
+  };
+
   return <div className="employee-shell" aria-busy={isAttendanceProcessing}>
     {isAttendanceProcessing && isProcessOverlayVisible ? <div className="app-process-backdrop animate-fade-in"><div className="app-process-dialog animate-scale-in" role="status" aria-live="polite"><Spinner size="lg" /><h3>Đang xử lý…</h3><p>{checkInStatus || 'Vui lòng đợi trong giây lát'}</p><small>Không đóng ứng dụng cho đến khi có xác nhận.</small><button type="button" onClick={() => setIsProcessOverlayVisible(false)}>Ẩn đi · vẫn chạy nền</button></div></div> : null}
     {isAttendanceProcessing && !isProcessOverlayVisible ? <button type="button" onClick={() => setIsProcessOverlayVisible(true)} className="app-processing-pill" aria-label="Mở trạng thái chấm công"><span className="app-processing-spinner" aria-hidden="true" />Đang chấm công</button> : null}
     {activeTab !== 'profile' && isHeaderVisible && <Header user={currentUser} activeTab={activeTab} notificationCount={badgeCount} isOnline={isOnline} locationName={locationNames[currentUser.center_id]} onOpenProfile={() => handleTabChange('profile')} onOpenNotifications={() => activeTab === 'notifications' ? setActiveTab(lastActiveTab) : handleTabChange('notifications')} onContactSearch={() => setContactsSearchTrigger((value) => value + 1)} canManage={canManage} onOpenManager={() => handleTabChange('manager')} onOpenWorkspace={onOpenWorkspace} />}
-    <div className="employee-scroll" data-swipe-surface="navigation" {...navigationSwipeHandlers}><div className="employee-motion-stage"><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_FORWARD : UI_MOTION.PAGE_OFFSET_BACKWARD }} animate={{ x: 0 }} exit={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_BACKWARD : UI_MOTION.PAGE_OFFSET_FORWARD }} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
-      {activeTab === 'home' && <TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} explainableItems={explainableItems} onNavigate={handleTabChange} onCreateRequest={(type) => { setCreateRequestType(type); setShowCreateRequestModal(true); }} />}
-      {activeTab === 'history' && <TabHistory data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} registerSwipeHandler={registerSwipeHandler} />}
-      {activeTab === 'requests' && <TabRequests data={data} user={currentUser} onRefresh={refresh} onCreateRequest={(type) => { setCreateRequestType(type); setShowCreateRequestModal(true); }} onCreateExplanation={() => { setExplainWorkInitialData(null); setShowExplainWorkModal(true); }} registerSwipeHandler={registerSwipeHandler} />}
-      {activeTab === 'calendar' && <CalendarPage data={data} user={currentUser} onRefresh={refresh} currentDate={managerDate} />}
-      {activeTab === 'contacts' && <TabContacts data={data} resetTrigger={contactsResetTrigger} searchTrigger={contactsSearchTrigger} setIsHeaderVisible={setIsHeaderVisible} registerSwipeHandler={registerSwipeHandler} onNavigate={handleTabChange} />}
-      {activeTab === 'manager' && <TabManager data={data} user={currentUser} onRefresh={refresh} onAlert={handleShowAlert} registerSwipeHandler={registerSwipeHandler} />}
-      {activeTab === 'profile' && <TabProfile user={currentUser} locations={data.locations || []} locationNames={locationNames} contacts={data.contacts || []} punctuality={punctuality} onLogout={onLogout} onUpdate={(profile) => { updateProfile(profile); void refresh(); }} onClose={() => { setDirection('left'); setActiveTab(lastActiveTab); }} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={() => handleTabChange('manager')} />}
-      {activeTab === 'notifications' && <NotificationsModal data={data} user={currentUser} onSwitchTab={handleTabChange} onRefresh={refresh} />}
-    </Suspense></motion.div></AnimatePresence></div></div>
+    <div className="employee-scroll">
+      <div className="employee-pager-layer" aria-hidden={!activeEmployeeTab} inert={!activeEmployeeTab}>
+        <Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
+          <EmployeePager activeTab={pagerTab} disabled={employeePagerDisabled} onChange={handleTabChange} renderPage={renderEmployeePage} />
+        </Suspense>
+      </div>
+      {!activeEmployeeTab ? <div className={`employee-motion-stage ${activeTab === 'profile' ? '' : 'employee-secondary-stage'}`.trim()}><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_FORWARD : UI_MOTION.PAGE_OFFSET_BACKWARD }} animate={{ x: 0 }} exit={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_BACKWARD : UI_MOTION.PAGE_OFFSET_FORWARD }} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
+        {activeTab === 'manager' && <TabManager data={data} user={currentUser} onRefresh={refresh} onAlert={handleShowAlert} />}
+        {activeTab === 'profile' && <TabProfile user={currentUser} locations={data.locations || []} locationNames={locationNames} contacts={data.contacts || []} punctuality={punctuality} onLogout={onLogout} onUpdate={(profile) => { updateProfile(profile); void refresh(); }} onClose={() => { setDirection('left'); setActiveTab(lastActiveTab); }} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={() => handleTabChange('manager')} />}
+        {activeTab === 'notifications' && <NotificationsModal data={data} user={currentUser} onSwitchTab={handleTabChange} onRefresh={refresh} />}
+      </Suspense></motion.div></AnimatePresence></div> : null}
+    </div>
     <Suspense fallback={null}>{showCreateRequestModal && <ModalCreateRequest user={currentUser} isOpen initialType={createRequestType} onClose={() => setShowCreateRequestModal(false)} onSuccess={refresh} onAlert={handleShowAlert} onNavigate={handleTabChange} data={data} />} {showExplainWorkModal && <ModalExplainWork isOpen onClose={() => setShowExplainWorkModal(false)} onSuccess={refresh} onAlert={handleShowAlert} initialData={explainWorkInitialData || undefined} explainableItems={explainableItems} sourceTab={activeTab === 'requests' ? 'requests' : 'history'} onNavigate={handleTabChange} data={data} />}</Suspense>
     {activeTab !== 'profile' && !showCheckoutConfirm && !showImageCropper && <><div className="employee-nav-fade" /><BottomNav activeTab={activeTab} onChange={handleTabChange} /></>}
-    <Suspense fallback={null}>{showQRScanner && <ModalQRScanner onClose={() => setShowQRScanner(false)} onScan={handleQRScan} onError={(message) => handleShowAlert('Lỗi thiết bị', message, 'error')} onNavigate={handleTabChange} />}</Suspense>
+    <Suspense fallback={null}>{showQRScanner && <ModalQRScanner onClose={() => setShowQRScanner(false)} onScan={handleQRScan} onError={(message) => handleShowAlert('Lỗi thiết bị', message, 'error')} />}</Suspense>
     <ConfirmDialog isOpen={showCheckoutConfirm} title="Kết thúc ca làm việc?" message="Hệ thống sẽ ghi nhận giờ ra (Check-out)." confirmLabel="Xác nhận" onConfirm={processCheckOut} onCancel={() => setShowCheckoutConfirm(false)} type="danger" />
   </div>;
 };

@@ -10,15 +10,12 @@ import type { ApprovalGroup, ApprovalItem, ApprovalTypeConfig } from '@/modules/
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import { displayRequestCode } from '@/modules/tms/utils/requestCode';
-import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
-import type { RegisterSwipeHandler } from '@/modules/tms/components/BottomNav';
 
 interface Props {
   data: DashboardData | null;
   user: Employee;
   onRefresh: () => Promise<void>;
   onAlert: (title: string, msg: string, type: 'success' | 'error') => void;
-  registerSwipeHandler?: RegisterSwipeHandler;
 }
 
 const MINUTE_MS = 60_000;
@@ -303,7 +300,7 @@ const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
   );
 };
 
-const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert, registerSwipeHandler }) => {
+const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
   const [processing, setProcessing] = useState<string | null>(null);
   const [expandedApprovalGroup, setExpandedApprovalGroup] = useState<string | null>(null);
   const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
@@ -323,18 +320,6 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert, registerS
     closeRejectModal,
     { closeOnEscape: !processing },
   );
-  const rejectSwipeBackHandlers = useModalSwipeBack(closeRejectModal, Boolean(processing));
-
-  useEffect(() => {
-    if (!registerSwipeHandler) return undefined;
-    return registerSwipeHandler((direction) => {
-      if (direction !== 'left' || !selectedApprovalId || rejectModal.isOpen) return false;
-      triggerHaptic('light');
-      setSelectedApprovalId(null);
-      setApprovalNote('');
-      return true;
-    });
-  }, [registerSwipeHandler, rejectModal.isOpen, selectedApprovalId]);
 
   const contacts = useMemo(() => data?.contacts || [], [data?.contacts]);
   const approvalRoles = data?.approvalRoles || DEFAULT_APPROVAL_ROLES;
@@ -577,7 +562,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert, registerS
       </div>
 
       {rejectModal.isOpen && (
-        <div className="confirm-backdrop app-modal-swipe-surface animate-fade-in" data-swipe-surface="modal" {...rejectSwipeBackHandlers}>
+        <div className="confirm-backdrop animate-fade-in">
           <section
             ref={rejectDialogRef}
             tabIndex={-1}

@@ -2,14 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import IconButton from '@/shared/components/common/IconButton';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { TMS_LIMITS } from '@/shared/constants';
-import { useModalTabSwipe } from '@/modules/tms/hooks/useModalTabSwipe';
-import type { TabType } from './BottomNav';
+import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
 
 interface Props {
   onClose: () => void;
   onScan: (data: string) => void;
   onError: (msg: string) => void;
-  onNavigate: (tab: TabType) => void;
 }
 
 type ScannerStatus = 'starting' | 'scanning' | 'error';
@@ -83,7 +81,7 @@ export async function resolveBarcodeDetectorCtor(): Promise<BarcodeDetectorCtor>
   return BarcodeDetector as unknown as BarcodeDetectorCtor;
 }
 
-const ModalQRScanner = ({ onClose, onScan, onError, onNavigate }: Props) => {
+const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
   const [status, setStatus] = useState<ScannerStatus>('starting');
   const [cameraError, setCameraError] = useState('');
   const [attempt, setAttempt] = useState(0);
@@ -94,13 +92,7 @@ const ModalQRScanner = ({ onClose, onScan, onError, onNavigate }: Props) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const dialogRef = useModalAccessibility(true, onClose);
-  const { swipeHandlers: swipeBackHandlers } = useModalTabSwipe({
-    activeTab: 'home',
-    onClose,
-    onNavigate,
-    surfaceRef: dialogRef,
-    disabled: scanHandledRef.current,
-  });
+  const swipeBackHandlers = useModalSwipeBack(onClose, scanHandledRef.current);
   handlersRef.current = { onScan, onError };
 
   useEffect(() => {

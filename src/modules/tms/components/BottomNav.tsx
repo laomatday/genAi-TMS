@@ -1,11 +1,14 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { UI_MOTION } from '@/shared/constants';
-import type { HorizontalSwipeDirection } from '@/shared/gestures/horizontalSwipe';
 
 export type TabType = 'home' | 'history' | 'requests' | 'contacts' | 'manager' | 'profile' | 'notifications' | 'calendar';
-export type SwipeHandler = (direction: HorizontalSwipeDirection) => boolean;
-export type RegisterSwipeHandler = (handler: SwipeHandler) => () => void;
+export const EMPLOYEE_NAV_TABS = ['home', 'history', 'requests', 'calendar', 'contacts'] as const;
+export type EmployeeNavTab = typeof EMPLOYEE_NAV_TABS[number];
+
+export function isEmployeeNavTab(tab: TabType): tab is EmployeeNavTab {
+  return EMPLOYEE_NAV_TABS.some((item) => item === tab);
+}
 
 interface Props {
   activeTab: TabType;
@@ -14,21 +17,13 @@ interface Props {
 
 /** Labels must match the header title for the same tab (see TAB_IDENTITY in
  *  Header.tsx). They remain available to assistive technology and tooltips. */
-const NAV_ITEMS: Array<{ name: TabType; icon: string; label: string }> = [
+const NAV_ITEMS: Array<{ name: EmployeeNavTab; icon: string; label: string }> = [
   { name: 'home', icon: 'home', label: 'Trang chủ' },
   { name: 'history', icon: 'history', label: 'Chấm công' },
   { name: 'requests', icon: 'description', label: 'Đề xuất' },
   { name: 'calendar', icon: 'calendar_month', label: 'Lịch' },
   { name: 'contacts', icon: 'group', label: 'Danh bạ' },
 ];
-
-export const EMPLOYEE_NAV_TABS = NAV_ITEMS.map(({ name }) => name);
-
-export function adjacentEmployeeTab(activeTab: TabType, direction: HorizontalSwipeDirection) {
-  const currentIndex = EMPLOYEE_NAV_TABS.indexOf(activeTab);
-  if (currentIndex < 0) return null;
-  return EMPLOYEE_NAV_TABS[currentIndex + (direction === 'left' ? 1 : -1)] ?? null;
-}
 
 const NavItem = ({ name, icon, label, activeTab, onChange }: {
   name: TabType;

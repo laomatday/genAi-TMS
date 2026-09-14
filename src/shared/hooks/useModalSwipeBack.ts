@@ -4,9 +4,9 @@ import { TMS_LIMITS } from '@/shared/constants';
 import { useHorizontalSwipe, type HorizontalSwipeHandlers } from './useHorizontalSwipe';
 
 /**
- * Keeps the right-to-left gesture inside the current application layer. The
- * modal owns the gesture, blocks the browser's edge-navigation gesture and
- * calls its in-app back action after a deliberate horizontal swipe.
+ * Native-style back gesture for full-screen application layers. It starts
+ * only at the left edge and follows a rightward drag, so form controls and
+ * ordinary horizontal content never compete with modal navigation.
  */
 export function useModalSwipeBack(
   onBack: () => void,
@@ -16,13 +16,16 @@ export function useModalSwipeBack(
   onBackRef.current = onBack;
 
   const handleSwipe = useCallback((direction: 'left' | 'right') => {
-    if (direction !== 'left') return false;
+    if (direction !== 'right') return false;
     triggerHaptic('light');
     onBackRef.current();
     return true;
   }, []);
 
-  const canSwipe = useCallback((direction: 'left' | 'right') => direction === 'left', []);
+  const canSwipe = useCallback((direction: 'left' | 'right') => direction === 'right', []);
+  const shouldStart = useCallback((_: EventTarget | null, __: HTMLElement, start: { x: number }) => (
+    start.x <= TMS_LIMITS.SWIPE_EDGE_START_PX
+  ), []);
 
   return useHorizontalSwipe({
     onSwipe: handleSwipe,
@@ -30,6 +33,7 @@ export function useModalSwipeBack(
     minDistancePx: TMS_LIMITS.SWIPE_MODAL_CLOSE_PX,
     viewportRatio: TMS_LIMITS.SWIPE_MODAL_VIEWPORT_RATIO,
     canSwipe,
+    shouldStart,
     completeBeforeSwipe: true,
   });
 }

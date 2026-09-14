@@ -128,9 +128,11 @@
   --app-page-bottom: calc(var(--app-nav-height) + var(--space-12) + env(safe-area-inset-bottom));
   --app-page-swipe-forward: 100%;
   --app-page-swipe-backward: -100%;
-  --swipe-snap-duration: 180ms;
+  --swipe-snap-duration: 220ms;
   --swipe-commit-duration: 150ms;
   --swipe-snap-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --pager-settle-duration: var(--swipe-snap-duration);
+  --pager-settle-easing: cubic-bezier(0.2, 0.8, 0.2, 1);
   --motion-fast: 150ms ease;
   --motion-base: 200ms ease;
   --surface-raised: color-mix(in srgb, var(--color-card) 96%, var(--color-bg));
@@ -544,6 +546,58 @@
   width: 100%;
   height: 100%;
   will-change: transform, opacity;
+}
+
+.employee-secondary-stage { background: var(--color-bg); }
+
+.employee-pager {
+  --pager-offset-x: 0px;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  overscroll-behavior-x: none;
+  touch-action: pan-y pinch-zoom;
+}
+
+.employee-pager-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.employee-pager-panel {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+  translate: 0 0;
+}
+
+.employee-pager-panel-previous { translate: -100% 0; }
+.employee-pager-panel-next { translate: 100% 0; }
+.employee-pager-panel:not(.employee-pager-panel-current) { pointer-events: none; }
+
+.employee-pager[data-pager-phase] .employee-pager-panel-current {
+  translate: var(--pager-offset-x) 0;
+}
+
+.employee-pager[data-pager-phase] .employee-pager-panel-previous {
+  translate: calc(-100% + var(--pager-offset-x)) 0;
+}
+
+.employee-pager[data-pager-phase] .employee-pager-panel-next {
+  translate: calc(100% + var(--pager-offset-x)) 0;
+}
+
+.employee-pager[data-pager-phase="dragging"] .employee-pager-panel {
+  will-change: translate;
+  transition: none;
+}
+
+.employee-pager[data-pager-phase="settling"] .employee-pager-panel {
+  will-change: translate;
+  transition: translate var(--pager-settle-duration) var(--pager-settle-easing);
 }
 
 .employee-page {
@@ -1365,8 +1419,11 @@
   overscroll-behavior-x: none;
   touch-action: pan-y pinch-zoom;
 }
+.app-modal-swipe-surface { background: var(--color-bg); }
 [data-swipe-surface] {
   --swipe-offset-x: 0px;
+}
+[data-swipe-phase] {
   translate: var(--swipe-offset-x) 0;
 }
 [data-swipe-phase="dragging"] {
