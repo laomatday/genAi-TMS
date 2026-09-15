@@ -2086,6 +2086,21 @@
 .admin-content { width: 100%; max-width: 1520px; margin: 0 auto; padding-bottom: 18px; }
 .admin-section-stack { display: flex; flex-direction: column; gap: 16px; }
 .admin-panel { min-width: 0; padding: 22px; border: 1px solid color-mix(in srgb, var(--admin-line) 58%, transparent); border-radius: var(--admin-radius); background: var(--admin-panel); box-shadow: none; }
+/* Per-employee capability editor. One row per capability so the label, its hint
+   and the control keep the same positions all the way down the list. */
+.admin-capability-editor { margin-top: 4px; }
+.admin-capability-count { color: var(--admin-faint); font-size: var(--admin-font-caption); font-weight: 700; }
+.admin-capability-list { display: flex; flex-direction: column; }
+.admin-capability-row { display: grid; grid-template-columns: minmax(0, 1fr) 11rem; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid color-mix(in srgb, var(--admin-line) 45%, transparent); }
+.admin-capability-row:first-child { border-top: 0; }
+.admin-capability-name { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.admin-capability-name strong { font-size: 14px; font-weight: 700; }
+.admin-capability-name small { color: var(--admin-faint); font-size: var(--admin-font-caption); }
+.admin-capability-key { color: var(--color-primary); }
+@media (max-width: 640px) {
+  .admin-capability-row { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* Holds the space the charting panel will occupy while its chunk loads, so the
    sections below it do not jump once the charts arrive. */
 .admin-chart-placeholder { min-height: 360px; }

@@ -112,6 +112,7 @@ export const DEFAULT_EMPLOYEE: EmployeeInput = {
   department: '',
   status: 'Active',
   device_lock_required: null,
+  capability_overrides: {},
   password: '',
 };
 

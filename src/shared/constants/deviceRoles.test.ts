@@ -23,17 +23,23 @@ describe('trusted-device role contract', () => {
 
 describe('device lock policy', () => {
   it('locks every everyday role by default', () => {
-    for (const role of ['Staff', 'Leader', 'Manager', 'Director', 'HR'] as const) {
+    for (const role of ['Staff', 'Leader', 'Manager', 'Director'] as const) {
       expect(requiresDeviceLock(role, DEFAULT_DEVICE_LOCK_ROLES)).toBe(true);
     }
   });
 
-  // An administrator needs a way back in when a device is lost or a binding has
-  // to be cleared, so the default leaves Admin unlocked.
-  it('leaves Admin unlocked by default but allows locking it', () => {
+  // Both administer from a desk rather than attending from one phone, and one of
+  // them has to stay reachable to clear a lost device.
+  it('leaves Admin and HR unlocked by default', () => {
     expect(requiresDeviceLock('Admin', DEFAULT_DEVICE_LOCK_ROLES)).toBe(false);
+    expect(requiresDeviceLock('HR', DEFAULT_DEVICE_LOCK_ROLES)).toBe(false);
+  });
+
+  it('still allows an admin to lock those roles deliberately', () => {
     expect(DEVICE_LOCK_EDITABLE_ROLES).toContain('Admin');
+    expect(DEVICE_LOCK_EDITABLE_ROLES).toContain('HR');
     expect(requiresDeviceLock('Admin', ['Admin'])).toBe(true);
+    expect(requiresDeviceLock('HR', ['HR'])).toBe(true);
   });
 
   it('never locks a kiosk station, even when configured to', () => {

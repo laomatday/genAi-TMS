@@ -60,6 +60,32 @@ function successfulRpc(data: unknown) {
   return Boolean(data && typeof data === "object" && (data as { ok?: unknown }).ok === true);
 }
 
+/** Replaces an employee's capability overrides with exactly what was asked for.
+ *  Runs after the profile row exists, because the table's foreign key needs it. */
+async function applyCapabilityOverrides(
+  admin: ReturnType<typeof createClient>,
+  organizationId: string,
+  employeeId: string,
+  overrides: Map<string, boolean>,
+) {
+  const { error: clearError } = await admin
+    .from("workforce_employee_capabilities")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("employee_id", employeeId);
+  if (clearError) return clearError;
+  if (!overrides.size) return null;
+  const { error: insertError } = await admin
+    .from("workforce_employee_capabilities")
+    .insert([...overrides].map(([capability, enabled]) => ({
+      organization_id: organizationId,
+      employee_id: employeeId,
+      capability,
+      enabled,
+    })));
+  return insertError;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
@@ -345,6 +371,28 @@ Deno.serve(async (req: Request) => {
   const deviceLockRequired = role === "Kiosk"
     ? (input.device_lock_required === false ? false : null)
     : (typeof input.device_lock_required === "boolean" ? input.device_lock_required : null);
+
+  // Per-employee capability overrides. true/false force the capability either
+  // way; anything else — including an omitted key — means "follow the role" and
+  // is stored as the absence of a row. The catalogue is intentionally duplicated
+  // from the client rather than trusted from the request: a browser must not be
+  // able to invent a capability name and have it persisted.
+  const KNOWN_CAPABILITIES = new Set([
+    "team.read", "team.read_all", "attendance.review", "attendance.review.override",
+    "attendance.export", "attendance.lock_period", "attendance.reopen_period",
+    "schedule.manage", "schedule.override", "kiosk.manage", "employee.manage",
+    "settings.manage", "capability.manage", "audit.view",
+  ]);
+  const requestedOverrides = input.capability_overrides;
+  const capabilityOverrides = new Map<string, boolean>();
+  if (requestedOverrides && typeof requestedOverrides === "object" && !Array.isArray(requestedOverrides)) {
+    for (const [capability, value] of Object.entries(requestedOverrides as Record<string, unknown>)) {
+      if (KNOWN_CAPABILITIES.has(capability) && typeof value === "boolean") {
+        capabilityOverrides.set(capability, value);
+      }
+    }
+  }
+  const overridesSupplied = requestedOverrides !== undefined;
   const directManagerId = cleanText(input.direct_manager_id, 40).toUpperCase() || null;
   const allowedLocations = cleanList(input.allowed_locations);
   const managedLocations = cleanList(input.managed_locations);
@@ -554,6 +602,18 @@ Deno.serve(async (req: Request) => {
         }, 500);
       }
     }
+    if (overridesSupplied) {
+      const overrideError = await applyCapabilityOverrides(admin, organizationId, employeeId, capabilityOverrides);
+      if (overrideError) {
+        return json({
+          ok: false,
+          code: "CAPABILITY_OVERRIDE_FAILED",
+          error: "Tài khoản đã tạo nhưng chưa lưu được quyền riêng. Hãy mở lại hồ sơ và đặt lại phần phân quyền.",
+          commit_state: "PROFILE_CREATED_CAPABILITIES_PENDING",
+          retryable: true,
+        }, 500);
+      }
+    }
     const { error: auditError } = await admin.from("audit_logs").insert({
       actor_employee_id: operator.employee_id,
       target_employee_id: employeeId,
@@ -703,6 +763,19 @@ Deno.serve(async (req: Request) => {
       commit_state: commitState,
       retryable: true,
     }, 500);
+  }
+
+  if (overridesSupplied) {
+    const overrideError = await applyCapabilityOverrides(admin, organizationId, employeeId, capabilityOverrides);
+    if (overrideError) {
+      return json({
+        ok: false,
+        code: "CAPABILITY_OVERRIDE_FAILED",
+        error: "Hồ sơ đã lưu nhưng chưa lưu được quyền riêng. Hãy mở lại hồ sơ và đặt lại phần phân quyền.",
+        commit_state: "PROFILE_UPDATED_CAPABILITIES_PENDING",
+        retryable: true,
+      }, 500);
+    }
   }
 
   await admin.from("audit_logs").insert({

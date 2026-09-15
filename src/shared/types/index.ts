@@ -33,6 +33,8 @@ export interface Employee {
   password_change_required?: boolean;
   /** Per-employee device lock override. Null follows the role policy. */
   device_lock_required?: boolean | null;
+  /** Per-employee capability overrides. An absent key follows the role. */
+  capability_overrides?: Record<string, boolean>;
   position?: string;
   department?: string;
   avatar_url?: string;

@@ -3,8 +3,10 @@ import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import Avatar from '@/shared/components/common/Avatar';
 import {
   DEVICE_LOCK_CONFIG_KEY,
+  EMPLOYEE_CAPABILITIES,
   EMPLOYEE_ROLES,
   MANAGEMENT_ROLES,
+  normalizeCapabilityOverrides,
   normalizeDeviceLockRoles,
   requiresDeviceLock,
   TMS_LIMITS,
@@ -187,6 +189,8 @@ export default function AccountsSection({
       position: item.position || '',
       department: item.department || '',
       status: item.status,
+      device_lock_required: item.device_lock_required ?? null,
+      capability_overrides: normalizeCapabilityOverrides(item.capability_overrides),
       password: '',
     });
     setEditorOpen(true);
@@ -401,6 +405,53 @@ export default function AccountsSection({
                 ]}
               />
             </div>
+          ) : null}
+
+          {employee.role !== 'Kiosk' ? (
+            <section className="admin-panel admin-grid-span admin-capability-editor">
+              <PanelTitle
+                eyebrow="Kiêm nhiệm"
+                title="Quyền riêng của nhân viên này"
+                action={<span className="admin-capability-count">{Object.keys(employee.capability_overrides || {}).length} khác vai trò</span>}
+              />
+              <p className="admin-help-text">
+                Mặc định mọi quyền chạy theo vai trò <strong>{employee.role}</strong>. Đặt riêng ở đây khi một người
+                làm việc mà vai trò của họ bình thường không bao gồm — ví dụ nhân viên kiêm việc xếp ca —
+                thay vì nâng vai trò hoặc nới quyền cho tất cả.
+                Quyền có dấu <span className="admin-capability-key">✦</span> là quyền mở được Control Center trên máy tính.
+              </p>
+              <div className="admin-capability-list">
+                {EMPLOYEE_CAPABILITIES.map((capability) => {
+                  const current = (employee.capability_overrides || {})[capability.id];
+                  const value = current === true ? 'true' : current === false ? 'false' : '';
+                  return (
+                    <div className="admin-capability-row" key={capability.id}>
+                      <span className="admin-capability-name">
+                        <strong>{capability.label}{capability.opensControlCenter ? <span className="admin-capability-key" title="Mở được Control Center"> ✦</span> : null}</strong>
+                        <small>{capability.hint}</small>
+                      </span>
+                      <AdminSelect
+                        value={value}
+                        onChange={(next) => setEmployee((currentEmployee) => {
+                          const overrides = { ...(currentEmployee.capability_overrides || {}) };
+                          // Removing the key is what "follow the role" means; storing
+                          // a third value would drift from how the server reads it.
+                          if (next === '') delete overrides[capability.id];
+                          else overrides[capability.id] = next === 'true';
+                          return { ...currentEmployee, capability_overrides: overrides };
+                        })}
+                        label={capability.label}
+                        options={[
+                          { value: '', label: 'Theo vai trò' },
+                          { value: 'true', label: 'Cấp quyền' },
+                          { value: 'false', label: 'Thu hồi' },
+                        ]}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           ) : null}
 
           <div className="admin-password-field">

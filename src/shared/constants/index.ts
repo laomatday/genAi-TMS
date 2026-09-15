@@ -44,11 +44,17 @@ export const DEVICE_EXEMPT_ROLES: readonly EmployeeRole[] = ['Kiosk'];
 // Which roles must bind a trusted device, and are therefore blocked from sharing
 // one phone across accounts. Configurable from Admin → Tham số hệ thống → Khóa
 // thiết bị (stored in config_system as DEVICE_LOCK_ROLES). Kiosk can never be
-// locked. Admin is unlocked by default so an administrator keeps a way back in
-// when someone's device is lost or a binding has to be cleared.
+// locked.
+//
+// Admin and HR are unlocked by default: both administer the system from a desk
+// rather than attending from one phone, and leaving them unlocked keeps a way
+// back in when someone's device is lost or a binding has to be cleared. An
+// individual who needs the opposite of their role's default — a Staff member who
+// also configures the system, say — is handled by the per-employee override
+// rather than by widening the role.
 export const DEVICE_LOCK_CONFIG_KEY = 'DEVICE_LOCK_ROLES';
 export const DEVICE_LOCK_EDITABLE_ROLES: readonly EmployeeRole[] = ['Staff', 'Leader', 'Manager', 'Director', 'HR', 'Admin'];
-export const DEFAULT_DEVICE_LOCK_ROLES: readonly EmployeeRole[] = ['Staff', 'Leader', 'Manager', 'Director', 'HR'];
+export const DEFAULT_DEVICE_LOCK_ROLES: readonly EmployeeRole[] = ['Staff', 'Leader', 'Manager', 'Director'];
 
 export function normalizeDeviceLockRoles(raw: unknown): EmployeeRole[] {
   let parsed: unknown = raw;
@@ -88,6 +94,52 @@ export function resolveDeviceLock(input: {
   if (input.role === 'Kiosk') return false;
   if (typeof input.override === 'boolean') return input.override;
   return requiresDeviceLock(input.role, input.lockedRoles ?? DEFAULT_DEVICE_LOCK_ROLES);
+}
+
+// Per-employee capability overrides. The role grants a baseline; an individual
+// who does a job their role does not normally cover — a Staff member who also
+// configures the branch, say — is handled here instead of by promoting them or
+// by widening the role for everyone.
+//
+// `true` and `false` force the capability either way; an absent key follows the
+// role. Only the server's answer counts: this catalogue decides what the editor
+// offers and what each row is called, never who actually has what.
+export interface CapabilityDefinition {
+  id: string;
+  label: string;
+  hint: string;
+  /** Holding this is what opens the desktop Control Center at all. */
+  opensControlCenter?: boolean;
+}
+
+export const EMPLOYEE_CAPABILITIES: readonly CapabilityDefinition[] = [
+  { id: 'team.read', label: 'Xem nhân sự phụ trách', hint: 'Bảng công của người trong phạm vi được giao', opensControlCenter: true },
+  { id: 'team.read_all', label: 'Xem toàn bộ nhân sự', hint: 'Không giới hạn theo chi nhánh' },
+  { id: 'attendance.review', label: 'Duyệt đơn từ', hint: 'Nghỉ phép và giải trình của người trong phạm vi' },
+  { id: 'attendance.review.override', label: 'Duyệt vượt cấp', hint: 'Duyệt cả đơn không được giao cho mình' },
+  { id: 'attendance.export', label: 'Xuất dữ liệu công', hint: 'Tải file đối soát theo tháng', opensControlCenter: true },
+  { id: 'attendance.lock_period', label: 'Khóa kỳ công', hint: 'Chốt sổ tháng, sau đó không ai sửa được', opensControlCenter: true },
+  { id: 'attendance.reopen_period', label: 'Mở lại kỳ công', hint: 'Gỡ khóa một kỳ đã chốt' },
+  { id: 'schedule.manage', label: 'Xếp ca', hint: 'Lên và công bố lịch làm việc', opensControlCenter: true },
+  { id: 'schedule.override', label: 'Sửa ca đã công bố', hint: 'Đổi lịch sau khi đã phát cho nhân viên' },
+  { id: 'kiosk.manage', label: 'Quản lý trạm QR', hint: 'Mở màn hình QR và cấu hình trạm', opensControlCenter: true },
+  { id: 'employee.manage', label: 'Quản lý tài khoản', hint: 'Tạo, sửa, khóa tài khoản nhân viên', opensControlCenter: true },
+  { id: 'settings.manage', label: 'Cấu hình hệ thống', hint: 'Tham số, ca làm, ngày lễ, phân quyền', opensControlCenter: true },
+  { id: 'capability.manage', label: 'Phân quyền', hint: 'Cấp và thu hồi quyền của người khác' },
+  { id: 'audit.view', label: 'Xem nhật ký', hint: 'Lịch sử thao tác quản trị', opensControlCenter: true },
+];
+
+export type CapabilityOverrides = Record<string, boolean>;
+
+/** Reads the map carried on an admin.people row, keeping only capabilities this
+ *  build knows about so a stale row cannot render a control with no meaning. */
+export function normalizeCapabilityOverrides(raw: unknown): CapabilityOverrides {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const known = new Set(EMPLOYEE_CAPABILITIES.map((capability) => capability.id));
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>)
+      .filter(([id, value]) => known.has(id) && typeof value === 'boolean'),
+  ) as CapabilityOverrides;
 }
 
 // Which roles may approve which request family. Configurable from Admin →

@@ -327,6 +327,8 @@ export interface EmployeeInput {
   status: Employee['status'];
   /** Device lock override: true/false force it, null follows the role policy. */
   device_lock_required?: boolean | null;
+  /** Per-employee capability overrides. An absent key follows the role. */
+  capability_overrides?: Record<string, boolean>;
   password?: string;
   reset_trusted_device?: boolean;
   reset_device_reason?: string;
