@@ -2168,6 +2168,73 @@
 .account-inactive::before { content: '—'; }
 .admin-split-layout { display: grid; grid-template-columns: minmax(620px, 1.45fr) minmax(390px, .8fr); gap: 14px; align-items: start; }
 .accounts-layout.editor-closed { grid-template-columns: 1fr; }
+
+/* The account editor holds fourteen fields, two branch checklists and fourteen
+   capability rows. Squeezed into the sidebar column it wrapped the checklists
+   3/2/1 and left the capability control fighting its own label, so on a desktop
+   it becomes a drawer over the list instead: the table keeps its full width, and
+   the form gets a width its content actually needs. Below that the existing
+   stacked layout already works, so it is left alone. */
+@media (min-width: 1024px) {
+  .accounts-layout { grid-template-columns: 1fr; }
+  /* Reserve the drawer's strip so the table lays its columns out across the part
+     that is still visible, instead of sizing for a width half of which is
+     covered and leaving only the name column on screen. */
+  .accounts-layout.editor-open .admin-list-panel {
+    margin-right: min(60vw, 54rem);
+    transition: margin-right .18s ease;
+  }
+  /* In the strip that is left, the list has one job: pick the next person. Role,
+     device and status are all visible in the open drawer, so hiding those three
+     buys the name and branch enough room to read without a sideways scroll. */
+  .accounts-layout.editor-open .admin-account-row {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr);
+  }
+  .accounts-layout.editor-open .admin-account-row > :nth-child(2),
+  .accounts-layout.editor-open .admin-account-row > :nth-child(n + 4) { display: none; }
+  .accounts-layout.editor-open .admin-account-table { overflow-x: hidden; }
+  /* The three header buttons no longer fit side by side at this width. */
+  .accounts-layout.editor-open .admin-panel-actions { flex-wrap: wrap; justify-content: flex-start; }
+  .accounts-layout .admin-editor {
+    position: fixed;
+    z-index: calc(var(--layer-navigation) + 2);
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(60vw, 54rem);
+    padding: 20px 22px calc(20px + env(safe-area-inset-bottom));
+    border: 0;
+    border-left: 1px solid var(--admin-line);
+    border-radius: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-shadow: -22px 0 56px color-mix(in srgb, var(--brand-ink) 16%, transparent);
+  }
+  /* The drawer is wide enough for a third column of short fields. */
+  .accounts-layout .admin-editor .admin-form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .accounts-layout .admin-editor .admin-grid-span { grid-column: 1 / -1; }
+  .accounts-layout .admin-editor .admin-checklist > div {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: 6px 10px;
+  }
+  .accounts-layout .admin-editor .admin-capability-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 22px;
+  }
+  /* In two columns the first row of each column is a top edge, not a divider. */
+  .accounts-layout .admin-editor .admin-capability-row:nth-child(2) { border-top: 0; }
+  /* Keep the save row reachable without scrolling back down the drawer. */
+  .accounts-layout .admin-editor .admin-editor-actions {
+    position: sticky;
+    bottom: -20px;
+    margin: 0 -22px -20px;
+    padding: 12px 22px calc(12px + env(safe-area-inset-bottom));
+    background: linear-gradient(transparent, var(--admin-panel) 34%);
+  }
+}
 .admin-list-panel { padding-bottom: 10px; }
 .admin-filter-row { margin-bottom: 12px; display: grid; grid-template-columns: minmax(220px, 1fr) 150px 160px; gap: 8px; }
 .admin-search { min-height: var(--admin-control-height); padding: 0 12px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--control-border); border-radius: var(--admin-control-radius); background: var(--control-bg); transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease; }
