@@ -3619,15 +3619,18 @@ input.ui-control[type='week'] {
   line-height: normal;
 }
 
-/* Android draws the picker as a chevron sitting hard against the field's
-   trailing edge, where every other control in the app insets it. Pulling it in
-   lines it up with the chevrons on the selects beside it. */
+/* Android draws the picker as a chevron hard against the field's trailing edge,
+   where every other control in the app insets it. Measured on the date button
+   beside these fields, its chevron sits 23px in; this pulls the native one far
+   enough to read as the same alignment on a phone. Chromium on the desktop
+   already insets its clock icon, so it ends up slightly further in there —
+   the phone is where this form is used. */
 input.ui-control[type='time']::-webkit-calendar-picker-indicator,
 input.ui-control[type='date']::-webkit-calendar-picker-indicator,
 input.ui-control[type='datetime-local']::-webkit-calendar-picker-indicator,
 input.ui-control[type='month']::-webkit-calendar-picker-indicator,
 input.ui-control[type='week']::-webkit-calendar-picker-indicator {
-  margin-inline-end: var(--space-1);
+  margin-inline-end: var(--space-2);
   opacity: 0.6;
 }
 
