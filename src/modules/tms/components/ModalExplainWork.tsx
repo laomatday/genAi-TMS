@@ -192,8 +192,8 @@ const ModalExplainWork: React.FC<Props> = ({ user, isOpen, isConfirmOpen, onConf
         if (reason.trim().length < TMS_LIMITS.REQUEST_REASON_MIN_LENGTH) {
             requiredErrors.reason = `Lý do cần ít nhất ${TMS_LIMITS.REQUEST_REASON_MIN_LENGTH} ký tự.`;
         }
-        if (isCorrection && !checkinTime) requiredErrors.checkin = 'Vui lòng nhập giờ check-in thực tế.';
-        if (isCorrection && !checkoutTime) requiredErrors.checkout = 'Vui lòng nhập giờ check-out thực tế.';
+        if (isCorrection && !checkinTime) requiredErrors.checkin = 'Vui lòng nhập giờ check-in.';
+        if (isCorrection && !checkoutTime) requiredErrors.checkout = 'Vui lòng nhập giờ check-out.';
         if (Object.keys(requiredErrors).length > 0) {
             setFormErrors(requiredErrors);
             window.requestAnimationFrame(() => {
@@ -203,7 +203,7 @@ const ModalExplainWork: React.FC<Props> = ({ user, isOpen, isConfirmOpen, onConf
                 else reasonRef.current?.focus();
             });
             onAlert("Thiếu thông tin", isCorrection
-                ? "Vui lòng nhập đủ giờ thực tế và lý do điều chỉnh."
+                ? "Vui lòng nhập đủ giờ và lý do điều chỉnh."
                 : "Vui lòng chọn ngày và nhập lý do giải trình.", 'error');
             return;
         }
@@ -345,7 +345,7 @@ const ModalExplainWork: React.FC<Props> = ({ user, isOpen, isConfirmOpen, onConf
                             <span className="ui-sheet-hero-body">
                                 <span id="explain-work-title" className="ui-sheet-hero-title">{isCorrection ? 'Bổ sung giờ chấm công' : 'Giải trình ngày công'}</span>
                                 <span className="ui-sheet-hero-sub">{isCorrection
-                                    ? 'Nhập giờ thực tế đã làm để quản lý kiểm tra trước khi cập nhật bảng công.'
+                                    ? 'Nhập giờ đã làm để quản lý kiểm tra trước khi cập nhật bảng công.'
                                     : 'Nêu rõ sự việc để quản lý đối soát; giải trình không tự tạo thêm giờ công.'}</span>
                             </span>
                         </section>
@@ -465,7 +465,7 @@ const ModalExplainWork: React.FC<Props> = ({ user, isOpen, isConfirmOpen, onConf
                                     {isCorrection ? (
                                         <div className="ui-form-grid">
                                             <div className="ui-field">
-                                                <label className="ui-field-label ui-field-label-required" htmlFor="explain-checkin-time">Giờ check-in thực tế</label>
+                                                <label className="ui-field-label ui-field-label-required" htmlFor="explain-checkin-time">Giờ check-in</label>
                                                 <input
                                                     ref={checkinRef}
                                                     id="explain-checkin-time"
@@ -480,7 +480,7 @@ const ModalExplainWork: React.FC<Props> = ({ user, isOpen, isConfirmOpen, onConf
                                                 {formErrors.checkin ? <p id="explain-checkin-error" className="ui-field-error">{formErrors.checkin}</p> : null}
                                             </div>
                                             <div className="ui-field">
-                                                <label className="ui-field-label ui-field-label-required" htmlFor="explain-checkout-time">Giờ check-out thực tế</label>
+                                                <label className="ui-field-label ui-field-label-required" htmlFor="explain-checkout-time">Giờ check-out</label>
                                                 <input
                                                     ref={checkoutRef}
                                                     id="explain-checkout-time"

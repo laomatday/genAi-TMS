@@ -3605,6 +3605,20 @@ button.ui-row:active { background: var(--surface-tint); }
 
 textarea.ui-control { min-height: 7.5rem; display: block; resize: none; font-weight: 600; line-height: 1.6; }
 button.ui-control { cursor: pointer; justify-content: space-between; }
+/* A time or date field draws its segments and its picker button in shadow DOM
+   and lays them out itself. The flex box above is a formatting context the
+   inner editor does not expect, and Chromium responds by pulling the picker
+   button in beside the digits instead of leaving it at the trailing edge. These
+   inputs keep the native box; the height and padding already centre them. */
+input.ui-control[type='time'],
+input.ui-control[type='date'],
+input.ui-control[type='datetime-local'],
+input.ui-control[type='month'],
+input.ui-control[type='week'] {
+  display: block;
+  line-height: normal;
+}
+
 .ui-control::placeholder { color: var(--color-text-muted); font-weight: 500; }
 .ui-control:hover:not(:disabled) { border-color: var(--control-hover-border); }
 
