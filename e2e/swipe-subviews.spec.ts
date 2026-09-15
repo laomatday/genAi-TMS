@@ -41,6 +41,7 @@ test('swiping walks a page\'s own views before it changes tab', async ({ page })
 
   await page.getByRole('button', { name: 'Đề xuất', exact: true }).last().click();
   await expect(page).toHaveURL(/tab=requests/);
+  await expect(page.getByRole('button', { name: /Nghỉ phép/ }).first()).toBeVisible();
 
   // First swipe: Nghỉ phép -> Giải trình, still on the same tab.
   await swipe(page, 'left');
@@ -57,6 +58,7 @@ test('swiping walks the history week and month views', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Chấm công', exact: true }).last().click();
   await expect(page).toHaveURL(/tab=history/);
+  await expect(page.getByRole('button', { name: /Tuần này/ }).first()).toBeVisible();
 
   await swipe(page, 'left');
   await expect(page).toHaveURL(/historyView=month/);
@@ -73,9 +75,33 @@ test('swiping walks the directory branch chips', async ({ page }) => {
   await page.getByRole('button', { name: 'Danh bạ', exact: true }).last().click();
   await expect(page).toHaveURL(/tab=contacts/);
   await expect(page.getByRole('button', { name: /Tất cả/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: /Đà Nẵng 1/ }).first()).toBeVisible();
 
   // The mock directory sits in one branch, so there are two chips.
   await swipe(page, 'left');
   await expect(page.getByRole('button', { name: /Đà Nẵng 1/ }).first()).toHaveAttribute('aria-pressed', 'true');
   await expect(page).toHaveURL(/tab=contacts/);
+});
+
+test('swiping walks the calendar\'s own views', async ({ page }) => {
+  await openEmployeeApp(page);
+
+  await page.getByRole('button', { name: 'Lịch', exact: true }).last().click();
+  await expect(page).toHaveURL(/tab=calendar/);
+  await expect(page.getByRole('tab', { name: /Ca của tôi/ })).toHaveAttribute('aria-selected', 'true');
+
+  // Ca của tôi -> Ca của nhóm, still on the calendar.
+  await swipe(page, 'left');
+  await expect(page).toHaveURL(/calendarView=team/);
+  await expect(page).toHaveURL(/tab=calendar/);
+
+  // Back again, rather than straight out to the next tab.
+  await swipe(page, 'right');
+  await expect(page).not.toHaveURL(/calendarView=team/);
+  await expect(page).toHaveURL(/tab=calendar/);
+
+  // Swiping right from the first view leaves the page, because there is
+  // nothing left in that direction.
+  await swipe(page, 'right');
+  await expect(page).toHaveURL(/tab=requests/);
 });

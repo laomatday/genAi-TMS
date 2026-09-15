@@ -7,8 +7,11 @@ import Avatar from '@/shared/components/common/Avatar';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import { getMySchedule, type WorkforceScheduleItem } from '@/modules/tms/services/schedule';
 import { useSearchParams } from 'react-router-dom';
+import { useSubPager } from '@/modules/tms/navigation/subPager';
 
 interface Props {
+  /** False for the neighbouring pages the pager keeps mounted either side. */
+  isActive?: boolean;
   data: DashboardData | null;
   user: Employee;
   onRefresh: () => Promise<boolean | void>;
@@ -33,7 +36,7 @@ function leaveTone(type: string): string {
 const isRemote = (type: string) => type.includes('Làm việc tại nhà') || type.includes('WFH');
 const isAnnualLeave = (type: string) => type.includes('Nghỉ phép');
 
-const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) => {
+const CalendarPage: React.FC<Props> = ({ isActive = true, data, user, onRefresh, currentDate }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const calendarView: 'mine' | 'team' = searchParams.get('calendarView') === 'team' ? 'team' : 'mine';
   const [viewDate, setViewDate] = useState<Date>(() => new Date(currentDate.getFullYear(), currentDate.getMonth(), 1));
@@ -254,6 +257,34 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
       return next;
     });
   };
+
+  /**
+   * The page has two levels — Ca của tôi / Ca của nhóm, and a branch chip inside
+   * the team view — so the swipe order is the two flattened into one list:
+   * mine, then the team view once per branch. Every view stays reachable by
+   * swipe, which is the same rule Danh bạ follows.
+   */
+  const swipeViews = useMemo(
+    () => ['mine' as const, ...[ALL_CENTERS, ...centers].map((center) => ({ center }))],
+    [centers],
+  );
+  const swipeIndex = calendarView === 'mine'
+    ? 0
+    : Math.max(0, [ALL_CENTERS, ...centers].indexOf(activeCenter)) + 1;
+
+  useSubPager({
+    enabled: isActive,
+    index: swipeIndex,
+    count: swipeViews.length,
+    onSelect: (index) => {
+      const view = swipeViews[index];
+      if (!view) return;
+      if (view === 'mine') { selectCalendarView('mine'); return; }
+      if (calendarView !== 'team') selectCalendarView('team');
+      else triggerHaptic('light');
+      setActiveCenter(view.center);
+    },
+  });
 
   const handleCalendarTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
