@@ -20,6 +20,7 @@ import Spinner from '@/shared/components/common/Spinner';
 import LoadingScreen from '@/shared/components/common/LoadingScreen';
 import { canApproveAny, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
 import { useAuth } from '@/core/auth/useAuth';
+import { createAttendanceWatchdog, type AttendanceWatchdog } from '@/modules/tms/services/attendanceWatchdog';
 import {
   ATTENDANCE_ACTIVITY_EVENT,
   DASHBOARD_SYNC_STATE_EVENT,
@@ -125,6 +126,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   const [contactsSearchTrigger, setContactsSearchTrigger] = useState(0);
   const managerDate = new Date();
   const attendanceLockRef = useRef(false);
+  const watchdogRef = useRef<AttendanceWatchdog | null>(null);
   const previousTabRef = useRef<TabType>(activeTab);
   const historyState = location.state as EmployeeHistoryState | null;
   const showQRScanner = activeModal === 'qr';
@@ -218,6 +220,39 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   }, [data?.history.history]);
 
   useEffect(() => {
+    const watchdog = createAttendanceWatchdog(TMS_LIMITS.ATTENDANCE_WATCHDOG_MS, () => {
+      attendanceLockRef.current = false;
+      setIsAttendanceProcessing(false);
+      setIsProcessOverlayVisible(false);
+      setCheckInStatus('');
+      // Deliberately not "failed": the command may well have been recorded.
+      // Every attendance command carries a durable id, so trying again is
+      // treated as the same command rather than a second punch.
+      handleShowAlert(
+        'Chưa nhận được xác nhận',
+        'Máy chủ chưa phản hồi nên chưa rõ lần chấm công vừa rồi đã ghi nhận hay chưa. Hãy mở Lịch sử để kiểm tra; nếu chưa có, chấm lại bình thường.',
+        'warning',
+      );
+    });
+    watchdogRef.current = watchdog;
+
+    // A phone that suspends the page suspends this countdown with it, so the
+    // moment the app is on screen again is when the overdue lock gets caught.
+    const checkOnResume = () => {
+      if (document.visibilityState === 'visible') watchdog.expireIfOverdue();
+    };
+    document.addEventListener('visibilitychange', checkOnResume);
+    window.addEventListener('focus', checkOnResume);
+    return () => {
+      document.removeEventListener('visibilitychange', checkOnResume);
+      window.removeEventListener('focus', checkOnResume);
+      watchdog.disarm();
+      watchdogRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     const active = isAttendanceProcessing || showQRScanner || showCheckoutConfirm;
     window.dispatchEvent(new CustomEvent(ATTENDANCE_ACTIVITY_EVENT, { detail: { active } }));
     return () => {
@@ -297,6 +332,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
       return false;
     }
     attendanceLockRef.current = true;
+    watchdogRef.current?.arm();
     setIsAttendanceProcessing(true);
     setIsProcessOverlayVisible(true);
     setCheckInStatus(status);
@@ -304,6 +340,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   };
 
   const finishAttendanceTransaction = () => {
+    watchdogRef.current?.disarm();
     attendanceLockRef.current = false;
     setIsAttendanceProcessing(false);
     setIsProcessOverlayVisible(false);

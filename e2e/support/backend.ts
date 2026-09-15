@@ -13,7 +13,11 @@ import { expect, type Page } from '@playwright/test';
 const AUTH_USER_ID = '10000000-0000-4000-8000-000000000001';
 const ORGANIZATION_ID = '20000000-0000-4000-8000-000000000001';
 const EMPLOYEE_ID = 'EMP-E2E';
-const today = new Date().toISOString().slice(0, 10);
+// The app works in Asia/Ho_Chi_Minh. Taking the UTC date instead puts the mock
+// a day behind for the seven hours after midnight local, and today's row then
+// fails to match — which is why the home screen showed "Chưa vào ca" while the
+// mock was serving an open shift.
+const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' }).format(new Date());
 
 function shiftDay(days: number) {
   const date = new Date(`${today}T00:00:00Z`);

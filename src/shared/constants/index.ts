@@ -242,6 +242,10 @@ export const TMS_LIMITS = {
   GOOD_GPS_ACCURACY_METERS: 50,
   MAX_GPS_ACCURACY_METERS: 150,
   GPS_TIMEOUT_MS: 12_000,
+  // Longest the attendance lock may be held before the interface is released.
+  // Comfortably past a GPS fix plus a slow round trip, short enough that an
+  // employee is never stranded by a request the network silently dropped.
+  ATTENDANCE_WATCHDOG_MS: 45_000,
   DASHBOARD_REFRESH_MS: 120_000,
   DASHBOARD_REFRESH_JITTER_RATIO: 0.2,
   DASHBOARD_REFRESH_MAX_BACKOFF_MS: 15 * 60_000,
