@@ -21,7 +21,7 @@ error rate và throughput; không dùng dự đoán tĩnh làm cam kết bán h�
 
 | Năng lực | Đã có | Chưa đạt bản thương mại |
 |---|---|---|
-| Chấm công | QR động, GPS/geofence, trusted device, receipt, khóa theo nhân viên, pause/resume, ca cũ thiếu check-out không chặn ngày mới | `timesheets` và phân ca vẫn chỉ có một bản ghi cho mỗi nhân viên/ngày, chưa hỗ trợ nhiều ca độc lập trong cùng ngày |
+| Chấm công | QR động, GPS/geofence, trusted device, receipt, khóa theo nhân viên, pause/resume, ca cũ thiếu check-out không chặn ngày mới, ca gãy nhiều phiên trong ngày cộng đúng vào một bản ghi ngày | `shift_assignments` vẫn một dòng mỗi nhân viên/ngày, nên lịch công bố chưa mô tả được ca gãy dù chấm công đã ghi nhận đúng |
 | Giải trình công | Có giải trình và correction cho quên check-in/check-out; correction tạo evidence và audit | Một số giới hạn cấu hình còn được kiểm tra chủ yếu ở UI |
 | Đề xuất | Nghỉ phép, ốm, không lương, công tác, WFH; có trạng thái, SLA, fallback; retry dùng client request ID bền vững và được serialize theo nhân viên | WFH/công tác chưa có attendance mode đầy đủ; UI chưa mở đổi ca/tăng ca |
 | Duyệt | Backend kiểm tra capability, scope, assigned reviewer, cấm tự duyệt, revision chống duyệt đè | Cần thêm test ma trận mọi role/request; mở lại kỳ chưa được bật |
@@ -31,6 +31,22 @@ error rate và throughput; không dùng dự đoán tĩnh làm cam kết bán h�
 | Tenant/security | RLS, effective capability, composite tenant FK cho cấu hình, CI database test; ca/ngày lễ/cấu hình đã tenant hóa cả đọc và ghi | Cần tiếp tục negative test cho mọi bảng và mọi Edge Function; timezone tenant chưa được áp dụng xuyên suốt |
 | UX/PWA | Responsive, offline banner, focus trap, reduced motion; điều hướng chính chỉ render màn được chọn để tránh kẹt hai trang trên Android; modal hỗ trợ edge-swipe back | Browser/Android Back chưa quản lý mọi modal/full-screen state; offline reload không có snapshot |
 | Vận hành | Error boundary, metric cơ bản, CI release gate, runbook | Incident ID chưa correlate telemetry; thiếu retention automation, alert/SLO dashboard, legal/MFA/billing |
+
+## Kiểm chứng luồng chấm công
+
+Bốn tình huống biên được chạy trực tiếp trên hàm `wf_private.attendance` đang
+chạy production, trong transaction tự huỷ nên không để lại dữ liệu:
+
+| Tình huống | Kết quả |
+|---|---|
+| Quên check-out hôm qua rồi check-in hôm nay | Cho check-in; phiên cũ chuyển `NEEDS_REVIEW`, không tự đóng khống |
+| Ca gãy: sáng vào/ra, tối vào lại | Sinh phiên mới; 180 + 60 phút cộng đúng vào một bản ghi ngày |
+| Check-in rồi check-out ngay lập tức | Chấp nhận, ghi 0 phút và gắn `NEEDS_REVIEW` để người duyệt quyết |
+| Check-out khi chưa check-in | Từ chối, `NO_ACTIVE_SESSION` |
+| Bấm check-in hai lần khi ca còn mở | Từ chối, `ALREADY_OPEN`, không sinh phiên thừa |
+
+Phân biệt quan trọng: ca còn mở **của hôm nay** thì chặn check-in mới, còn ca
+còn mở **của ngày trước** thì cho qua và đánh dấu chờ giải trình.
 
 ## Nâng cấp đã thực hiện trong đợt này
 
