@@ -165,7 +165,7 @@ function AdminAccountMenu({
   );
 }
 
-export default function AdminApp({ user, onLogout }: { user: Employee; onLogout: () => void }) {
+export default function AdminApp({ user, effectiveCapabilities, onLogout }: { user: Employee; effectiveCapabilities: readonly string[]; onLogout: () => void }) {
   const navigate = useNavigate();
   const [data, setData] = useState<AdminData | null>(null);
   const capabilities = getAdminCapabilities(user.role, data?.capabilities);
@@ -206,7 +206,7 @@ export default function AdminApp({ user, onLogout }: { user: Employee; onLogout:
     } else if (silent) setRefreshing(true);
     else setLoading(true);
     try {
-      const nextData = await getAdminData(monthRange(targetMonth));
+      const nextData = await getAdminData(monthRange(targetMonth), { user, capabilities: effectiveCapabilities });
       if (loadRevision !== loadRevisionRef.current) return;
       loadedMonthRef.current = targetMonth;
       setData(nextData);

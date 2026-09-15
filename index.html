@@ -17,6 +17,16 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://lh3.googleusercontent.com" />
     <!--
+      Both font requests belong in the document rather than behind an @import in
+      style.css. An @import is only discovered once the bundled stylesheet has
+      downloaded and parsed, which pushes the font two round trips later than it
+      needs to be; a link here starts it while the CSS is still in flight.
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <!--
       The app only ever renders this icon font at one fixed point (opsz 24, wght 400,
       GRAD 0) with two FILL states (0 = outlined, 1 = filled — see style.css). Requesting
       those two exact instances instead of the full variable axis range (opsz 20..48,

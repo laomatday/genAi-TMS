@@ -27,7 +27,7 @@ export function useWorkforceCapabilities(user: Employee | null, enabled: boolean
     if (!enabled || !subject) return;
     let active = true;
     setState({ subject, capabilities: [], loading: true, loaded: false, error: null });
-    void getEffectiveWorkforceCapabilities()
+    void getEffectiveWorkforceCapabilities(subject)
       .then((capabilities) => {
         if (active) setState({ subject, capabilities, loading: false, loaded: true, error: null });
       })

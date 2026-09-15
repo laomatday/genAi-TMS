@@ -142,13 +142,18 @@ function attachWorkDates(requests: AttendanceRequest[], timesheets: Timesheet[])
   }));
 }
 
-export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
+/**
+ * Identity and capabilities are taken from the caller rather than re-fetched.
+ * Both come from `bootstrap`, which sign-in has already called and the Control
+ * Center route has already resolved; fetching it a third time here cost a full
+ * serial round trip before any of the parallel loads below could even start.
+ */
+export async function getAdminData(
+  range: AttendanceRange,
+  viewer: { user: Pick<Employee, 'employee_id' | 'organization_id'>; capabilities: readonly string[] },
+): Promise<AdminData> {
   if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
-  const bootstrapData = await queryWorkforce('bootstrap', {}, { force: true });
-  const profile = bootstrapData.profile && typeof bootstrapData.profile === 'object'
-    ? bootstrapData.profile as DataRow
-    : {};
-  const scope = `${String(profile.organization_id || 'unassigned')}:${String(profile.employee_id || 'admin')}`;
+  const scope = `${viewer.user.organization_id || 'unassigned'}:${viewer.user.employee_id || 'admin'}`;
   const [config, employeeRows, sessionRows, pendingRows, monthlyRows, deviceRows, auditRows, assignmentRows] = await Promise.all([
     queryWorkforce('admin.config', {}, { scope, ttlSeconds: TMS_LIMITS.RESOURCE_CACHE_MAX_SECONDS }),
     queryWorkforceRows('admin.people', {}, { scope }),
@@ -159,9 +164,7 @@ export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
     queryWorkforceRows('admin.audit', {}, { scope, maxPages: Math.ceil(TMS_LIMITS.ADMIN_AUDIT_QUERY_LIMIT / TMS_LIMITS.RESOURCE_PAGE_SIZE) }),
     queryWorkforceRows('admin.schedule', { from: range.from, to: range.to }, { scope }),
   ]);
-  const capabilities = Array.isArray(bootstrapData.capabilities)
-    ? bootstrapData.capabilities.filter((item): item is string => typeof item === 'string')
-    : [];
+  const capabilities = [...viewer.capabilities];
   const employees = mapEmployees(employeeRows).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
   const timesheets = sessionRows.map((row) => ({
     ...row,

@@ -1,10 +1,12 @@
+import { Suspense, lazy } from 'react';
 import type { AdminData } from '../types';
 import type { AdminSection } from '../constants';
 import { formatClock, formatStatus } from '../formatters';
 import { EmptyState, PanelTitle } from './AdminCommon';
-import ExplanationAnalytics from './ExplanationAnalytics';
 import { TMS_LIMITS } from '@/shared/constants';
 import Avatar from '@/shared/components/common/Avatar';
+
+const ExplanationAnalytics = lazy(() => import('./ExplanationAnalytics'));
 
 export default function OverviewSection({
   data,
@@ -107,12 +109,17 @@ export default function OverviewSection({
         </section>
       </div>
 
-      {/* Biểu đồ thống kê đơn giải trình (Pending vs Approved/Rejected) trong tháng */}
-      <ExplanationAnalytics
-        requests={data.requests}
-        monthlyRequests={data.monthlyRequests}
-        onNavigate={canOpenAttendance ? onNavigate : undefined}
-      />
+      {/* Biểu đồ thống kê đơn giải trình (Pending vs Approved/Rejected) trong tháng.
+          Charting pulls in the single heaviest dependency in the bundle, and this
+          is the section the Control Center opens on, so it is split off and the
+          numbers above it paint first. */}
+      <Suspense fallback={<div className="admin-panel admin-chart-placeholder" aria-hidden="true" />}>
+        <ExplanationAnalytics
+          requests={data.requests}
+          monthlyRequests={data.monthlyRequests}
+          onNavigate={canOpenAttendance ? onNavigate : undefined}
+        />
+      </Suspense>
 
       <div className="admin-dashboard-grid admin-insight-grid">
         <section className="admin-panel">

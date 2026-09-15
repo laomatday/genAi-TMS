@@ -5,6 +5,7 @@ import {
   isRetryableAuthFailure,
   withAuthDeadline,
 } from './authFailure';
+import { rememberEffectiveCapabilities } from '@/modules/tms/services/workforceCapabilities';
 import type { Employee } from '@/shared/types';
 
 export async function fetchMyProfile(expectedAuthUserId?: string): Promise<Employee> {
@@ -31,6 +32,13 @@ export async function fetchMyProfile(expectedAuthUserId?: string): Promise<Emplo
   if (!data || data.auth_user_id !== authUserId) {
     throw new Error('Không tìm thấy hồ sơ nhân viên.');
   }
+
+  // The same response already carries the effective capabilities. Pass them on so
+  // the Control Center does not re-request the identical RPC moments later.
+  rememberEffectiveCapabilities(
+    `${String(data.organization_id ?? '')}:${String(data.employee_id ?? '')}`,
+    response,
+  );
 
   const annualLeaveBalance = Number(data.annual_leave_balance ?? TMS_DEFAULTS.ANNUAL_LEAVE_DAYS);
 

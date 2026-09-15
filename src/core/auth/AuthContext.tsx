@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { supabase, isSupabaseConfigured } from '@/core/supabase';
+import { forgetEffectiveCapabilities } from '@/modules/tms/services/workforceCapabilities';
 import { fetchMyProfile } from './authService';
 import { AuthContext, type AuthContextValue } from './auth-context';
 import {
@@ -131,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return next;
       }),
       logout: async () => {
+        forgetEffectiveCapabilities();
         authOperations.invalidate();
         setAuthError(null);
         setLoading(false);

@@ -125,7 +125,7 @@ const TmsRoutes: React.FC = () => {
   );
   const adminApp = (
     <DeviceGate user={user} onLogout={() => void logout()}>
-      <AdminApp user={user} onLogout={() => void logout()} />
+      <AdminApp user={user} effectiveCapabilities={capabilityState.capabilities} onLogout={() => void logout()} />
     </DeviceGate>
   );
   const qrStation = (

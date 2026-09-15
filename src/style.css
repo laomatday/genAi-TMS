@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 /* Shared design tokens */
 :root {
@@ -2087,6 +2086,9 @@
 .admin-content { width: 100%; max-width: 1520px; margin: 0 auto; padding-bottom: 18px; }
 .admin-section-stack { display: flex; flex-direction: column; gap: 16px; }
 .admin-panel { min-width: 0; padding: 22px; border: 1px solid color-mix(in srgb, var(--admin-line) 58%, transparent); border-radius: var(--admin-radius); background: var(--admin-panel); box-shadow: none; }
+/* Holds the space the charting panel will occupy while its chunk loads, so the
+   sections below it do not jump once the charts arrive. */
+.admin-chart-placeholder { min-height: 360px; }
 .admin-panel-title { min-height: 42px; margin-bottom: 16px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .admin-panel-title > div { min-width: 0; }
 .admin-panel-title > div > span { display: block; color: var(--admin-faint); font-size: var(--admin-font-caption); font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
