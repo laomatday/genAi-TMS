@@ -496,7 +496,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     <div className="employee-scroll">
       <div className="employee-pager-layer" aria-hidden={!activeEmployeeTab} inert={!activeEmployeeTab}>
         <Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
-          <EmployeePager activeTab={pagerTab} disabled navigationResetVersion={pagerNavigationResetVersion} onChange={handleTabChange} renderPage={renderEmployeePage} />
+          <EmployeePager activeTab={pagerTab} disabled={!activeEmployeeTab || Boolean(activeModal) || isAttendanceProcessing} navigationResetVersion={pagerNavigationResetVersion} onChange={handleTabChange} renderPage={renderEmployeePage} />
         </Suspense>
       </div>
       {!activeEmployeeTab ? <div className={`employee-motion-stage ${activeTab === 'profile' ? '' : 'employee-secondary-stage'}`.trim()}><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_FORWARD : UI_MOTION.PAGE_OFFSET_BACKWARD }} animate={{ x: 0 }} exit={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_BACKWARD : UI_MOTION.PAGE_OFFSET_FORWARD }} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
