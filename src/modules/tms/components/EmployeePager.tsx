@@ -20,6 +20,11 @@ import {
   type GestureAxis,
   type GesturePoint,
 } from '@/shared/gestures/horizontalSwipe';
+import {
+  createSubPagerRegistry,
+  resolveSwipeTarget,
+  SubPagerProvider,
+} from '@/modules/tms/navigation/subPager';
 import { EMPLOYEE_NAV_TABS, type EmployeeNavTab } from './BottomNav';
 
 interface Props {
@@ -122,6 +127,9 @@ export default function EmployeePager({
   renderPage,
 }: Props) {
   const surfaceRef = useRef<HTMLDivElement>(null);
+  // Pages with segmented views of their own register here, so a swipe walks
+  // those before it moves to the next tab.
+  const subPagerRef = useRef(createSubPagerRegistry());
   const gestureRef = useRef<ActiveGesture | null>(null);
   const settleTimerRef = useRef<number | null>(null);
   const clickSuppressionTimerRef = useRef<number | null>(null);
@@ -281,7 +289,15 @@ export default function EmployeePager({
     transition({ type: 'drag' });
     const movementX = current.x - gesture.start.x;
     const direction = movementX < 0 ? 'left' : 'right';
-    const allowed = adjacentPagerIndex(activeIndex, direction, EMPLOYEE_NAV_TABS.length) !== null;
+    // The page only follows the finger when the swipe will actually change tab.
+    // A swipe that lands on one of the page's own views rubber-bands instead,
+    // so the movement never promises a page change it will not make.
+    const allowed = resolveSwipeTarget({
+      direction,
+      tabIndex: activeIndex,
+      tabCount: EMPLOYEE_NAV_TABS.length,
+      sub: subPagerRef.current.value,
+    })?.kind === 'tab';
     const visualOffset = resistedSwipeOffset(movementX, gesture.width, allowed);
     event.currentTarget.dataset.pagerPhase = 'dragging';
     event.currentTarget.style.setProperty('--pager-offset-x', `${visualOffset}px`);
@@ -327,17 +343,29 @@ export default function EmployeePager({
       },
       recentHorizontalVelocity(gesture.samples, TMS_LIMITS.SWIPE_VELOCITY_LOOKBACK_MS),
     );
-    const targetIndex = direction
-      ? adjacentPagerIndex(activeIndex, direction, EMPLOYEE_NAV_TABS.length)
+    const resolution = direction
+      ? resolveSwipeTarget({
+        direction,
+        tabIndex: activeIndex,
+        tabCount: EMPLOYEE_NAV_TABS.length,
+        sub: subPagerRef.current.value,
+      })
       : null;
 
     event.preventDefault();
     event.stopPropagation();
-    if (!direction || targetIndex === null) {
+    if (!resolution) {
       settle(null, 0);
       return;
     }
-    settle(targetIndex, direction === 'left' ? -gesture.width : gesture.width);
+    if (resolution.kind === 'sub') {
+      // The page swaps its own content, so the pager returns to rest rather
+      // than sliding a neighbouring tab in.
+      subPagerRef.current.value?.select(resolution.index);
+      settle(null, 0);
+      return;
+    }
+    settle(resolution.index, direction === 'left' ? -gesture.width : gesture.width);
   }, [activeIndex, disabled, hardReset, settle]);
 
   const onClickCapture = useCallback<MouseEventHandler<HTMLDivElement>>((event) => {
@@ -364,6 +392,7 @@ export default function EmployeePager({
       onTouchCancel={cancelGesture}
       onScroll={onScroll}
     >
+      <SubPagerProvider registry={subPagerRef.current}>
       {visibleTabs.map(({ index, tab }) => {
         const position = index - activeIndex;
         const positionName = position < 0 ? 'previous' : position > 0 ? 'next' : 'current';
@@ -380,6 +409,7 @@ export default function EmployeePager({
           </section>
         );
       })}
+      </SubPagerProvider>
     </div>
   );
 }

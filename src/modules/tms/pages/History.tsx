@@ -6,13 +6,19 @@ import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import { TMS_DEFAULT_SYSTEM_CONFIG, TMS_LIMITS } from '@/shared/constants';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import { useSearchParams } from 'react-router-dom';
+import { useSubPager } from '@/modules/tms/navigation/subPager';
 
 interface Props {
+    /** False for the neighbouring pages the pager keeps mounted either side. */
+    isActive?: boolean;
     data: DashboardData | null;
     onRefresh: () => Promise<boolean | void>;
     onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
     onExplain: (date: string, reason: string) => void;
 }
+
+/** Order of the segmented control, which is also the swipe order. */
+const HISTORY_VIEWS = ['week', 'month'] as const;
 
 type HistoryStatus = 'Absent' | 'Leave' | 'Holiday' | 'Full' | 'Half' | 'Working' | 'Weekend' | 'Future';
 
@@ -54,7 +60,7 @@ function dayTone(item: HistoryDayItem): string {
     return 'muted';
 }
 
-const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain }) => {
+const TabHistory: React.FC<Props> = ({ isActive = true, data, onRefresh, onAlert, onExplain }) => {
     const [searchParams, setSearchParams] = useSearchParams();
     const viewMode: 'week' | 'month' = searchParams.get('historyView') === 'month' ? 'month' : 'week';
 
@@ -360,6 +366,14 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain }) =>
         });
         if (mode === 'month') setSelectedDate(toISODateString(viewDate));
     };
+
+    // Swiping walks Tuần này → Tháng này before it leaves the page.
+    useSubPager({
+        enabled: isActive,
+        index: viewMode === 'week' ? 0 : 1,
+        count: HISTORY_VIEWS.length,
+        onSelect: (index) => switchViewMode(HISTORY_VIEWS[index] ?? 'week'),
+    });
 
     /** Explanations close on the configured lock day of the following month.
      *  Staff need that date on screen, not buried in an error toast. */

@@ -479,9 +479,9 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
       case 'home':
         return <TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert} onExplain={openExplanationModal} explainableItems={explainableItems} onNavigate={handleTabChange} onCreateRequest={openRequestModal} />;
       case 'history':
-        return <TabHistory data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={openExplanationModal} />;
+        return <TabHistory isActive={isActive} data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={openExplanationModal} />;
       case 'requests':
-        return <TabRequests data={data} user={currentUser} onRefresh={refresh} onCreateRequest={openRequestModal} onCreateExplanation={() => openExplanationModal()} />;
+        return <TabRequests isActive={isActive} data={data} user={currentUser} onRefresh={refresh} onCreateRequest={openRequestModal} onCreateExplanation={() => openExplanationModal()} />;
       case 'calendar':
         return <CalendarPage data={data} user={currentUser} onRefresh={refresh} currentDate={managerDate} />;
       case 'contacts':

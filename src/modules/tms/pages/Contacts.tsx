@@ -7,6 +7,7 @@ import ModalContactDetail from '@/modules/tms/components/ModalContactDetail';
 import { TMS_LIMITS } from '@/shared/constants';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import type { TabType } from '@/modules/tms/components/BottomNav';
+import { useSubPager } from '@/modules/tms/navigation/subPager';
 
 interface Props {
     isActive?: boolean;
@@ -220,6 +221,22 @@ const TabContacts: React.FC<Props> = ({ isActive = true, data, resetTrigger = 0,
         });
         return { empNameMap: nameMap, empRoleMap: roleMap, empDeptMap: deptMap };
     }, [data?.contacts]);
+
+    // Swiping walks the branch chips before it leaves the page. The search box
+    // hides the chips, and with them the views, so the gesture goes straight
+    // back to moving between tabs.
+    const centerIndex = Math.max(0, centers.indexOf(activeCenter));
+    useSubPager({
+        enabled: isActive && !term,
+        index: centerIndex,
+        count: term ? 0 : centers.length,
+        onSelect: (index) => {
+            const center = centers[index];
+            if (!center) return;
+            triggerHaptic('light');
+            setActiveCenter(center);
+        },
+    });
 
     const filtered = useMemo(() => {
         if (!debouncedTerm) return [];

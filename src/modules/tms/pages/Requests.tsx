@@ -7,8 +7,11 @@ import { formatDateString, triggerHaptic } from '@/core/utils/helpers';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSearchParams } from 'react-router-dom';
+import { useSubPager } from '@/modules/tms/navigation/subPager';
 
 interface Props {
+    /** False for the neighbouring pages the pager keeps mounted either side. */
+    isActive?: boolean;
     data: DashboardData | null;
     user: Employee;
     onRefresh: () => Promise<boolean | void>;
@@ -17,6 +20,9 @@ interface Props {
 }
 
 type RequestListItem = (LeaveRequest & { itemType: 'leave' }) | (Explanation & { itemType: 'explanation' });
+
+/** Order of the segmented control, which is also the swipe order. */
+const REQUEST_VIEWS = ['leaves', 'explanations'] as const;
 
 const STATUS_CONFIG: Record<string, { label: string; tone: string; icon: string }> = {
     Approved: { label: 'Đã duyệt', tone: 'success', icon: 'check_circle' },
@@ -49,7 +55,7 @@ function dayCount(from: string, to: string) {
     return Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
 }
 
-const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, onCreateExplanation }) => {
+const TabRequests: React.FC<Props> = ({ isActive = true, data, onRefresh, user, onCreateRequest, onCreateExplanation }) => {
     const [searchParams, setSearchParams] = useSearchParams();
     const viewMode: 'leaves' | 'explanations' = searchParams.get('requestView') === 'explanations' ? 'explanations' : 'leaves';
     const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -78,6 +84,14 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
     }, [requests, user.annual_leave_balance]);
 
     const isLeaveView = viewMode === 'leaves';
+
+    // Swiping walks Nghỉ phép → Giải trình before it leaves the page.
+    useSubPager({
+        enabled: isActive,
+        index: isLeaveView ? 0 : 1,
+        count: REQUEST_VIEWS.length,
+        onSelect: (index) => switchViewMode(REQUEST_VIEWS[index] ?? 'leaves'),
+    });
     const source = isLeaveView ? requests : explanations;
     const pendingCount = source.filter(item => item.status === 'Pending').length;
     const approvedCount = source.filter(item => item.status === 'Approved').length;
