@@ -67,12 +67,17 @@ async function applyCapabilityOverrides(
   organizationId: string,
   employeeId: string,
   overrides: Map<string, boolean>,
+  known: string[],
 ) {
+  // Replace only the capabilities the caller could actually see. An older browser
+  // that predates a newly added capability must not delete an override it never
+  // rendered and therefore could not send back.
   const { error: clearError } = await admin
     .from("workforce_employee_capabilities")
     .delete()
     .eq("organization_id", organizationId)
-    .eq("employee_id", employeeId);
+    .eq("employee_id", employeeId)
+    .in("capability", known);
   if (clearError) return clearError;
   if (!overrides.size) return null;
   const { error: insertError } = await admin
@@ -377,17 +382,18 @@ Deno.serve(async (req: Request) => {
   // is stored as the absence of a row. The catalogue is intentionally duplicated
   // from the client rather than trusted from the request: a browser must not be
   // able to invent a capability name and have it persisted.
-  const KNOWN_CAPABILITIES = new Set([
+  const KNOWN_CAPABILITIES = [
+    "attendance.self", "request.submit", "directory.read",
     "team.read", "team.read_all", "attendance.review", "attendance.review.override",
     "attendance.export", "attendance.lock_period", "attendance.reopen_period",
     "schedule.manage", "schedule.override", "kiosk.manage", "employee.manage",
     "settings.manage", "capability.manage", "audit.view",
-  ]);
+  ];
   const requestedOverrides = input.capability_overrides;
   const capabilityOverrides = new Map<string, boolean>();
   if (requestedOverrides && typeof requestedOverrides === "object" && !Array.isArray(requestedOverrides)) {
     for (const [capability, value] of Object.entries(requestedOverrides as Record<string, unknown>)) {
-      if (KNOWN_CAPABILITIES.has(capability) && typeof value === "boolean") {
+      if (KNOWN_CAPABILITIES.includes(capability) && typeof value === "boolean") {
         capabilityOverrides.set(capability, value);
       }
     }
@@ -603,7 +609,7 @@ Deno.serve(async (req: Request) => {
       }
     }
     if (overridesSupplied) {
-      const overrideError = await applyCapabilityOverrides(admin, organizationId, employeeId, capabilityOverrides);
+      const overrideError = await applyCapabilityOverrides(admin, organizationId, employeeId, capabilityOverrides, KNOWN_CAPABILITIES);
       if (overrideError) {
         return json({
           ok: false,
@@ -766,7 +772,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (overridesSupplied) {
-    const overrideError = await applyCapabilityOverrides(admin, organizationId, employeeId, capabilityOverrides);
+    const overrideError = await applyCapabilityOverrides(admin, organizationId, employeeId, capabilityOverrides, KNOWN_CAPABILITIES);
     if (overrideError) {
       return json({
         ok: false,

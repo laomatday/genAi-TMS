@@ -1,4 +1,4 @@
-import { EMPLOYEE_ROLES, MANAGEMENT_ROLES, TMS_LIMITS } from '@/shared/constants';
+import { EMPLOYEE_ROLES, MANAGEMENT_ROLES, TMS_DEFAULTS, TMS_LIMITS } from '@/shared/constants';
 import type { Employee, EmployeeRole } from '@/shared/types';
 import {
   excelBoolean,
@@ -24,7 +24,7 @@ const EMPLOYEE_COLUMNS: ExcelColumn<Employee>[] = [
   { header: 'Địa điểm được phép', width: 28, value: (item) => (item.allowed_locations || []).join(', ') },
   { header: 'Địa điểm quản lý', width: 28, value: (item) => (item.managed_locations || []).join(', ') },
   { header: 'Mã quản lý', width: 16, value: (item) => item.direct_manager_id || '' },
-  { header: 'Số ngày phép', width: 16, format: '0.0', value: (item) => item.annual_leave_balance ?? 0 },
+  { header: 'Số ngày phép (bỏ trống = mặc định)', width: 28, format: '0.0', value: (item) => item.annual_leave_balance ?? 0 },
   { header: 'Mã chính sách', width: 20, value: (item) => item.attendance_policy_id || '' },
   { header: 'Chức danh', width: 22, value: (item) => item.position || '' },
   { header: 'Phòng ban', width: 22, value: (item) => item.department || '' },
@@ -185,7 +185,10 @@ export async function parseEmployeesExcel(file: File, data: AdminData) {
       : suppliedPassword;
     const allowedLocations = excelList(row, 'Địa điểm được phép').map((item) => item.toUpperCase());
     const managedLocations = excelList(row, 'Địa điểm quản lý').map((item) => item.toUpperCase());
-    const annualLeave = excelNumber(row, 0, 'Số ngày phép');
+    // A blank cell means "use the default", the same as the blank password column,
+    // not "this person has no leave". Collapsing it to 0 silently zeroed the
+    // entitlement of every row an operator left untouched.
+    const annualLeave = excelNumber(row, TMS_DEFAULTS.ANNUAL_LEAVE_DAYS, 'Số ngày phép (bỏ trống = mặc định)', 'Số ngày phép');
     const suppliedPolicyId = excelText(row, 'Mã chính sách');
     const policyId = role === 'Kiosk' ? null : suppliedPolicyId || soleActivePolicyId;
     const managerId = excelText(row, 'Mã quản lý').toUpperCase();

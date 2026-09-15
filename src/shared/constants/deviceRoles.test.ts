@@ -3,6 +3,8 @@ import {
   DEFAULT_DEVICE_LOCK_ROLES,
   DEVICE_EXEMPT_ROLES,
   DEVICE_LOCK_EDITABLE_ROLES,
+  EMPLOYEE_CAPABILITIES,
+  normalizeCapabilityOverrides,
   normalizeDeviceLockRoles,
   requiresDeviceLock,
   resolveDeviceLock,
@@ -87,5 +89,36 @@ describe('per-employee device lock override', () => {
   it('resolves against the tenant policy it is given, not the default', () => {
     expect(resolveDeviceLock({ role: 'Admin', override: null, lockedRoles: ['Admin'] })).toBe(true);
     expect(resolveDeviceLock({ role: 'Staff', override: null, lockedRoles: [] })).toBe(false);
+  });
+});
+
+describe('capability catalogue', () => {
+  // The server replaces exactly the capabilities the client names. A capability
+  // that exists in the database but not here would be deleted the first time an
+  // admin opened and saved that employee, silently undoing a deliberate grant.
+  it('covers every capability the database issues', () => {
+    const deployed = [
+      'attendance.self', 'attendance.export', 'attendance.lock_period',
+      'attendance.reopen_period', 'attendance.review', 'attendance.review.override',
+      'audit.view', 'capability.manage', 'directory.read', 'employee.manage',
+      'kiosk.manage', 'request.submit', 'schedule.manage', 'schedule.override',
+      'settings.manage', 'team.read', 'team.read_all',
+    ];
+    const known = EMPLOYEE_CAPABILITIES.map((capability) => capability.id);
+    expect([...known].sort()).toEqual([...deployed].sort());
+  });
+
+  it('gives every capability a label and a hint', () => {
+    for (const capability of EMPLOYEE_CAPABILITIES) {
+      expect(capability.label.length).toBeGreaterThan(0);
+      expect(capability.hint.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps only known capabilities when reading a stored row', () => {
+    expect(normalizeCapabilityOverrides({ 'schedule.manage': true, 'khong.ton.tai': true }))
+      .toEqual({ 'schedule.manage': true });
+    expect(normalizeCapabilityOverrides({ 'schedule.manage': 'yes' })).toEqual({});
+    expect(normalizeCapabilityOverrides(null)).toEqual({});
   });
 });

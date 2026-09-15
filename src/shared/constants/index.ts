@@ -113,6 +113,12 @@ export interface CapabilityDefinition {
 }
 
 export const EMPLOYEE_CAPABILITIES: readonly CapabilityDefinition[] = [
+  // The baseline every role carries. They are listed so they can be taken away
+  // from one person, and so that an override on them survives an edit: the
+  // server replaces exactly the capabilities this list names.
+  { id: 'attendance.self', label: 'Tự chấm công', hint: 'Quét QR để ghi nhận giờ vào và giờ ra' },
+  { id: 'request.submit', label: 'Gửi đơn từ', hint: 'Nghỉ phép, giải trình, công tác' },
+  { id: 'directory.read', label: 'Xem danh bạ', hint: 'Danh sách liên hệ nội bộ' },
   { id: 'team.read', label: 'Xem nhân sự phụ trách', hint: 'Bảng công của người trong phạm vi được giao', opensControlCenter: true },
   { id: 'team.read_all', label: 'Xem toàn bộ nhân sự', hint: 'Không giới hạn theo chi nhánh' },
   { id: 'attendance.review', label: 'Duyệt đơn từ', hint: 'Nghỉ phép và giải trình của người trong phạm vi' },
