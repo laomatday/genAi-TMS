@@ -84,24 +84,14 @@ after sign-in. The prompt is dismissible, so track the number of accounts still
 carrying the flag and chase the long tail rather than assuming it drains on its
 own.
 
-`bun run reset:passwords` re-issues that default to every existing account and
-re-arms the reminder. It is destructive and irreversible — previous passwords are
-hashed and cannot be recovered, and everyone must sign in again. It prints a plan
-by default, writes only with `--apply`, and then requires the project hostname to
-be typed back. It needs a service-role key, so run it from a protected
-environment and never from a `VITE_*` variable:
+There is no bulk reset tool, deliberately. Re-issuing the default across a live
+tenant is a one-off migration dressed up as a routine command, and the supported
+paths already cover it: create the account from the Control Center, or import the
+spreadsheet, and the default is applied at creation. An individual password is
+reset from Tài khoản → chọn nhân viên → Mật khẩu mới.
 
-```bash
-TMS_ADMIN_URL="https://project.supabase.co" \
-TMS_ADMIN_SERVICE_KEY="<service-role-key>" \
-bun run reset:passwords
-```
-
-Accounts listed in `ALWAYS_SKIP_EMAILS`, accounts with no Auth login, and any
-name that would yield a password under eight characters are skipped and reported
-rather than silently changed. Add further exemptions with
-`TMS_ADMIN_SKIP_EMAILS`. Announce the cutover before applying it: every employee
-is signed out of nothing, but their existing password stops working immediately.
+A password cannot be read back for an existing account. Postgres stores only a
+bcrypt hash, so an account whose password is lost is reset, never recovered.
 
 ### Employee spreadsheet recovery
 

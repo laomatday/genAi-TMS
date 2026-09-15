@@ -9,7 +9,6 @@ const ENV_PHONE_LABEL = typeof import.meta !== 'undefined' && import.meta.env?.V
 const ENV_LOGIN_DOMAINS = typeof import.meta !== 'undefined' && import.meta.env?.VITE_LOGIN_EMAIL_DOMAINS
   ? import.meta.env.VITE_LOGIN_EMAIL_DOMAINS
   : ENV_DOMAIN;
-const ENV_RELEASE_CHANNEL = typeof import.meta !== 'undefined' && import.meta.env?.VITE_RELEASE_CHANNEL ? import.meta.env.VITE_RELEASE_CHANNEL : 'stable';
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0-dev';
 const APP_BUILD_ID = typeof __APP_BUILD_ID__ !== 'undefined' ? __APP_BUILD_ID__ : 'local';
 
@@ -19,9 +18,7 @@ export const APP_INFO = {
   PRODUCT_NAME: `${ENV_BRAND} TMS`,
   VERSION: APP_VERSION,
   BUILD_ID: APP_BUILD_ID,
-  RELEASE_CHANNEL: ENV_RELEASE_CHANNEL,
   DOMAIN: ENV_DOMAIN,
-  WEBSITE_URL: `https://${ENV_DOMAIN}`,
   CONTACT_EMAIL: ENV_SUPPORT_EMAIL,
   LOGO_URL: ENV_LOGO_URL,
   SUPPORT_PHONE: ENV_PHONE,
@@ -180,7 +177,6 @@ export const UI_MOTION = {
 export const TMS_TIME = {
   ZONE: 'Asia/Ho_Chi_Minh',
   UTC_OFFSET: '+07:00',
-  MAX_CORRECTION_HOURS: 24,
 } as const;
 
 export const TMS_LIMITS = {
@@ -195,7 +191,6 @@ export const TMS_LIMITS = {
   QR_REFRESH_MS: 30_000,
   QR_VALIDITY_SECONDS: 45,
   QR_SCAN_FPS: 12,
-  QR_SCAN_AREA_RATIO: 0.7,
   CHECKOUT_REMINDER_DELAY_MINUTES: 15,
   EARLY_CHECKOUT_WARNING_MINUTES: 5,
   CLOCK_REFRESH_MS: 1_000,
@@ -226,7 +221,6 @@ export const TMS_LIMITS = {
   PULL_REFRESH_MAX_PX: 120,
   PULL_REFRESH_RESISTANCE: 0.42,
   CONTACT_SEARCH_DEBOUNCE_MS: 300,
-  INPUT_FOCUS_DELAY_MS: 150,
   MAX_AVATAR_FILE_BYTES: 10 * 1024 * 1024,
   MAX_AVATAR_STORAGE_BYTES: 2 * 1024 * 1024,
   AVATAR_OUTPUT_PIXELS: 500,
@@ -237,7 +231,6 @@ export const TMS_LIMITS = {
   // interactive batch deliberately smaller than schedule-only spreadsheets so
   // an interrupted browser session has a bounded reconciliation surface.
   MAX_EMPLOYEE_IMPORT_ROWS: 100,
-  ADMIN_FETCH_BATCH_SIZE: 1_000,
   RESOURCE_PAGE_SIZE: 100,
   RESOURCE_DEFAULT_MAX_PAGES: 5,
   RESOURCE_MAX_PAGES: 20,
@@ -253,7 +246,6 @@ export const TMS_LIMITS = {
   QR_REFRESH_MAX_SECONDS: 240,
   QR_REFRESH_SAFETY_SECONDS: 5,
   ACCOUNT_PASSWORD_MIN_LENGTH: 8,
-  TEMP_PASSWORD_LENGTH: 16,
   MAX_ANNUAL_LEAVE_DAYS: 365,
   KIOSK_QR_SIZE_PX: 320,
 } as const;
