@@ -11,6 +11,11 @@ Kết quả ghi vào `screenshots/` (đã nằm trong `.gitignore`):
 | `screenshots/mobile/` | 2160 × 4680 | 8 màn của app chấm công trên điện thoại |
 | `screenshots/desktop/` | 3840 × 2160 (UHD 4K) | 9 màn Control Center trên máy tính |
 
+Kèm theo hai ảnh cắt riêng thanh điều hướng (`*-thanh-dieu-huong.png`), nền
+trong suốt để đặt lên bất kỳ nền nào. Phần còn lại của trang được ẩn bằng
+`visibility` chứ không phải `display`, nên thanh nav vẫn nằm đúng vị trí bố cục
+thật lúc bấm máy; `display: none` sẽ làm nó dịch đi trước khi chụp.
+
 Chụp toàn trang thay vì chỉ khung nhìn:
 
 ```bash

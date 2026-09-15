@@ -9,6 +9,51 @@ const OUT = 'screenshots';
  *  default is the viewport, which is what a device actually shows. */
 const fullPage = process.env.SCREENS_FULL_PAGE === '1';
 
+/**
+ * Captures one element on a transparent background, with a margin so a floating
+ * bar keeps the drop shadow that defines its edge — an element-only screenshot
+ * clips exactly at the box and cuts the shadow off.
+ *
+ * Everything else is hidden with `visibility`, not `display`, so the element
+ * stays exactly where the real layout puts it; `display: none` on its
+ * surroundings would move it before the shutter.
+ */
+async function shootElement(page: Page, project: string, name: string, selector: string, margin = 28) {
+  await mkdir(`${OUT}/${project}`, { recursive: true });
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(400);
+
+  const box = await page.locator(selector).boundingBox();
+  if (!box) throw new Error(`${selector} has no box to capture`);
+
+  const styleId = await page.evaluate((target) => {
+    const style = document.createElement('style');
+    style.id = 'capture-isolate';
+    style.textContent = `
+      html, body { background: transparent !important; }
+      body * { visibility: hidden !important; }
+      ${target}, ${target} * { visibility: visible !important; }
+    `;
+    document.head.append(style);
+    return style.id;
+  }, selector);
+
+  const view = page.viewportSize();
+  await page.screenshot({
+    path: `${OUT}/${project}/${name}.png`,
+    clip: {
+      x: Math.max(0, box.x - margin),
+      y: Math.max(0, box.y - margin),
+      width: Math.min((view?.width ?? box.width) - Math.max(0, box.x - margin), box.width + margin * 2),
+      height: Math.min((view?.height ?? box.height) - Math.max(0, box.y - margin), box.height + margin * 2),
+    },
+    omitBackground: true,
+    scale: 'device',
+  });
+
+  await page.evaluate((id) => document.getElementById(id)?.remove(), styleId);
+}
+
 async function shoot(page: Page, project: string, name: string) {
   await mkdir(`${OUT}/${project}`, { recursive: true });
   // Web fonts decide glyph widths, so a shot taken before they land is laid out
@@ -53,6 +98,11 @@ test.describe('employee app', () => {
     await page.getByRole('button', { name: 'Tạo đề xuất mới' }).click();
     await expect(page.locator('[role="dialog"]')).toBeVisible();
     await shoot(page, project, '08-tao-de-xuat');
+
+    // The bottom bar on its own, back on the home tab so the first item is lit.
+    await page.goBack();
+    await page.getByRole('button', { name: 'Trang chủ', exact: true }).last().click();
+    await shootElement(page, project, '09-thanh-dieu-huong', 'nav[aria-label="Điều hướng chính"]');
   });
 });
 
@@ -98,5 +148,7 @@ test.describe('control center', () => {
       await shoot(page, project, file);
     }
     expect(missing, 'admin sections absent from the sidebar').toEqual([]);
+
+    await shootElement(page, project, '10-thanh-dieu-huong', 'nav[aria-label="Điều hướng quản trị"]');
   });
 });
