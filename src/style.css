@@ -124,7 +124,16 @@
   --home-radar-size: 13rem;
   --home-action-button-size: 8rem;
   --app-inline-space: clamp(var(--space-4), 4vw, var(--space-8));
-  --app-page-top: calc(var(--app-header-height) + var(--space-6));
+  /* The fixed headers sit under the status bar and pad themselves by the top
+     inset, so what they actually occupy is the inset plus their own height.
+     Anything scrolling underneath must clear --app-header-offset, never the bare
+     --app-header-height: the inset is 0 on Android and desktop, which is why a
+     missing one only shows up as a clipped first row on a notched iPhone.
+     --app-safe-top is a variable rather than env() inline so the offset can be
+     exercised on any device by overriding it. */
+  --app-safe-top: env(safe-area-inset-top);
+  --app-header-offset: calc(var(--app-safe-top) + var(--app-header-height));
+  --app-page-top: calc(var(--app-header-offset) + var(--space-6));
   --app-page-bottom: calc(var(--app-nav-height) + var(--space-12) + env(safe-area-inset-bottom));
   --app-page-swipe-forward: 100%;
   --app-page-swipe-backward: -100%;
@@ -636,7 +645,7 @@
   top: 0;
   left: 0;
   width: 100%;
-  padding-top: env(safe-area-inset-top);
+  padding-top: var(--app-safe-top);
   background: color-mix(in srgb, var(--color-bg) 88%, transparent);
   backdrop-filter: blur(var(--space-5));
 }
@@ -1277,14 +1286,14 @@
 .contacts-results { padding-top: var(--space-6); padding-bottom: var(--app-page-bottom); }
 
 .employee-page-profile {
-  padding-top: calc(var(--app-header-height) + var(--space-4));
+  padding-top: calc(var(--app-header-offset) + var(--space-4));
   padding-bottom: var(--space-10);
   overflow-y: auto;
 }
 
 
 @media (min-width: 768px) {
-  .employee-page-standard { padding-top: calc(var(--app-header-height) + var(--space-8)); }
+  .employee-page-standard { padding-top: calc(var(--app-header-offset) + var(--space-8)); }
 }
 
 @media (min-width: 1024px) {
@@ -1450,7 +1459,7 @@
   position: sticky;
   z-index: var(--layer-navigation);
   top: 0;
-  padding-top: env(safe-area-inset-top);
+  padding-top: var(--app-safe-top);
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
   background: color-mix(in srgb, var(--color-bg) 88%, transparent);
   backdrop-filter: blur(var(--space-5));
@@ -1464,7 +1473,7 @@
 .app-modal-header-inner-centered .app-modal-header-title h2 { justify-content: center; }
 .app-modal-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-3); }
 .app-modal-header-actions .icon-button { --icon-button-size-lg: 2.25rem; }
-.app-modal-content { width: min(var(--app-content-width), 100%); min-height: 0; margin-inline: auto; padding: calc(var(--app-header-height) + var(--space-2)) var(--app-inline-space) var(--app-page-bottom); flex: 1; overflow-y: auto; }
+.app-modal-content { width: min(var(--app-content-width), 100%); min-height: 0; margin-inline: auto; padding: calc(var(--app-header-offset) + var(--space-2)) var(--app-inline-space) var(--app-page-bottom); flex: 1; overflow-y: auto; }
 .app-compact-action-primary { background: var(--surface-tint); color: var(--color-primary); }
 .app-compact-action-primary:hover:not(:disabled) { background: var(--color-primary); color: var(--color-on-dark); }
 .app-compact-action-danger { background: var(--surface-subtle); color: var(--color-error-dark); }

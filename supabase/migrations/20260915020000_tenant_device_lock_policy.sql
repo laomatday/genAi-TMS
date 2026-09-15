@@ -94,8 +94,13 @@ select wf_private.patch_device_lock_fragment(
 drop function wf_private.patch_device_lock_fragment(regprocedure, text, text);
 
 -- The policy is read by the trusted-device Edge Function through the service
--- role, the same way it already reads `employees`. It is deliberately not exposed
--- as an RPC: the browser must never be able to ask, or answer, whether its own
--- role is exempt.
+-- role, the same way it already reads `employees` and `attendance_policies`. It
+-- is deliberately not exposed as an RPC: the browser must never be able to ask,
+-- or answer, whether its own role is exempt.
+--
+-- Read only. Configuration is still written exclusively through
+-- wf_private.config_patch, so the Edge Function cannot rewrite the policy it is
+-- being judged by.
+grant select on public.config_system to service_role;
 
 notify pgrst, 'reload schema';
