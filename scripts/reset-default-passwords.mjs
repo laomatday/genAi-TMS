@@ -1,5 +1,6 @@
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
+import { readFileSync } from 'node:fs';
 
 // One-off provisioning tool: rewrites every existing account to the name-derived
 // default password and re-arms the "change your password" reminder.
@@ -38,10 +39,41 @@ const APPLY = process.argv.includes('--apply');
 // Accounts that must keep the password they already have.
 const ALWAYS_SKIP_EMAILS = ['nghiacvt81@gmail.com'];
 
-function requireValue(name) {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`Missing ${name}.`);
-  return value;
+/** The project URL is not a secret — it ships in the browser bundle — so reading
+ *  it from .env.local saves the operator retyping it and removes a chance of
+ *  aiming at the wrong project. The service key is never read from a file: it
+ *  must be supplied deliberately, for this one run. Typing the hostname back
+ *  still guards the target either way. */
+function projectUrlFromEnvFile() {
+  try {
+    const file = readFileSync(new URL('../.env.local', import.meta.url), 'utf8');
+    const match = /^\s*VITE_SUPABASE_URL\s*=\s*"?([^"\r\n]+)"?/m.exec(file);
+    return match?.[1]?.trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+function resolveProjectUrl() {
+  const url = process.env.TMS_ADMIN_URL?.trim() || projectUrlFromEnvFile();
+  if (!url) {
+    throw new Error('Missing TMS_ADMIN_URL, and no VITE_SUPABASE_URL found in .env.local.');
+  }
+  return url;
+}
+
+function resolveServiceKey() {
+  const key = process.env.TMS_ADMIN_SERVICE_KEY?.trim();
+  if (!key) {
+    throw new Error(
+      'Missing TMS_ADMIN_SERVICE_KEY.\n\n'
+      + 'Lay tai: Supabase Dashboard -> Project Settings -> API -> service_role (secret).\n'
+      + 'Chay lai, key se khong hien tren man hinh va khong vao shell history:\n\n'
+      + '  read -rsp "Service-role key: " KEY && echo \\\n'
+      + '    && TMS_ADMIN_SERVICE_KEY="$KEY" bun run ' + `reset:passwords${APPLY ? ' -- --apply' : ''}` + '\n',
+    );
+  }
+  return key;
 }
 
 /** Mirrors src/core/utils/defaultPassword.ts. Kept as a copy rather than an
@@ -91,8 +123,8 @@ async function rest(baseUrl, serviceKey, path, init = {}) {
 }
 
 async function main() {
-  const url = requireValue('TMS_ADMIN_URL').replace(/\/+$/, '');
-  const serviceKey = requireValue('TMS_ADMIN_SERVICE_KEY');
+  const url = resolveProjectUrl().replace(/\/+$/, '');
+  const serviceKey = resolveServiceKey();
   const brand = process.env.TMS_ADMIN_BRAND?.trim() || 'genAi';
   const hostname = new URL(url).hostname;
 

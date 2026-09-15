@@ -1,5 +1,6 @@
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
+import { readFileSync } from 'node:fs';
 
 // Creates one dedicated Kiosk account per branch. A Kiosk account only displays
 // the rotating QR code: it never self-attends, and it is exempt from the trusted
@@ -34,10 +35,41 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 const APPLY = process.argv.includes('--apply');
 const MIN_PASSWORD_LENGTH = 8;
 
-function requireValue(name) {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`Missing ${name}.`);
-  return value;
+/** The project URL is not a secret — it ships in the browser bundle — so reading
+ *  it from .env.local saves the operator retyping it and removes a chance of
+ *  aiming at the wrong project. The service key is never read from a file: it
+ *  must be supplied deliberately, for this one run. Typing the hostname back
+ *  still guards the target either way. */
+function projectUrlFromEnvFile() {
+  try {
+    const file = readFileSync(new URL('../.env.local', import.meta.url), 'utf8');
+    const match = /^\s*VITE_SUPABASE_URL\s*=\s*"?([^"\r\n]+)"?/m.exec(file);
+    return match?.[1]?.trim() || '';
+  } catch {
+    return '';
+  }
+}
+
+function resolveProjectUrl() {
+  const url = process.env.TMS_ADMIN_URL?.trim() || projectUrlFromEnvFile();
+  if (!url) {
+    throw new Error('Missing TMS_ADMIN_URL, and no VITE_SUPABASE_URL found in .env.local.');
+  }
+  return url;
+}
+
+function resolveServiceKey() {
+  const key = process.env.TMS_ADMIN_SERVICE_KEY?.trim();
+  if (!key) {
+    throw new Error(
+      'Missing TMS_ADMIN_SERVICE_KEY.\n\n'
+      + 'Lay tai: Supabase Dashboard -> Project Settings -> API -> service_role (secret).\n'
+      + 'Chay lai, key se khong hien tren man hinh va khong vao shell history:\n\n'
+      + '  read -rsp "Service-role key: " KEY && echo \\\n'
+      + '    && TMS_ADMIN_SERVICE_KEY="$KEY" bun run ' + `provision:kiosks${APPLY ? ' -- --apply' : ''}` + '\n',
+    );
+  }
+  return key;
 }
 
 function brandSlug(value) {
@@ -74,8 +106,8 @@ async function rest(baseUrl, serviceKey, path, init = {}) {
 }
 
 async function main() {
-  const url = requireValue('TMS_ADMIN_URL').replace(/\/+$/, '');
-  const serviceKey = requireValue('TMS_ADMIN_SERVICE_KEY');
+  const url = resolveProjectUrl().replace(/\/+$/, '');
+  const serviceKey = resolveServiceKey();
   const brand = process.env.TMS_ADMIN_BRAND?.trim() || 'genAi';
   const emailDomain = process.env.TMS_ADMIN_EMAIL_DOMAIN?.trim() || 'genai.ai.vn';
   const hostname = new URL(url).hostname;
