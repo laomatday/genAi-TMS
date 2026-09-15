@@ -3,12 +3,16 @@ import ReactDOM from 'react-dom/client';
 import WebApp from '@/WebApp';
 import AppErrorBoundary from '@/core/errors/AppErrorBoundary';
 import { installGlobalErrorReporting } from '@/core/observability/clientTelemetry';
+import { installStaleBuildRecovery } from '@/core/errors/staleBuild';
 import AppStatusBanner, { PWA_UPDATE_AVAILABLE_EVENT, type PwaUpdateAvailableDetail } from '@/shared/components/common/AppStatusBanner';
 import '@/style.css';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Failed to find the root element');
 installGlobalErrorReporting();
+// Registered before the first render so a chunk that went missing in a deploy
+// is recovered silently, instead of reaching the error screen.
+installStaleBuildRecovery();
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>

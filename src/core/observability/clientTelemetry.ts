@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from '@/core/supabase';
+import { isStaleBuildError } from '@/core/errors/staleBuild';
 
 export type ClientMetricKind = 'FRONTEND' | 'LOAD';
 
@@ -49,10 +50,16 @@ export function installGlobalErrorReporting() {
   if (globalReportingInstalled || typeof window === 'undefined') return;
   globalReportingInstalled = true;
 
+  // Stale-build failures are reported under their own codes so they stop
+  // drowning the real errors in the same bucket.
   window.addEventListener('error', (event) => {
-    reportClientError('WINDOW_ERROR', event.error || event.message);
+    const error = event.error || event.message;
+    reportClientError(isStaleBuildError(error) ? 'WINDOW_ERROR_STALE_BUILD' : 'WINDOW_ERROR', error);
   });
   window.addEventListener('unhandledrejection', (event) => {
-    reportClientError('UNHANDLED_REJECTION', event.reason);
+    reportClientError(
+      isStaleBuildError(event.reason) ? 'UNHANDLED_REJECTION_STALE_BUILD' : 'UNHANDLED_REJECTION',
+      event.reason,
+    );
   });
 }
