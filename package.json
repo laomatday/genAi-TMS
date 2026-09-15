@@ -19,6 +19,7 @@
     "test:e2e": "playwright test",
     "test:load": "bun scripts/load-test-dashboard.mjs",
     "reset:passwords": "bun scripts/reset-default-passwords.mjs",
+    "provision:kiosks": "bun scripts/provision-kiosk-accounts.mjs",
     "check": "bun run audit:repo && bun run deadcode && bun run test && bun run build",
     "check:release": "bun run check && bun run audit:dependencies",
     "preview": "vite preview --host 0.0.0.0 --port 3000"

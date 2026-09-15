@@ -30,6 +30,22 @@ function clean(value: unknown, max = 300) {
   return String(value ?? "").trim().slice(0, max);
 }
 
+// Mirrors normalizeDeviceLockRoles in src/shared/constants. A value that cannot
+// be read falls back to the default rather than to an empty list, so a corrupt
+// setting can never switch device binding off for the whole tenant. Kiosk is
+// absent from the editable set and can therefore never be locked.
+const DEVICE_LOCK_EDITABLE_ROLES = ["Staff", "Leader", "Manager", "Director", "HR", "Admin"];
+const DEFAULT_DEVICE_LOCK_ROLES = ["Staff", "Leader", "Manager", "Director", "HR"];
+
+function deviceLockRoles(raw: unknown): string[] {
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    try { parsed = JSON.parse(raw); } catch { parsed = null; }
+  }
+  if (!Array.isArray(parsed)) return [...DEFAULT_DEVICE_LOCK_ROLES];
+  return [...new Set(parsed.filter((role): role is string => DEVICE_LOCK_EDITABLE_ROLES.includes(role as string)))];
+}
+
 function base64UrlToBytes(value: string) {
   const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
   const binary = atob(padded);
@@ -127,7 +143,26 @@ Deno.serve(async (request: Request) => {
     return json({ ok: true, message: "Đã đặt lại thiết bị. Lần đăng nhập tiếp theo phải kích hoạt thiết bị mới." });
   }
 
+  // Which roles must bind a device is tenant configuration, resolved here rather
+  // than in the browser: a client that could answer this for itself could also
+  // decline to bind at all. A Kiosk station is shared hardware with no individual
+  // owner, so it is exempt regardless of what is configured.
   if (actor.role === "Kiosk") {
+    return json({ ok: true, exempt: true, state: "EXEMPT" });
+  }
+
+  const { data: lockSetting, error: lockSettingError } = await admin
+    .from("config_system")
+    .select("value")
+    .eq("organization_id", actor.organization_id)
+    .eq("key", "DEVICE_LOCK_ROLES")
+    .maybeSingle();
+  if (lockSettingError) {
+    // Fail closed: an unreadable policy keeps device proof required rather than
+    // handing out an exemption the administrator never granted.
+    return json({ ok: false, error: "Không đọc được chính sách khóa thiết bị." }, 500);
+  }
+  if (!deviceLockRoles(lockSetting?.value).includes(actor.role)) {
     return json({ ok: true, exempt: true, state: "EXEMPT" });
   }
 

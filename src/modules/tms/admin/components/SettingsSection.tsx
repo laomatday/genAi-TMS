@@ -3,7 +3,10 @@ import {
   APPROVAL_CONFIG_KEY,
   APPROVAL_EDITABLE_ROLES,
   APPROVAL_KINDS,
+  DEVICE_LOCK_CONFIG_KEY,
+  DEVICE_LOCK_EDITABLE_ROLES,
   normalizeApprovalRoles,
+  normalizeDeviceLockRoles,
   TMS_LIMITS,
   type ApprovalKind,
   type ApprovalRoleConfig,
@@ -271,6 +274,61 @@ function PermissionsSettings({ data, busy, onRun }: { data: AdminData; busy: boo
   );
 }
 
+function DeviceLockSettings({ data, busy, onRun }: { data: AdminData; busy: boolean; onRun: AdminActionRunner }) {
+  const stored = useMemo(
+    () => normalizeDeviceLockRoles(data.systemSettings.find((setting) => setting.key === DEVICE_LOCK_CONFIG_KEY)?.value ?? null),
+    [data.systemSettings],
+  );
+  const [lockedRoles, setLockedRoles] = useState<EmployeeRole[]>(stored);
+
+  const toggle = (role: EmployeeRole, checked: boolean) => {
+    setLockedRoles((current) => (checked
+      ? [...new Set<EmployeeRole>([...current, role])]
+      : current.filter((item) => item !== role)));
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    await onRun(
+      () => saveSystemSettings([{ key: DEVICE_LOCK_CONFIG_KEY, value: JSON.stringify(lockedRoles) }]),
+      'Đã lưu chính sách khóa thiết bị.',
+    );
+  };
+
+  return (
+    <form className="admin-panel admin-system-form" onSubmit={(event) => void submit(event)}>
+      <PanelTitle eyebrow="Thiết bị tin cậy" title="Khóa thiết bị theo vai trò" />
+      <p className="admin-help-text">
+        Vai trò được khóa phải gắn với đúng một thiết bị, và <strong>một thiết bị chỉ dùng được cho một tài khoản</strong>.
+        Vai trò không khóa đăng nhập được trên mọi máy — hãy giữ ít nhất một vai trò quản trị không khóa
+        để còn đường xử lý khi nhân viên mất điện thoại.
+      </p>
+      <div className="admin-setting-groups">
+        <fieldset>
+          <legend>Bắt buộc gắn thiết bị</legend>
+          {DEVICE_LOCK_EDITABLE_ROLES.map((role) => (
+            <label className="admin-switch" key={role}>
+              <input
+                type="checkbox"
+                checked={lockedRoles.includes(role)}
+                onChange={(event) => toggle(role, event.target.checked)}
+              />
+              <span><strong>{role}</strong>{role === 'Admin' ? <small>Mặc định không khóa</small> : null}</span>
+            </label>
+          ))}
+          <label className="admin-switch" aria-disabled="true">
+            <input type="checkbox" checked={false} disabled />
+            <span><strong>Kiosk</strong><small>Máy dùng chung, không bao giờ khóa</small></span>
+          </label>
+        </fieldset>
+      </div>
+      <footer className="admin-editor-actions">
+        <button className="admin-primary-button" disabled={busy}><span className="material-symbols-rounded">save</span>Lưu khóa thiết bị</button>
+      </footer>
+    </form>
+  );
+}
+
 function HolidaysSettings({ data, busy, onRun }: { data: AdminData; busy: boolean; onRun: AdminActionRunner }) {
   const [holiday, setHoliday] = useState<HolidayRecord>({ ...DEFAULT_HOLIDAY });
   const submit = async (event: FormEvent) => {
@@ -323,6 +381,7 @@ export default function SettingsSection({ data, busy, onRun }: { data: AdminData
       {section === 'holidays' ? <HolidaysSettings data={data} busy={busy} onRun={onRun} /> : null}
       {section === 'locations' ? <LocationsSettings data={data} busy={busy} onRun={onRun} /> : null}
       {section === 'permissions' ? <PermissionsSettings data={data} busy={busy} onRun={onRun} /> : null}
+      {section === 'permissions' ? <DeviceLockSettings data={data} busy={busy} onRun={onRun} /> : null}
     </div>
   );
 }

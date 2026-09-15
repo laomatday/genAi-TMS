@@ -37,10 +37,41 @@ export const APP_ROUTES = {
 
 export const EMPLOYEE_ROLES: readonly EmployeeRole[] = ['Staff', 'Leader', 'Manager', 'Director', 'HR', 'Admin', 'Kiosk'];
 export const MANAGEMENT_ROLES: readonly EmployeeRole[] = ['Leader', 'Manager', 'Director', 'Admin', 'HR'];
-// Keep this aligned with both the trusted-device Edge Function and the
-// attendance command. Every interactive employee account, including Admin,
-// must complete device proof. Dedicated Kiosk operators never self-attend.
+// Roles the client may skip the device gate for without asking the server.
+// Only Kiosk qualifies: a station is shared hardware that never self-attends, so
+// there is no individual owner to bind and no answer the server could add. Every
+// other role — Admin included — goes to the trusted-device function, which is the
+// only place allowed to decide the exemption.
 export const DEVICE_EXEMPT_ROLES: readonly EmployeeRole[] = ['Kiosk'];
+
+// Which roles must bind a trusted device, and are therefore blocked from sharing
+// one phone across accounts. Configurable from Admin → Tham số hệ thống → Khóa
+// thiết bị (stored in config_system as DEVICE_LOCK_ROLES). Kiosk can never be
+// locked. Admin is unlocked by default so an administrator keeps a way back in
+// when someone's device is lost or a binding has to be cleared.
+export const DEVICE_LOCK_CONFIG_KEY = 'DEVICE_LOCK_ROLES';
+export const DEVICE_LOCK_EDITABLE_ROLES: readonly EmployeeRole[] = ['Staff', 'Leader', 'Manager', 'Director', 'HR', 'Admin'];
+export const DEFAULT_DEVICE_LOCK_ROLES: readonly EmployeeRole[] = ['Staff', 'Leader', 'Manager', 'Director', 'HR'];
+
+export function normalizeDeviceLockRoles(raw: unknown): EmployeeRole[] {
+  let parsed: unknown = raw;
+  if (typeof raw === 'string') {
+    try { parsed = JSON.parse(raw); } catch { parsed = null; }
+  }
+  // An unreadable value falls back to the default rather than to "nothing is
+  // locked": a malformed setting must never silently disable device binding.
+  if (!Array.isArray(parsed)) return [...DEFAULT_DEVICE_LOCK_ROLES];
+  return [...new Set(
+    parsed.filter((role): role is EmployeeRole => DEVICE_LOCK_EDITABLE_ROLES.includes(role as EmployeeRole)),
+  )];
+}
+
+export function requiresDeviceLock(
+  role: EmployeeRole,
+  lockedRoles: readonly EmployeeRole[] = DEFAULT_DEVICE_LOCK_ROLES,
+): boolean {
+  return role !== 'Kiosk' && lockedRoles.includes(role);
+}
 
 // Which roles may approve which request family. Configurable from Admin →
 // Tham số hệ thống → Phân quyền duyệt (stored in config_system as APPROVAL_ROLES).
