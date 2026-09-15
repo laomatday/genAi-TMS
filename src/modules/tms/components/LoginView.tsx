@@ -6,9 +6,10 @@ import { APP_INFO } from '@/shared/constants';
 
 interface Props {
   onLoginSuccess: (user: Employee) => void;
+  onSessionEstablished: () => void;
 }
 
-const LoginView: React.FC<Props> = ({ onLoginSuccess }) => {
+const LoginView: React.FC<Props> = ({ onLoginSuccess, onSessionEstablished }) => {
   const [account, setAccount] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -29,6 +30,11 @@ const LoginView: React.FC<Props> = ({ onLoginSuccess }) => {
     if (result.success && result.data) {
       triggerHaptic('success');
       onLoginSuccess(result.data);
+      return;
+    }
+
+    if ('sessionEstablished' in result && result.sessionEstablished) {
+      onSessionEstablished();
       return;
     }
 

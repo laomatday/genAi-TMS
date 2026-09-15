@@ -30,9 +30,13 @@ Nền tảng quản trị nhân sự và chấm công thương mại của **gen
 - Frontend chỉ dùng Supabase publishable key; tuyệt đối không đưa secret/service-role key vào Vercel hoặc bundle trình duyệt.
 - Mọi bảng public đều bật RLS. Các bảng CRM/LMS cũ bị thu hồi quyền `anon`/`authenticated`.
 - Trình duyệt không được ghi trực tiếp các bảng chấm công.
-- Ba RPC `get_my_attendance`, `create_attendance_qr`, `record_qr_attendance` xác thực bằng `auth.uid()` và chỉ cấp quyền cho role `authenticated`.
+- Trình duyệt không có quyền trực tiếp trên bảng/sequence của Data API; `anon` không truy cập schema ứng dụng và `graphql_public` bị loại khỏi cấu hình API. Các thao tác nghiệp vụ đi qua `workforce_query`, `workforce_command` và các RPC đã được duyệt; `service_role` chỉ giữ quyền tối thiểu cho Edge Functions/worker được kiểm kê.
+- Nhật ký `audit_logs` chỉ cho phép ghi nối tiếp; runtime `service_role` không thể sửa, xóa hoặc `TRUNCATE` lịch sử.
 - Edge Function `admin-users` bắt buộc JWT hợp lệ và đối chiếu role `Admin` trong database trước khi dùng Auth Admin API.
 - Token QR chỉ lưu SHA-256; server kiểm tra token, thời hạn cấu hình, GPS và bán kính chi nhánh.
+- Tài khoản mới được cấp mật khẩu mặc định suy ra từ họ tên và thương hiệu: `Cao Văn Trọng Nghĩa` → `cvtnghia@genai`. Hậu tố lấy từ `VITE_APP_BRAND` nên bản triển khai theo thương hiệu khách hàng không cần sửa mã nguồn.
+- Mật khẩu mặc định này suy ra từ thông tin công khai nên **đoán được**. `employees.password_change_required` giữ cờ nhắc cho tới khi chủ tài khoản tự đổi; ứng dụng hiện nhắc sau khi đăng nhập và người dùng được phép bỏ qua, vì vậy hãy coi mật khẩu mặc định là thông tin đăng nhập tạm và theo dõi số tài khoản còn cờ này.
+- Mật khẩu tối thiểu 8 ký tự, áp dụng cho cả form quản trị, nhập Excel và màn tự đổi mật khẩu.
 
 ## Chạy cục bộ
 
@@ -67,9 +71,9 @@ bun run check:release
 
 Sao chép `.env.example` thành `.env.local` và cấu hình riêng cho từng môi trường. Các biến `VITE_APP_BRAND`, `VITE_APP_DOMAIN`, `VITE_APP_LOGO_URL`, `VITE_SUPPORT_EMAIL`, `VITE_SUPPORT_PHONE`, `VITE_SUPPORT_PHONE_LABEL` và `VITE_LOGIN_EMAIL_DOMAINS` cho phép triển khai theo thương hiệu khách hàng mà không hardcode. Không bao giờ đưa secret/service-role key vào biến `VITE_*`.
 
-Mỗi lần phát hành cần có ba môi trường tách biệt (`development`, `staging`, `production`), chạy migration trên staging trước, kiểm tra Supabase Security/Performance Advisor, sao lưu/PITR và kế hoạch rollback trước khi promote production.
+Mỗi khách hàng dùng một Supabase project riêng; `organization_id` là lớp phòng vệ bổ sung, không phải mô hình shared-project. Mỗi lần phát hành cần có ba môi trường tách biệt (`development`, `staging`, `production`), chạy migration trên staging trước, kiểm tra Supabase Security/Performance Advisor và hoàn tất một lần khôi phục cô lập theo runbook trước khi promote production.
 
-Quy trình phát hành và ranh giới hỗ trợ hiện tại nằm trong [`docs/COMMERCIAL_RELEASE.md`](docs/COMMERCIAL_RELEASE.md); chính sách tiếp nhận lỗ hổng nằm trong [`SECURITY.md`](SECURITY.md).
+Quy trình phát hành và ranh giới hỗ trợ hiện tại nằm trong [`docs/COMMERCIAL_RELEASE.md`](docs/COMMERCIAL_RELEASE.md); quy trình sao lưu/khôi phục nằm trong [`docs/BACKUP_RESTORE_RUNBOOK.md`](docs/BACKUP_RESTORE_RUNBOOK.md); chính sách tiếp nhận lỗ hổng nằm trong [`SECURITY.md`](SECURITY.md).
 
 ## Database
 
@@ -80,7 +84,7 @@ Dữ liệu bắt buộc:
 - `auth.users`: tài khoản đăng nhập Supabase.
 - `employees`: `auth_user_id`, `employee_id`, `center_id`, `role`, `status`.
 - `locations`: tọa độ và `radius_meters` của từng chi nhánh.
-- `config_shifts`, `config_system`, `holidays`: có giá trị mặc định an toàn; khóa, index, RLS và mọi đường RPC đều giới hạn theo tenant. Tenant mới được cấp mẫu cấu hình qua luồng provisioning service-role.
+- `config_shifts`, `config_system`, `holidays`: có giá trị mặc định an toàn; khóa, index, RLS và mọi đường RPC đều giới hạn theo organization của project khách hàng. Runtime service role không có quyền tạo organization mới.
 - `attendance_policies`, `timesheets`, `attendance_requests`: nguồn dữ liệu chấm công chuẩn; Control Center đồng bộ dữ liệu `attendance`/`attendance_explanations` hiện hành trong giai đoạn tương thích.
 - `attendance_requests.request_code`: mã nghiệp vụ tuần tự theo tenant dạng `REQ-000001`; UUID chỉ dùng nội bộ và không hiển thị như mã đơn.
 - `qr_stations`, `trusted_devices`, `audit_logs`: registry Kiosk, thiết bị tin cậy và nhật ký quản trị.

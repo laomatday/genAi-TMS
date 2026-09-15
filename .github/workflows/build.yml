@@ -24,6 +24,20 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check:release
 
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Install browser engines
+        run: bunx playwright install --with-deps chromium webkit
+      - name: Verify employee navigation and modal accessibility
+        run: bun run test:e2e
+
   database:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -38,6 +52,8 @@ jobs:
         run: docker exec -i supabase_db_genai-tms psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/tests/tenant_configuration_isolation.sql
       - name: Verify attendance session rollover and corrections
         run: docker exec -i supabase_db_genai-tms psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/tests/attendance_session_rollover.sql
+      - name: Verify final database and Storage security state
+        run: docker exec -i supabase_db_genai-tms psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/tests/final_security_state.sql
       - name: Run database lint and advisors
         run: |
           bunx supabase@2.117.0 db lint --local --schema public --level warning --fail-on error

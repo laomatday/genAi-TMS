@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Attendance, DashboardData } from '@/shared/types';
 import { toISODateString, triggerHaptic } from '@/core/utils/helpers';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
-import { STORAGE_KEYS, TMS_DEFAULT_SYSTEM_CONFIG, TMS_LIMITS } from '@/shared/constants';
+import { TMS_DEFAULT_SYSTEM_CONFIG, TMS_LIMITS } from '@/shared/constants';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
+import { useSearchParams } from 'react-router-dom';
 
 interface Props {
     data: DashboardData | null;
@@ -54,13 +55,8 @@ function dayTone(item: HistoryDayItem): string {
 }
 
 const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain }) => {
-    const [viewMode, setViewMode] = useState<'week' | 'month'>(() =>
-        (localStorage.getItem(STORAGE_KEYS.HISTORY_VIEW) as 'week' | 'month') || 'week'
-    );
-
-    useEffect(() => {
-        localStorage.setItem(STORAGE_KEYS.HISTORY_VIEW, viewMode);
-    }, [viewMode]);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const viewMode: 'week' | 'month' = searchParams.get('historyView') === 'month' ? 'month' : 'week';
 
     const [viewDate, setViewDate] = useState<Date>(new Date());
     const [selectedDate, setSelectedDate] = useState<string>(() => toISODateString(new Date()));
@@ -356,7 +352,12 @@ const TabHistory: React.FC<Props> = ({ data, onRefresh, onAlert, onExplain }) =>
 
     const switchViewMode = (mode: 'week' | 'month') => {
         triggerHaptic('light');
-        setViewMode(mode);
+        setSearchParams((current) => {
+            const next = new URLSearchParams(current);
+            if (mode === 'week') next.delete('historyView');
+            else next.set('historyView', mode);
+            return next;
+        });
         if (mode === 'month') setSelectedDate(toISODateString(viewDate));
     };
 

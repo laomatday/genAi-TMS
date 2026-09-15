@@ -38,9 +38,9 @@ export const APP_ROUTES = {
 export const EMPLOYEE_ROLES: readonly EmployeeRole[] = ['Staff', 'Leader', 'Manager', 'Director', 'HR', 'Admin', 'Kiosk'];
 export const MANAGEMENT_ROLES: readonly EmployeeRole[] = ['Leader', 'Manager', 'Director', 'Admin', 'HR'];
 // Keep this aligned with both the trusted-device Edge Function and the
-// attendance command. HR/Director still record attendance and therefore must
-// complete the same device proof as other employees.
-export const DEVICE_EXEMPT_ROLES: readonly EmployeeRole[] = ['Admin', 'Kiosk'];
+// attendance command. Every interactive employee account, including Admin,
+// must complete device proof. Dedicated Kiosk operators never self-attend.
+export const DEVICE_EXEMPT_ROLES: readonly EmployeeRole[] = ['Kiosk'];
 
 // Which roles may approve which request family. Configurable from Admin →
 // Tham số hệ thống → Phân quyền duyệt (stored in config_system as APPROVAL_ROLES).
@@ -80,8 +80,6 @@ export function canApproveAny(role: EmployeeRole, config: ApprovalRoleConfig = D
 
 export const STORAGE_KEYS = {
   THEME: 'genai_theme',
-  HISTORY_VIEW: 'genai_history_view_mode',
-  SEEN_NOTIFICATIONS: 'genai_seen_noti_count',
   GUIDE_SEEN: 'genai_guide_seen_v2026',
   DEVICE_ID: 'genai_tms_device_id_v2',
   DB_NAME: 'genai-tms-device',
@@ -189,6 +187,11 @@ export const TMS_LIMITS = {
   // an interrupted browser session has a bounded reconciliation surface.
   MAX_EMPLOYEE_IMPORT_ROWS: 100,
   ADMIN_FETCH_BATCH_SIZE: 1_000,
+  RESOURCE_PAGE_SIZE: 100,
+  RESOURCE_DEFAULT_MAX_PAGES: 5,
+  RESOURCE_MAX_PAGES: 20,
+  RESOURCE_CACHE_MAX_SECONDS: 300,
+  EMPLOYEE_HISTORY_LOOKBACK_DAYS: 120,
   ADMIN_TABLE_PAGE_SIZE: 25,
   ADMIN_AUDIT_QUERY_LIMIT: 250,
   ADMIN_BULK_REVIEW_LIMIT: 100,
@@ -198,7 +201,7 @@ export const TMS_LIMITS = {
   QR_REFRESH_MIN_SECONDS: 10,
   QR_REFRESH_MAX_SECONDS: 240,
   QR_REFRESH_SAFETY_SECONDS: 5,
-  ACCOUNT_PASSWORD_MIN_LENGTH: 12,
+  ACCOUNT_PASSWORD_MIN_LENGTH: 8,
   TEMP_PASSWORD_LENGTH: 16,
   MAX_ANNUAL_LEAVE_DAYS: 365,
   KIOSK_QR_SIZE_PX: 320,

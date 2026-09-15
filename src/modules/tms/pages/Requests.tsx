@@ -6,7 +6,7 @@ import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import { formatDateString, triggerHaptic } from '@/core/utils/helpers';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import { motion, AnimatePresence } from 'framer-motion';
-import { displayRequestCode } from '@/modules/tms/utils/requestCode';
+import { useSearchParams } from 'react-router-dom';
 
 interface Props {
     data: DashboardData | null;
@@ -50,7 +50,8 @@ function dayCount(from: string, to: string) {
 }
 
 const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, onCreateExplanation }) => {
-    const [viewMode, setViewMode] = useState<'leaves' | 'explanations'>('leaves');
+    const [searchParams, setSearchParams] = useSearchParams();
+    const viewMode: 'leaves' | 'explanations' = searchParams.get('requestView') === 'explanations' ? 'explanations' : 'leaves';
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'leave' | 'explanation' } | null>(null);
     const { showToast } = useToast();
@@ -81,7 +82,16 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
     const pendingCount = source.filter(item => item.status === 'Pending').length;
     const approvedCount = source.filter(item => item.status === 'Approved').length;
 
-    const switchViewMode = (mode: 'leaves' | 'explanations') => { triggerHaptic('light'); setViewMode(mode); setExpandedId(null); };
+    const switchViewMode = (mode: 'leaves' | 'explanations') => {
+        triggerHaptic('light');
+        setSearchParams((current) => {
+            const next = new URLSearchParams(current);
+            if (mode === 'leaves') next.delete('requestView');
+            else next.set('requestView', mode);
+            return next;
+        });
+        setExpandedId(null);
+    };
     const toggleExpand = (id: string) => { triggerHaptic('light'); setExpandedId(prev => prev === id ? null : id); };
 
     const handleDelete = async () => {
@@ -241,7 +251,6 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
                                             : formatDateString(item.date);
                                         const days = item.itemType === 'leave' ? dayCount(item.from_date, item.to_date) : 1;
                                         const approver = item.approver_id ? approverNames[item.approver_id] || item.approver_id : null;
-                                        const requestCode = displayRequestCode(item);
 
                                         return (
                                             <motion.section
@@ -263,7 +272,6 @@ const TabRequests: React.FC<Props> = ({ data, onRefresh, user, onCreateRequest, 
                                                         </span>
                                                         <span className="request-card-title">
                                                             <span className="request-card-name">{title}</span>
-                                                            {requestCode ? <span className="request-card-code">{requestCode}</span> : null}
                                                         </span>
                                                         <span className={`ui-pill ui-pill-${status?.tone ?? 'warning'}`}>
                                                             <span className="ui-pill-dot" aria-hidden="true" />

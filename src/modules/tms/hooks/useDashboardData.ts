@@ -4,6 +4,7 @@ import { getDashboardData } from '@/modules/tms/services/employee';
 import { getCurrentTimeStr, timeToMinutes, toISODateString, triggerHaptic } from '@/core/utils/helpers';
 import { scopedStorageKey, TMS_LIMITS } from '@/shared/constants';
 import { nextDashboardRefreshDelay } from './dashboardRefresh';
+import { loadDashboardSnapshot, saveDashboardSnapshot } from '@/modules/tms/services/dashboardSnapshot';
 
 export const useDashboardData = (
   user: Employee,
@@ -48,7 +49,7 @@ export const useDashboardData = (
     localStorage.setItem(reminderKey, 'true');
   }, [onNotification]);
 
-  const performFetch = useCallback(async (isInitial = false): Promise<boolean> => {
+  const performFetch = useCallback(async (isInitial = false, requireFresh = false): Promise<boolean> => {
     lastAttemptAtRef.current = Date.now();
     if (!navigator.onLine) {
       setIsOnline(false);
@@ -60,7 +61,10 @@ export const useDashboardData = (
     if (isInitial) setLoading(true);
 
     try {
-      const result = await getDashboardData(currentUserRef.current.employee_id);
+      const result = await getDashboardData(currentUserRef.current.employee_id, {
+        organizationId: currentUserRef.current.organization_id,
+        force: requireFresh,
+      });
       if (!result.success || !result.data) {
         setError(result.message || 'Không tải được dữ liệu.');
         return false;
@@ -71,9 +75,10 @@ export const useDashboardData = (
         return true;
       }
 
+      const syncedAt = new Date();
       setError('');
       setIsOnline(true);
-      setLastSyncedAt(new Date());
+      setLastSyncedAt(syncedAt);
       const profileChanged = JSON.stringify(result.data.userProfile) !== JSON.stringify(currentUserRef.current);
       if (profileChanged) {
         currentUserRef.current = result.data.userProfile;
@@ -86,6 +91,7 @@ export const useDashboardData = (
         setData(result.data);
         checkShiftEndReminder(result.data);
       }
+      void saveDashboardSnapshot(result.data.userProfile, result.data, syncedAt);
       return true;
     } catch (caughtError) {
       console.error('Dashboard data fetch error', caughtError);
@@ -105,7 +111,7 @@ export const useDashboardData = (
       if (requestInFlightRef.current) return requestInFlightRef.current;
     }
 
-    const request = performFetch(isInitial);
+    const request = performFetch(isInitial, requireFresh);
     const trackedRequest = request.finally(() => {
       if (requestInFlightRef.current === trackedRequest) requestInFlightRef.current = null;
     });
@@ -171,7 +177,22 @@ export const useDashboardData = (
       else refreshIfStale();
     };
 
-    void refreshAndSchedule(true);
+    const initialize = async () => {
+      const snapshot = await loadDashboardSnapshot(currentUserRef.current);
+      if (disposed) return;
+      if (snapshot) {
+        const restoredAt = new Date(snapshot.fetchedAt);
+        currentUserRef.current = snapshot.data.userProfile;
+        previousDataRef.current = JSON.stringify(snapshot.data);
+        setCurrentUser(snapshot.data.userProfile);
+        setData(snapshot.data);
+        setLastSyncedAt(restoredAt);
+        setLoading(false);
+      }
+      await refreshAndSchedule(!snapshot);
+    };
+
+    void initialize();
     window.addEventListener('offline', handleOffline);
     window.addEventListener('online', handleOnline);
     window.addEventListener('focus', refreshIfStale);

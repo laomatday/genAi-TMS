@@ -202,6 +202,7 @@ export interface AuditLogInfo {
 }
 
 export interface AdminData {
+  configRevision: number;
   capabilities: string[];
   employees: Employee[];
   locations: TmsLocation[];

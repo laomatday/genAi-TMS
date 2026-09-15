@@ -1,6 +1,6 @@
 # Commercial release runbook
 
-This repository supports two managed commercial deployment boundaries: a dedicated Supabase project per customer, or multiple organizations in one reviewed Supabase project. Separate development, staging and production environments remain mandatory in both models.
+The supported commercial boundary is one dedicated Supabase project per customer. Separate development, staging and production projects are mandatory. `organization_id` remains a second isolation layer, not authorization to onboard multiple customers into one project.
 
 ## Automated release gates
 
@@ -15,13 +15,13 @@ The gate verifies repository invariants, dead code, unit tests, TypeScript, prod
 ## Environment promotion
 
 1. Create separate Supabase projects for development, staging and production.
-2. Configure each Vercel environment with its own publishable key and project URL. Never expose a secret/service-role key through a `VITE_*` variable.
-3. Apply every migration to staging in timestamp order and run acceptance tests with Staff, Manager, HR, Admin and Kiosk accounts.
+2. Configure each Vercel environment with its own publishable key and project URL, apply the Supabase API configuration with only `public` exposed, and verify `graphql_public` is not listed in the hosted API settings. Never expose a secret/service-role key through a `VITE_*` variable.
+3. Apply every migration to staging in timestamp order and run acceptance tests with Staff, Leader/Manager, Director/HR, Admin and Kiosk accounts.
 4. Review Supabase Security Advisor and Performance Advisor with no unresolved critical finding.
-5. Export a recoverable backup or enable PITR before production schema changes.
+5. Complete the backup gate and isolated restore evidence in [`BACKUP_RESTORE_RUNBOOK.md`](BACKUP_RESTORE_RUNBOOK.md) before production schema changes.
 6. Promote the exact tested commit to production; do not rebuild from a different revision.
 7. Verify login, QR issue/scan, check-in, pause/resume, check-out, request approval, payroll close and audit export.
-8. Record the deployed app version, build ID, migration head and rollback owner in the release ticket.
+8. Record the deployed app version, build ID, migration head, backup/PITR identifier, restore evidence and rollback owner in the release ticket.
 
 The `pg_net` relocation migration refuses to recreate the extension while its
 request queue or response table contains rows. Drain and record those rows on
@@ -57,8 +57,9 @@ TMS_LOAD_TEST_DURATION_SECONDS=120 \
 bun run test:load
 ```
 
-The command fails when the dashboard p95 exceeds 1.5 seconds or the error rate
-exceeds 1% by default. `TMS_LOAD_TEST_MAX_ERROR_RATE` is a ratio, so `0.01`
+The command alternates the RPC-only `bootstrap` and `today` resources and fails
+when their combined p95 exceeds 1.5 seconds or the error rate exceeds 1% by
+default. `TMS_LOAD_TEST_MAX_ERROR_RATE` is a ratio, so `0.01`
 means 1%. Configure tighter customer SLOs with `TMS_LOAD_TEST_P95_BUDGET_MS`,
 `TMS_LOAD_TEST_MAX_ERROR_RATE` and `TMS_LOAD_TEST_MAX_RPS`. The runner redacts
 credentials, caps concurrency/duration/request rate and requires both an
@@ -71,6 +72,36 @@ and the maintenance window; never load-test production.
 The browser uses only the Supabase publishable key. Authorization comes from the authenticated employee record and database RLS/capability checks; it never trusts `user_metadata`. Administrative account operations run through tenant-scoped Edge Functions.
 
 Directory records are not persisted in browser `localStorage`. User preferences that could leak state between sessions are scoped by `organization_id` and `employee_id`. Attendance commands are server-authorized and receipt-backed. Attendance retries reuse the original `command_id`; proposal and explanation forms keep one `client_request_id` for the lifetime of the form, so an ambiguous network retry returns the original workflow row instead of creating a duplicate. Durable offline reconciliation across a browser restart remains a general-availability requirement.
+
+### Default account passwords
+
+New accounts are provisioned with a password derived from the employee's name
+and the tenant brand (`Cao Văn Trọng Nghĩa` → `cvtnghia@genai`). The value is
+derived from information anyone in the company can see, so treat it as a
+first-login credential rather than a secret: `employees.password_change_required`
+records that the prompt is still owed, and the app asks the owner to replace it
+after sign-in. The prompt is dismissible, so track the number of accounts still
+carrying the flag and chase the long tail rather than assuming it drains on its
+own.
+
+`bun run reset:passwords` re-issues that default to every existing account and
+re-arms the reminder. It is destructive and irreversible — previous passwords are
+hashed and cannot be recovered, and everyone must sign in again. It prints a plan
+by default, writes only with `--apply`, and then requires the project hostname to
+be typed back. It needs a service-role key, so run it from a protected
+environment and never from a `VITE_*` variable:
+
+```bash
+TMS_ADMIN_URL="https://project.supabase.co" \
+TMS_ADMIN_SERVICE_KEY="<service-role-key>" \
+bun run reset:passwords
+```
+
+Accounts listed in `ALWAYS_SKIP_EMAILS`, accounts with no Auth login, and any
+name that would yield a password under eight characters are skipped and reported
+rather than silently changed. Add further exemptions with
+`TMS_ADMIN_SKIP_EMAILS`. Announce the cutover before applying it: every employee
+is signed out of nothing, but their existing password stops working immediately.
 
 ### Employee spreadsheet recovery
 
@@ -89,21 +120,15 @@ For larger onboarding batches, use a reviewed server-side import job with
 durable per-row status and an Auth/Postgres reconciliation queue. Do not raise
 the browser batch limit and describe it as transactional.
 
-## Shared-database SaaS boundary
+## Dedicated customer-project boundary
 
-`config_shifts`, `config_system`, `holidays`, `locations` and `attendance_policies` are tenant-owned. Their write policies require the caller's effective `settings.manage` capability and the matching `organization_id`, so an employee-level deny remains authoritative even for an Admin role. Guarded migrations tenant-scope the reviewed Workforce query/command fragments, and schedule/staffing references use composite tenant foreign keys. The SQL suite exercises cross-tenant writes and direct-table writes after a capability deny; a complete negative matrix for every remaining table and Edge Function remains a release task.
+Each customer receives a separate Supabase project. Runtime `service_role` has no INSERT, UPDATE, DELETE or TRUNCATE privilege on `organizations`, so neither an Edge Function nor a leaked runtime credential can turn a production project into an unreviewed shared-customer deployment. Create the single organization through the reviewed migration/bootstrap process before enabling customer traffic; do not add a tenant-provisioning endpoint.
 
-Organization creation is a service-role-only provisioning operation. A newly provisioned organization receives a default attendance policy plus copies of the default shift templates, system settings and role capabilities. Holidays are intentionally not copied because they are tenant-specific operational data. Review those defaults before activating the tenant.
+Within that project, `config_shifts`, `config_system`, `holidays`, `locations` and `attendance_policies` remain scoped by `organization_id`. Their write policies require the caller's effective `settings.manage` capability, so an employee-level deny remains authoritative even for an Admin role. Composite tenant foreign keys, RLS and the cross-tenant SQL suite remain defence in depth and protect imports, restores and operator mistakes.
 
-The current product boundary is one Vietnam timezone
-(`Asia/Ho_Chi_Minh`). Although organizations store a timezone field, attendance,
-scheduling and maintenance calculations do not yet consume it consistently.
-Do not contract multi-country or per-tenant timezone support until that behavior
-has server-side rollover/DST tests.
+Employee-facing request references are issued atomically per organization as `REQ-000001`, never derived from database UUIDs. Browser payloads cannot select or overwrite the sequence. The authenticated browser role has no direct public table or sequence privilege; it uses only the reviewed RPC allow-list. The service role retains only the table operations required by checked-in Edge Functions and the service-only worker RPCs. The unused `graphql_public` schema is excluded from the API configuration, audit history is append-only and private implementation tables are owner-only.
 
-Employee-facing request references are issued atomically per organization as `REQ-000001`, never derived from database UUIDs. Browser payloads cannot select or overwrite the sequence.
-
-Before onboarding multiple customers into one production project, run `supabase/tests/tenant_configuration_isolation.sql` against staging after a clean migration reset, review the Security and Performance Advisors, and complete Staff/Admin acceptance tests for every tenant. Customer self-service billing and automated plan enforcement remain outside this repository; provisioning is managed through the trusted service-role control plane.
+Run `supabase/tests/final_security_state.sql`, `supabase/tests/tenant_configuration_isolation.sql` and the role acceptance matrix against staging after every clean migration replay. A request to host multiple customers in one database is an architecture change requiring a new threat model, complete object/Edge Function isolation proof and explicit product approval; it is not an onboarding option.
 
 ## Rollback
 

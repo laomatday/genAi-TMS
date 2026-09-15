@@ -15,3 +15,12 @@ yarn.lock
 tmp
 supabase/.temp/
 *.zip
+
+# Playwright run artifacts
+test-results/
+playwright-report/
+
+# Local Claude Code permissions: grants standing approval for commands against
+# the live project, so it stays on the machine that granted it.
+.claude/settings.json
+.claude/settings.local.json

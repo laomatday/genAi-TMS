@@ -28,6 +28,7 @@ import type {
 } from '@/shared/types';
 import { commandId, runAttendanceAction } from './attendance';
 import { reportClientMetric } from '@/core/observability/clientTelemetry';
+import { queryWorkforce, queryWorkforceRows } from './workforceApi';
 
 type DataRow = Record<string, unknown>;
 type DecisionStatus = Exclude<ReviewStatus, 'Pending'>;
@@ -91,12 +92,6 @@ function stringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
-function rowsOf(value: unknown): DataRow[] {
-  if (!value || typeof value !== 'object') return [];
-  const rows = (value as DataRow).rows;
-  return Array.isArray(rows) ? rows.filter((row): row is DataRow => Boolean(row) && typeof row === 'object') : [];
-}
-
 function errorMessage(error: unknown, fallback: string) {
   if (error instanceof Error) return error.message;
   if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') return error.message;
@@ -135,11 +130,18 @@ function requestCode(value: string): WorkforceRequestType {
   return REQUEST_CODES[trimmed.toLowerCase()] || 'ANNUAL_LEAVE';
 }
 
-function localTime(value: unknown) {
+function localTime(value: unknown, timezone: string = TMS_TIME.ZONE) {
   const text = optionalText(value);
   if (!text) return '';
   const date = new Date(text);
-  return Number.isNaN(date.getTime()) ? '' : timeFormatter.format(date);
+  if (Number.isNaN(date.getTime())) return '';
+  if (timezone === TMS_TIME.ZONE) return timeFormatter.format(date);
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
 }
 
 function profileFrom(row: DataRow): Employee {
@@ -255,39 +257,40 @@ function mapContact(row: DataRow, people: Record<string, DirectoryPerson> = {}):
   };
 }
 
-function shiftNameFor(row: DataRow, shifts: ShiftConfig[], policyName = '') {
-  const start = localTime(row.expected_start);
-  const end = localTime(row.expected_end);
+function shiftNameFor(row: DataRow, shifts: ShiftConfig[], policyName = '', timezone: string = TMS_TIME.ZONE) {
+  const start = localTime(row.expected_start, timezone);
+  const end = localTime(row.expected_end, timezone);
   const matched = shifts.find((shift) => shift.start === start && shift.end === end)?.name;
   // A timesheet driven by the attendance policy has no matching config_shifts row,
   // so the policy name is the real label; the generic text is the last resort.
   return matched || optionalText(row.shift_name) || policyName || 'Ca làm việc';
 }
 
-function mapTimesheet(row: DataRow, profile: Employee, shifts: ShiftConfig[], policyName = ''): Attendance {
+function mapTimesheet(row: DataRow, profile: Employee, shifts: ShiftConfig[], policyName = '', timezone: string = TMS_TIME.ZONE): Attendance {
   const exceptionCodes = stringArray(row.exception_codes);
   const status = textValue(row.status);
   const lateMinutes = numberValue(row.late_minutes);
-  const invalid = status === 'EXCEPTION' || status === 'REJECTED';
+  const invalid = status === 'EXCEPTION' || status === 'NEEDS_REVIEW' || status === 'REJECTED';
   const actualCheckin = optionalText(row.actual_checkin);
   const actualCheckout = optionalText(row.actual_checkout);
   const expectedStart = optionalText(row.expected_start);
   const createdAt = optionalText(row.created_at);
-  const timestampSource = actualCheckin || expectedStart || createdAt || `${textValue(row.work_date)}T00:00:00+07:00`;
+  const workDate = textValue(row.work_date, textValue(row.business_date));
+  const timestampSource = actualCheckin || expectedStart || createdAt || `${workDate}T00:00:00`;
   const timestamp = new Date(timestampSource).getTime();
 
   return {
     id: textValue(row.id),
-    date: textValue(row.work_date),
+    date: workDate,
     employee_id: textValue(row.employee_id, profile.employee_id),
     name: textValue(row.employee_name, profile.name),
     center_id: textValue(row.location_id, profile.center_id),
     location_name: optionalText(row.location_name) || textValue(row.location_id, profile.center_id),
-    shift_name: shiftNameFor(row, shifts, policyName),
-    shift_start: localTime(row.expected_start),
-    shift_end: localTime(row.expected_end),
-    time_in: localTime(actualCheckin),
-    time_out: localTime(actualCheckout),
+    shift_name: shiftNameFor(row, shifts, policyName, timezone),
+    shift_start: localTime(row.expected_start, timezone),
+    shift_end: localTime(row.expected_end, timezone),
+    time_in: localTime(actualCheckin, timezone),
+    time_out: localTime(actualCheckout, timezone),
     checkin_type: 'QR_GPS',
     checkin_lat: 0,
     checkin_lng: 0,
@@ -419,28 +422,25 @@ interface ClientConfig { workHours: WorkHoursConfig; approvalRoles: ApprovalRole
 // The server-side attendance math reads these from public.config_system; the browser
 // must hydrate the same keys so client-side estimates (e.g. History work-day credit)
 // match the canonical calculation instead of the frozen module defaults.
-async function fetchClientConfig(): Promise<ClientConfig> {
-  if (!isSupabaseConfigured) return { workHours: {}, approvalRoles: normalizeApprovalRoles(null) };
-  try {
-    const { data, error } = await supabase
-      .from('config_system')
-      .select('key,value')
-      .in('key', ['MIN_HOURS_FULL', 'MIN_HOURS_HALF', 'LUNCH_START', 'LUNCH_END', APPROVAL_CONFIG_KEY]);
-    if (error || !Array.isArray(data)) return { workHours: {}, approvalRoles: normalizeApprovalRoles(null) };
-    const settings = new Map(data.map((row) => [textValue(row.key), textValue(row.value)]));
-    const workHours: WorkHoursConfig = {};
-    const minFull = Number(settings.get('MIN_HOURS_FULL'));
-    if (Number.isFinite(minFull) && minFull > 0) workHours.MIN_HOURS_FULL = minFull;
-    const minHalf = Number(settings.get('MIN_HOURS_HALF'));
-    if (Number.isFinite(minHalf) && minHalf > 0) workHours.MIN_HOURS_HALF = minHalf;
-    const lunchStart = settings.get('LUNCH_START');
-    if (lunchStart && /^\d{1,2}:\d{2}/.test(lunchStart)) workHours.LUNCH_START = lunchStart.slice(0, 5);
-    const lunchEnd = settings.get('LUNCH_END');
-    if (lunchEnd && /^\d{1,2}:\d{2}/.test(lunchEnd)) workHours.LUNCH_END = lunchEnd.slice(0, 5);
-    return { workHours, approvalRoles: normalizeApprovalRoles(settings.get(APPROVAL_CONFIG_KEY) ?? null) };
-  } catch {
-    return { workHours: {}, approvalRoles: normalizeApprovalRoles(null) };
-  }
+function clientConfigFrom(metadata: DataRow): ClientConfig {
+  const rows = Array.isArray(metadata.system_settings) ? metadata.system_settings as DataRow[] : [];
+  const settings = new Map(rows.map((row) => [textValue(row.key), textValue(row.value)]));
+  const workHours: WorkHoursConfig = {};
+  const minFull = Number(settings.get('MIN_HOURS_FULL'));
+  if (Number.isFinite(minFull) && minFull > 0) workHours.MIN_HOURS_FULL = minFull;
+  const minHalf = Number(settings.get('MIN_HOURS_HALF'));
+  if (Number.isFinite(minHalf) && minHalf > 0) workHours.MIN_HOURS_HALF = minHalf;
+  const lunchStart = settings.get('LUNCH_START');
+  if (lunchStart && /^\d{1,2}:\d{2}/.test(lunchStart)) workHours.LUNCH_START = lunchStart.slice(0, 5);
+  const lunchEnd = settings.get('LUNCH_END');
+  if (lunchEnd && /^\d{1,2}:\d{2}/.test(lunchEnd)) workHours.LUNCH_END = lunchEnd.slice(0, 5);
+  return { workHours, approvalRoles: normalizeApprovalRoles(settings.get(APPROVAL_CONFIG_KEY) ?? null) };
+}
+
+function shiftDate(date: string, days: number) {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return parsed.toISOString().slice(0, 10);
 }
 
 function configFrom(policy: DataRow, locations: LocationConfig[], workHours: WorkHoursConfig = {}): SystemConfig {
@@ -491,47 +491,65 @@ export function determineShift(timeStr: string, shifts: ShiftConfig[]): ShiftCon
   return sorted[sorted.length - 1] ?? firstShift;
 }
 
-export async function getDashboardData(_employeeId: string): Promise<{ success: boolean; data?: DashboardData; message?: string }> {
+interface DashboardQueryOptions {
+  force?: boolean;
+  organizationId?: string;
+}
+
+export async function getDashboardData(
+  employeeId: string,
+  options: DashboardQueryOptions = {},
+): Promise<{ success: boolean; data?: DashboardData; message?: string }> {
   const startedAt = performance.now();
   try {
     if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
 
-    const [{ data, error }, clientConfig] = await Promise.all([
-      supabase.rpc('tms_dashboard_bundle_v1', { p_history_days: 120 }),
-      fetchClientConfig(),
-    ]);
-    const { workHours, approvalRoles } = clientConfig;
-    if (error) throw error;
-    if (!data || typeof data !== 'object') throw new Error('Dashboard không trả về dữ liệu hợp lệ.');
-
-    const bundle = data as DataRow;
-    const bootstrap = bundle.bootstrap && typeof bundle.bootstrap === 'object' ? bundle.bootstrap as DataRow : {};
-    const metadata = bundle.metadata && typeof bundle.metadata === 'object' ? bundle.metadata as DataRow : {};
+    const requestedScope = options.organizationId?.trim() && employeeId.trim()
+      ? `${options.organizationId.trim()}:${employeeId.trim()}`
+      : undefined;
+    const bootstrap = await queryWorkforce('bootstrap', {}, {
+      scope: requestedScope,
+      force: options.force,
+      ttlSeconds: Math.ceil(TMS_LIMITS.DASHBOARD_VISIBLE_STALE_MS / 1_000),
+    });
     const profileRow = bootstrap.profile && typeof bootstrap.profile === 'object' ? bootstrap.profile as DataRow : {};
     const profile = profileFrom(profileRow);
     if (!profile.employee_id) throw new Error('Không tìm thấy hồ sơ nhân viên.');
+    const scope = `${profile.organization_id || 'unassigned'}:${profile.employee_id}`;
+    const localDate = textValue(bootstrap.local_date, dateOnly(new Date()));
+    const historyFrom = shiftDate(localDate, -TMS_LIMITS.EMPLOYEE_HISTORY_LOOKBACK_DAYS);
     const capabilities = Array.isArray(bootstrap.capabilities)
       ? bootstrap.capabilities.filter((item): item is string => typeof item === 'string')
       : [];
-
-    const directoryContext = bundle.directory_context && typeof bundle.directory_context === 'object'
-      ? bundle.directory_context as DataRow
-      : {};
+    const canReviewTeamRequests = capabilities.includes('team.read')
+      && capabilities.includes('attendance.review');
+    const [metadata, historyRows, myRows, teamRowsRaw, directoryRows] = await Promise.all([
+      queryWorkforce('metadata', {}, {
+        scope,
+        force: options.force,
+        ttlSeconds: TMS_LIMITS.RESOURCE_CACHE_MAX_SECONDS,
+      }),
+      queryWorkforceRows('history', { from: historyFrom, to: localDate }, { scope, force: options.force }),
+      queryWorkforceRows('requests', { team: false }, { scope, force: options.force }),
+      canReviewTeamRequests
+        ? queryWorkforceRows('requests', { team: true }, { scope, force: options.force })
+        : Promise.resolve([] as DataRow[]),
+      queryWorkforceRows('directory', {}, { scope, force: options.force }),
+    ]);
+    const { workHours, approvalRoles } = clientConfigFrom(metadata);
+    const timezone = textValue(bootstrap.timezone, TMS_TIME.ZONE);
     const policy = bootstrap.policy && typeof bootstrap.policy === 'object' ? bootstrap.policy as DataRow : {};
 
     const shifts = (Array.isArray(metadata.shifts) ? metadata.shifts : []).map((row) => mapShift(row as DataRow));
     const locations = (Array.isArray(metadata.locations) ? metadata.locations : []).map((row) => mapLocation(row as DataRow));
-    // Label-only registry covering every branch, including inactive ones and branches
-    // outside the viewer's geofence scope. metadata.locations cannot name those.
-    const locationDirectory = (Array.isArray(directoryContext.locations) ? directoryContext.locations : [])
+    const locationDirectory = (Array.isArray(metadata.location_directory) ? metadata.location_directory : [])
       .map((row) => mapLocationLabel(row as DataRow));
     const holidays = (Array.isArray(metadata.holidays) ? metadata.holidays : []).map((row) => mapHoliday(row as DataRow));
-    const directoryPeople = mapDirectoryPeople(directoryContext.people);
-    const contacts = rowsOf(bundle.directory).map((row) => mapContact(row, directoryPeople));
-    const history = rowsOf(bundle.history).map((row) => mapTimesheet(row, profile, shifts, textValue(policy.name)));
+    const directoryPeople = mapDirectoryPeople(directoryRows);
+    const contacts = directoryRows.map((row) => mapContact(row, directoryPeople));
+    const history = historyRows.map((row) => mapTimesheet(row, profile, shifts, textValue(policy.name), timezone));
 
-    const myRows = rowsOf(bundle.requests_me);
-    const teamRows = rowsOf(bundle.requests_team).filter((row) => textValue(row.employee_id) !== profile.employee_id);
+    const teamRows = teamRowsRaw.filter((row) => textValue(row.employee_id) !== profile.employee_id);
     const myRequests = myRows.map(mapLeave).filter((item): item is LeaveRequest => Boolean(item));
     const myExplanations = myRows.map(mapExplanation).filter((item): item is Explanation => Boolean(item));
     const teamRequests = teamRows.map(mapLeave).filter((item): item is LeaveRequest => Boolean(item));
@@ -573,6 +591,9 @@ export async function getDashboardData(_employeeId: string): Promise<{ success: 
         systemConfig: configFrom(policy, locations, workHours),
         approvalRoles,
         capabilities,
+        organizationTimezone: timezone,
+        serverLocalDate: localDate,
+        serverTime: optionalText(bootstrap.server_time),
       },
     };
     void reportClientMetric('DASHBOARD_LOAD_OK', performance.now() - startedAt, 'LOAD');
@@ -672,14 +693,10 @@ export async function submitExplanation(input: SubmitExplanationInput) {
 }
 
 async function requestRevision(id: string) {
-  const { data, error } = await supabase
-    .from('attendance_requests')
-    .select('id,revision,status')
-    .eq('id', id)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) throw new Error('Đề xuất không còn tồn tại hoặc ngoài phạm vi của bạn.');
-  return numberValue(data.revision, 0);
+  const data = await queryWorkforce('request.detail', { id }, { force: true });
+  const row = data.row && typeof data.row === 'object' ? data.row as DataRow : null;
+  if (!row) throw new Error('Đề xuất không còn tồn tại hoặc ngoài phạm vi của bạn.');
+  return numberValue(row.revision, 0);
 }
 
 async function cancelRequest(id: string) {
@@ -841,6 +858,11 @@ export async function changePassword(oldPassword: string, newPassword: string) {
     if (verificationError) throw new Error('Mật khẩu hiện tại không đúng.');
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) throw error;
+    // The password is already replaced at this point, so a failure to clear the
+    // reminder must not be reported as a failed change. The prompt is dismissible
+    // and reappears at worst on the next sign-in.
+    const { error: reminderError } = await supabase.rpc('acknowledge_password_change');
+    if (reminderError) console.warn('Unable to clear the password change reminder:', reminderError);
     return ok('Đổi mật khẩu thành công.');
   } catch (error) {
     return err(error);

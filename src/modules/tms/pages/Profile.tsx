@@ -4,12 +4,14 @@ import { formatDateString, triggerHaptic } from '@/core/utils/helpers';
 import { updateProfileAvatar, changePassword } from '@/modules/tms/services/employee';
 import { APP_INFO, MANAGEMENT_ROLES, TMS_LIMITS, TMS_STORAGE } from '@/shared/constants';
 import { useToast } from '@/shared/contexts/useToast';
+import { useAuth } from '@/core/auth/useAuth';
 import Avatar from '@/shared/components/common/Avatar';
 import ImageCropper from '@/shared/components/common/ImageCropper';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import ModalHeader from '@/shared/components/modals/ModalHeader';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
+import type { EmployeeModalLayer } from '@/modules/tms/navigation/employeeNavigation';
 
 interface Props {
     user: Employee;
@@ -23,7 +25,9 @@ interface Props {
     onUpdate: (updatedUser: Partial<Employee>) => void;
     onClose: () => void;
     onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
-    setShowImageCropper: (show: boolean) => void;
+    activeModal: EmployeeModalLayer | null;
+    onOpenModal: (modal: EmployeeModalLayer) => void;
+    onCloseModal: () => void;
     onOpenManager?: () => void;
 }
 
@@ -77,14 +81,15 @@ function seniorityYears(joinDate?: string) {
     return years < 0 ? null : years;
 }
 
-const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts, punctuality, onLogout, onUpdate, onClose, onAlert, setShowImageCropper, onOpenManager }) => {
-    const [showPwdModal, setShowPwdModal] = useState(false);
+const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts, punctuality, onLogout, onUpdate, onClose, onAlert, activeModal, onOpenModal, onCloseModal, onOpenManager }) => {
+    const showPwdModal = activeModal === 'profile-password';
+    const showLogoutConfirm = activeModal === 'profile-logout';
     const [loadingPwd, setLoadingPwd] = useState(false);
     const [passData, setPassData] = useState({ old: '', new: '', confirm: '' });
-    const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const profileDialogRef = useModalAccessibility(true, onClose);
-    const passwordDialogRef = useModalAccessibility(showPwdModal, () => setShowPwdModal(false), { closeOnEscape: !loadingPwd });
+    const passwordDialogRef = useModalAccessibility(showPwdModal, onCloseModal, { closeOnEscape: !loadingPwd });
     const { showToast } = useToast();
+    const { updateProfile } = useAuth();
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploading, setUploading] = useState(false);
@@ -93,8 +98,8 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
     const swipeBackHandlers = useModalSwipeBack(onClose, showPwdModal || showLogoutConfirm || Boolean(croppingImage));
 
     useEffect(() => {
-        setShowImageCropper(!!croppingImage);
-    }, [croppingImage, setShowImageCropper]);
+        if (activeModal !== 'profile-crop') setCroppingImage(null);
+    }, [activeModal]);
 
     const canManage = useMemo(() => user && user.role && MANAGEMENT_ROLES.includes(user.role), [user]);
 
@@ -148,6 +153,7 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
         reader.onload = () => {
             if (typeof reader.result === 'string') {
                 setCroppingImage(reader.result);
+                onOpenModal('profile-crop');
             }
         };
         reader.readAsDataURL(file);
@@ -172,6 +178,7 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
         } finally {
             setUploading(false);
             setCroppingImage(null);
+            onCloseModal();
         }
     };
 
@@ -199,7 +206,10 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
         if (res.success) {
             triggerHaptic('success');
             onAlert("Thành công", res.message, 'success');
-            setShowPwdModal(false);
+            // The default password is gone, so retire the reminder without
+            // waiting for the next profile fetch.
+            updateProfile({ password_change_required: false });
+            onCloseModal();
             setPassData({ old: '', new: '', confirm: '' });
         } else {
             triggerHaptic('error');
@@ -442,7 +452,7 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
                                 value="Cập nhật mật khẩu bảo vệ tài khoản"
                                 isAction
                                 trailing={<span className="material-symbols-rounded" aria-hidden="true">chevron_right</span>}
-                                onClick={() => setShowPwdModal(true)}
+                                onClick={() => onOpenModal('profile-password')}
                             />
                             <ProfileRow
                                 icon="logout"
@@ -454,7 +464,7 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
                                 trailing={<span className="material-symbols-rounded" aria-hidden="true">power_settings_new</span>}
                                 onClick={() => {
                                     triggerHaptic('medium');
-                                    setShowLogoutConfirm(true);
+                                    onOpenModal('profile-logout');
                                 }}
                             />
                         </div>
@@ -544,7 +554,7 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
                         </div>
 
                         <div className="confirm-actions">
-                            <button type="button" onClick={() => setShowPwdModal(false)} disabled={loadingPwd} className="ui-button ui-button-quiet">
+                            <button type="button" onClick={onCloseModal} disabled={loadingPwd} className="ui-button ui-button-quiet">
                                 Hủy
                             </button>
                             <button type="button" onClick={handleUpdatePassword} disabled={loadingPwd} className="ui-cta">
@@ -565,14 +575,14 @@ const TabProfile: React.FC<Props> = ({ user, locations, locationNames, contacts,
                 message="Bạn có chắc chắn muốn đăng xuất khỏi tài khoản này?"
                 confirmLabel="Đăng xuất"
                 onConfirm={onLogout}
-                onCancel={() => setShowLogoutConfirm(false)}
+                onCancel={onCloseModal}
                 type="danger"
             />
 
             {croppingImage && (
                 <ImageCropper
                     imageSrc={croppingImage}
-                    onCancel={() => { setCroppingImage(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                    onCancel={() => { setCroppingImage(null); if (fileInputRef.current) fileInputRef.current.value = ''; onCloseModal(); }}
                     onCropComplete={handleCropComplete}
                 />
             )}

@@ -11,10 +11,12 @@ const roles = new Set(["Staff", "Leader", "Manager", "Director", "Admin", "HR", 
 const managementRoles = new Set(["Leader", "Manager", "Director", "Admin", "HR"]);
 const DEFAULT_ANNUAL_LEAVE_DAYS = 12;
 const MAX_ANNUAL_LEAVE_DAYS = 365;
-const MIN_PASSWORD_LENGTH = 12;
+const MIN_PASSWORD_LENGTH = 8;
 const ACCOUNT_BAN_DURATION = "876000h";
 const employeeIdPattern = /^[A-Z0-9_-]{2,40}$/;
 const emailPattern = /^\S+@\S+\.\S+$/;
+
+type AdminUserAction = "create" | "update" | "delete" | "upsert" | "invite" | "password-reset";
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -40,6 +42,24 @@ function failure(code: string, error: string, status = 400, context: Record<stri
   return json({ ok: false, code, error }, status);
 }
 
+function configuredAuthRedirect(variable: "AUTH_INVITE_REDIRECT_URL" | "AUTH_PASSWORD_RESET_REDIRECT_URL") {
+  const value = cleanText(Deno.env.get(variable), 2_048);
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    const localHttp = url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+    if (url.protocol === "https:" || localHttp) return url.toString();
+  } catch {
+    // Invalid trusted environment configuration falls back to the Supabase Site URL.
+  }
+  console.error("[admin-users]", JSON.stringify({ code: "INVALID_AUTH_REDIRECT", variable }));
+  return undefined;
+}
+
+function successfulRpc(data: unknown) {
+  return Boolean(data && typeof data === "object" && (data as { ok?: unknown }).ok === true);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
@@ -52,7 +72,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const admin = createClient(url, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
   const jwt = authorization.slice("Bearer ".length);
   const { data: authData, error: authError } = await admin.auth.getUser(jwt);
@@ -99,10 +119,17 @@ Deno.serve(async (req: Request) => {
   const requestedAction = String(body.action || "");
   const expectedAction = String(body.expected_action || "");
   const input = (body.employee || {}) as Record<string, unknown>;
-  if (requestedAction !== "create" && requestedAction !== "update" && requestedAction !== "delete" && requestedAction !== "upsert") {
+  if (
+    requestedAction !== "create"
+    && requestedAction !== "update"
+    && requestedAction !== "delete"
+    && requestedAction !== "upsert"
+    && requestedAction !== "invite"
+    && requestedAction !== "password-reset"
+  ) {
     return failure("INVALID_ACTION", "Thao tác không hợp lệ.");
   }
-  let action = requestedAction as "create" | "update" | "delete" | "upsert";
+  let action = requestedAction as AdminUserAction;
 
   const employeeId = cleanText(input.employee_id, 40).toUpperCase();
   if (!employeeIdPattern.test(employeeId)) {
@@ -147,6 +174,72 @@ Deno.serve(async (req: Request) => {
     action = currentEmployee ? "update" : "create";
   }
 
+  if (action === "password-reset") {
+    const { data: target, error: targetError } = await admin
+      .from("employees")
+      .select("employee_id,auth_user_id,email,status")
+      .eq("employee_id", employeeId)
+      .eq("organization_id", organizationId)
+      .maybeSingle();
+    if (targetError) {
+      return failure("PASSWORD_RESET_TARGET_FAILED", "Không kiểm tra được tài khoản cần đặt lại mật khẩu.", 500, { action, employeeId });
+    }
+    if (!target) return failure("EMPLOYEE_NOT_FOUND", "Không tìm thấy nhân viên trong tổ chức hiện tại.", 404, { action, employeeId });
+    if (target.status !== "Active" || !target.auth_user_id) {
+      return failure("PASSWORD_RESET_UNAVAILABLE", "Tài khoản chưa hoạt động hoặc chưa có phương thức đăng nhập email.", 409, { action, employeeId });
+    }
+
+    const { data: authTarget, error: authTargetError } = await admin.auth.admin.getUserById(target.auth_user_id);
+    const authEmail = String(authTarget.user?.email || "").trim().toLowerCase();
+    if (authTargetError || !authTarget.user || !emailPattern.test(authEmail)) {
+      return failure("PASSWORD_RESET_AUTH_LOOKUP_FAILED", "Không tìm thấy phương thức đăng nhập email của tài khoản.", 409, {
+        action,
+        employeeId,
+        authCode: authTargetError?.code,
+      });
+    }
+    if (authEmail !== String(target.email || "").trim().toLowerCase()) {
+      console.warn("[admin-users]", JSON.stringify({ code: "PASSWORD_RESET_EMAIL_DRIFT", employeeId }));
+    }
+
+    const redirectTo = configuredAuthRedirect("AUTH_PASSWORD_RESET_REDIRECT_URL");
+    // resetPasswordForEmail asks Supabase Auth to deliver the recovery email and
+    // returns no action link/OTP. generateLink is intentionally not used without
+    // a server-side mailer because its response contains reusable credentials.
+    const { error: resetError } = await admin.auth.resetPasswordForEmail(
+      authEmail,
+      redirectTo ? { redirectTo } : {},
+    );
+    if (resetError) {
+      return failure("PASSWORD_RESET_DELIVERY_FAILED", "Không gửi được email đặt lại mật khẩu.", 502, {
+        action,
+        employeeId,
+        authCode: resetError.code,
+      });
+    }
+
+    const { error: auditError } = await admin.from("audit_logs").insert({
+      actor_employee_id: operator.employee_id,
+      target_employee_id: employeeId,
+      action: "EMPLOYEE_PASSWORD_RESET_REQUESTED",
+      entity_type: "employee",
+      entity_id: employeeId,
+      reason: "Admin gửi email đặt lại mật khẩu",
+      metadata: { organization_id: organizationId, delivery: "supabase_auth_email" },
+    });
+    if (auditError) {
+      console.error("[admin-users]", JSON.stringify({ code: "PASSWORD_RESET_AUDIT_FAILED", employeeId, databaseCode: auditError.code }));
+      return json({
+        ok: false,
+        code: "PASSWORD_RESET_AUDIT_FAILED",
+        error: "Email đã được gửi nhưng nhật ký kiểm toán chưa được ghi nhận.",
+        commit_state: "EMAIL_SENT_AUDIT_PENDING",
+        retryable: false,
+      }, 500);
+    }
+    return json({ ok: true, employee_id: employeeId, delivery: "email" });
+  }
+
   if (action === "delete") {
     const { data: target, error: targetError } = await admin
       .from("employees")
@@ -183,6 +276,26 @@ Deno.serve(async (req: Request) => {
       return failure("EMPLOYEE_DEACTIVATE_FAILED", "Không thể vô hiệu hóa hồ sơ trước khi xóa tài khoản.", 500, { action, employeeId });
     }
 
+    const { data: deviceResetData, error: deviceResetError } = await admin.rpc("reset_trusted_device_v1", {
+      p_employee_id: employeeId,
+      p_actor_employee_id: operator.employee_id,
+      p_reason: "Xóa tài khoản đăng nhập",
+    });
+    if (deviceResetError || !successfulRpc(deviceResetData)) {
+      console.error("[admin-users]", JSON.stringify({
+        code: "DELETE_DEVICE_RESET_FAILED",
+        employeeId,
+        databaseCode: deviceResetError?.code,
+      }));
+      return json({
+        ok: false,
+        code: "DELETE_DEVICE_RESET_FAILED",
+        error: "Hồ sơ đã bị vô hiệu hóa nhưng trạng thái thiết bị chưa được thu hồi đầy đủ.",
+        commit_state: "PROFILE_DISABLED_DEVICE_RESET_PENDING",
+        retryable: true,
+      }, 500);
+    }
+
     if (target.auth_user_id) {
       const { error: banError } = await admin.auth.admin.updateUserById(target.auth_user_id, {
         ban_duration: ACCOUNT_BAN_DURATION,
@@ -195,15 +308,6 @@ Deno.serve(async (req: Request) => {
         return failure("AUTH_DELETE_FAILED", deleteError.message || "Không thể xóa tài khoản đăng nhập.", 502, { action, employeeId });
       }
     }
-
-    await admin.from("trusted_devices").update({
-      status: "REVOKED",
-      revoked_at: deletedAt,
-      revoked_by: operator.employee_id,
-      revoke_reason: "Xóa tài khoản đăng nhập",
-    }).eq("employee_id", employeeId).eq("organization_id", organizationId).eq("status", "ACTIVE");
-    await admin.from("trusted_device_grants").delete().eq("employee_id", employeeId);
-    await admin.from("trusted_device_challenges").delete().eq("employee_id", employeeId);
 
     const { error: unlinkError } = await admin.from("employees").update({
       auth_user_id: null,
@@ -256,6 +360,9 @@ Deno.serve(async (req: Request) => {
   }
   if (action === "create" && password.length < MIN_PASSWORD_LENGTH) {
     return failure("PASSWORD_TOO_SHORT", `Mật khẩu tạm phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`, 400, { action, employeeId });
+  }
+  if (action === "invite" && status !== "Active") {
+    return failure("INVITE_INACTIVE_FORBIDDEN", "Chỉ có thể gửi lời mời cho tài khoản đang hoạt động.", 400, { action, employeeId });
   }
 
   const locationIds = [...new Set([centerId, ...allowedLocations, ...managedLocations])];
@@ -325,7 +432,16 @@ Deno.serve(async (req: Request) => {
     updated_at: new Date().toISOString(),
   };
 
-  if (action === "create") {
+  // An admin-issued password is the name-derived default, which anyone who
+  // knows the convention can guess, so the owner is prompted to replace it.
+  // A profile-only update leaves the column out entirely rather than clearing a
+  // reminder that is still owed. Invites are excluded: the recipient chooses
+  // their own password through the Auth email, so nothing needs replacing.
+  if (action !== "invite" && (action === "create" || password)) {
+    profile.password_change_required = true;
+  }
+
+  if (action === "create" || action === "invite") {
     const { data: duplicateEmployee, error: duplicateEmployeeError } = await admin
       .from("employees")
       .select("employee_id")
@@ -334,18 +450,52 @@ Deno.serve(async (req: Request) => {
     if (duplicateEmployeeError) return failure("EMPLOYEE_CHECK_FAILED", "Không kiểm tra được mã nhân viên.", 500, { action, employeeId });
     if (duplicateEmployee) return failure("EMPLOYEE_ALREADY_EXISTS", "Mã nhân viên đã tồn tại.", 409, { action, employeeId });
 
-    const { data: created, error: createError } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { name },
-      app_metadata: { app_role: role, organization_id: organizationId },
-    });
+    const inviteRedirect = action === "invite" ? configuredAuthRedirect("AUTH_INVITE_REDIRECT_URL") : undefined;
+    const { data: created, error: createError } = action === "invite"
+      ? await admin.auth.admin.inviteUserByEmail(email, {
+        data: { name },
+        ...(inviteRedirect ? { redirectTo: inviteRedirect } : {}),
+      })
+      : await admin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { name },
+        app_metadata: { app_role: role, organization_id: organizationId },
+      });
     if (createError || !created.user) {
       const authMessage = createError?.code === "email_exists" || createError?.message?.toLowerCase().includes("already")
         ? "Email đăng nhập đã tồn tại trong Supabase Auth."
-        : createError?.message || "Không tạo được tài khoản Auth.";
-      return failure("AUTH_CREATE_FAILED", authMessage, 400, { action, employeeId, authCode: createError?.code });
+        : createError?.message || (action === "invite" ? "Không gửi được lời mời tài khoản." : "Không tạo được tài khoản Auth.");
+      return failure(action === "invite" ? "AUTH_INVITE_FAILED" : "AUTH_CREATE_FAILED", authMessage, 400, {
+        action,
+        employeeId,
+        authCode: createError?.code,
+      });
+    }
+
+    if (action === "invite") {
+      const { error: metadataError } = await admin.auth.admin.updateUserById(created.user.id, {
+        app_metadata: { app_role: role, organization_id: organizationId },
+      });
+      if (metadataError) {
+        const { error: rollbackError } = await admin.auth.admin.deleteUser(created.user.id);
+        console.error("[admin-users]", JSON.stringify({
+          code: "AUTH_INVITE_METADATA_FAILED",
+          employeeId,
+          authCode: metadataError.code,
+          rollbackCode: rollbackError?.code,
+        }));
+        return json({
+          ok: false,
+          code: rollbackError ? "AUTH_INVITE_PARTIAL" : "AUTH_INVITE_METADATA_FAILED",
+          error: rollbackError
+            ? "Lời mời đã tạo nhưng không thể gắn tenant và hoàn tác tài khoản. Cần đối soát Auth trước khi thử lại."
+            : "Không gắn được tenant cho tài khoản được mời; lời mời đã được vô hiệu hóa.",
+          commit_state: rollbackError ? "AUTH_INVITED_METADATA_PENDING" : "ROLLED_BACK",
+          retryable: !rollbackError,
+        }, 500);
+      }
     }
 
     const { error: insertError } = await admin.from("employees").insert({
@@ -397,16 +547,43 @@ Deno.serve(async (req: Request) => {
         }, 500);
       }
     }
-    await admin.from("audit_logs").insert({
+    const { error: auditError } = await admin.from("audit_logs").insert({
       actor_employee_id: operator.employee_id,
       target_employee_id: employeeId,
-      action: "EMPLOYEE_CREATED",
+      action: action === "invite" ? "EMPLOYEE_INVITED" : "EMPLOYEE_CREATED",
       entity_type: "employee",
       entity_id: employeeId,
-      reason: "Tạo tài khoản quản trị",
-      metadata: { role, status, center_id: centerId, organization_id: organizationId },
+      reason: action === "invite" ? "Admin gửi lời mời kích hoạt tài khoản" : "Tạo tài khoản quản trị",
+      metadata: {
+        role,
+        status,
+        center_id: centerId,
+        organization_id: organizationId,
+        ...(action === "invite" ? { delivery: "supabase_auth_email" } : {}),
+      },
     });
-    return json({ ok: true, employee_id: employeeId, actual_action: action });
+    if (auditError) {
+      console.error("[admin-users]", JSON.stringify({
+        code: action === "invite" ? "INVITE_AUDIT_FAILED" : "CREATE_AUDIT_FAILED",
+        employeeId,
+        databaseCode: auditError.code,
+      }));
+      if (action === "invite") {
+        return json({
+          ok: false,
+          code: "INVITE_AUDIT_FAILED",
+          error: "Lời mời đã gửi và hồ sơ đã tạo nhưng nhật ký kiểm toán chưa được ghi nhận.",
+          commit_state: "INVITED_AUDIT_PENDING",
+          retryable: false,
+        }, 500);
+      }
+    }
+    return json({
+      ok: true,
+      employee_id: employeeId,
+      actual_action: action,
+      ...(action === "invite" ? { delivery: "email" } : {}),
+    });
   }
 
   const { data: existing, error: existingError } = await admin
@@ -469,31 +646,20 @@ Deno.serve(async (req: Request) => {
     if (resetReason.length < 3) {
       return json({ ok: false, error: "Vui lòng nhập lý do đặt lại thiết bị." }, 400);
     }
-    const now = new Date().toISOString();
-    const { data: oldDevices } = await admin
-      .from("trusted_devices")
-      .select("device_id,device_label,activated_at")
-      .eq("employee_id", employeeId)
-      .eq("organization_id", organizationId)
-      .eq("status", "ACTIVE");
-    await admin.from("trusted_devices").update({
-      status: "REVOKED",
-      revoked_at: now,
-      revoked_by: operator.employee_id,
-      revoke_reason: resetReason,
-    }).eq("employee_id", employeeId).eq("organization_id", organizationId).eq("status", "ACTIVE");
-    await admin.from("trusted_device_grants").delete().eq("employee_id", employeeId);
-    await admin.from("trusted_device_challenges").delete().eq("employee_id", employeeId);
+    const { data: resetData, error: resetError } = await admin.rpc("reset_trusted_device_v1", {
+      p_employee_id: employeeId,
+      p_actor_employee_id: operator.employee_id,
+      p_reason: resetReason,
+    });
+    if (resetError || !successfulRpc(resetData)) {
+      return failure("TRUSTED_DEVICE_RESET_FAILED", "Không thể đặt lại thiết bị lúc này.", 500, {
+        action,
+        employeeId,
+        databaseCode: resetError?.code,
+      });
+    }
     profile.trusted_device_id = null;
     profile.trusted_device_bound_at = null;
-    await admin.from("audit_logs").insert({
-      actor_employee_id: operator.employee_id,
-      target_employee_id: employeeId,
-      action: "TRUSTED_DEVICE_RESET",
-      entity_type: "trusted_device",
-      reason: resetReason,
-      metadata: { old_devices: oldDevices || [], organization_id: organizationId },
-    });
   }
 
   const { error: updateError } = await admin

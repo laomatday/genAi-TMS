@@ -25,6 +25,7 @@ const sourceFiles = (await walk(join(root, 'src')))
   .filter((file) => ['.ts', '.tsx'].includes(extname(file)));
 
 const forbiddenRuntimePatterns = [
+  { pattern: /\bsupabase\s*\.\s*from\s*\(/, message: 'direct public Data API access instead of an authorized RPC' },
   { pattern: /\.rpc\(['"]record_qr_attendance['"]/, message: 'legacy record_qr_attendance RPC call' },
   { pattern: /\.rpc\(['"]record_qr_attendance_v2['"]/, message: 'legacy record_qr_attendance_v2 RPC call' },
   { pattern: /\.rpc\(['"]record_qr_attendance_v3['"]/, message: 'duplicate custom V3 attendance RPC instead of Workforce command API' },
@@ -90,11 +91,17 @@ const requiredFiles = [
   'supabase/migrations/20260914172800_enforce_settings_write_capability.sql',
   'supabase/migrations/20260914173000_make_request_submission_idempotent.sql',
   'supabase/migrations/20260915001000_serialize_period_sensitive_workflows.sql',
+  'supabase/migrations/20260915001521_close_p0_security_surface.sql',
+  'supabase/migrations/20260915001540_commercial_domain_v4_work_sessions.sql',
   'supabase/migrations/20260915002000_enforce_kiosk_capability.sql',
+  'supabase/migrations/20260915002913_scale_and_commercial_workflows.sql',
   'supabase/migrations/20260915003000_relocate_pg_net_extension.sql',
+  'supabase/migrations/20260915003500_enforce_final_security_state.sql',
   'supabase/tests/tenant_configuration_isolation.sql',
   'supabase/tests/attendance_session_rollover.sql',
+  'supabase/tests/final_security_state.sql',
   'supabase/config.toml',
+  'docs/BACKUP_RESTORE_RUNBOOK.md',
   'src/core/errors/AppErrorBoundary.tsx',
   'src/core/observability/clientTelemetry.ts',
   'src/modules/tms/utils/requestCode.ts',
@@ -128,6 +135,12 @@ const loadScriptSyntax = spawnSync('node', ['--check', join(root, 'scripts/load-
 if (loadScriptSyntax.status !== 0) {
   fail(`dashboard load-test script has invalid syntax: ${loadScriptSyntax.stderr.trim()}`);
 }
+const loadScript = await readFile(join(root, 'scripts/load-test-dashboard.mjs'), 'utf8');
+if (!loadScript.includes("/rest/v1/rpc/workforce_query")
+  || !loadScript.includes("const resources = ['bootstrap', 'today']")
+  || loadScript.includes('/rest/v1/rpc/tms_dashboard_bundle_v1')) {
+  fail('dashboard load test must exercise the split Workforce bootstrap/today API');
+}
 
 const mainEntry = await readFile(join(root, 'src/main.tsx'), 'utf8');
 if (!mainEntry.includes('<AppErrorBoundary>') || !mainEntry.includes('installGlobalErrorReporting()')) {
@@ -143,7 +156,9 @@ const workflow = await readFile(join(root, '.github/workflows/build.yml'), 'utf8
 if (!workflow.includes('bun-version: 1.4.2') || !workflow.includes('bun run check:release')) {
   fail('commercial CI gates are missing or use an unpinned toolchain');
 }
-if (!workflow.includes('supabase@2.117.0') || !workflow.includes('tenant_configuration_isolation.sql')) {
+if (!workflow.includes('supabase@2.117.0')
+  || !workflow.includes('tenant_configuration_isolation.sql')
+  || !workflow.includes('final_security_state.sql')) {
   fail('tenant database isolation is not enforced in CI with a pinned Supabase CLI');
 }
 
@@ -167,13 +182,18 @@ if (!attendanceService.includes("p_action: 'attendance'")) {
 if (!attendanceService.includes('device_id: getCurrentDeviceId()')) {
   fail('attendance does not send the verified logical device id');
 }
-if (!attendanceService.includes('command_id: commandId()')) {
+if (!attendanceService.includes('command_id: durableCommandId')
+  || !attendanceService.includes('acquireAttendanceCommandId(')) {
   fail('attendance does not send an idempotency command id');
 }
 
 const employeeService = await readFile(join(root, 'src/modules/tms/services/employee.ts'), 'utf8');
-if (!employeeService.includes("rpc('tms_dashboard_bundle_v1'")) {
-  fail('employee dashboard is not using the one-roundtrip Workforce V3 bundle');
+if (!employeeService.includes("queryWorkforce('bootstrap'")
+  || !employeeService.includes("queryWorkforce('metadata'")
+  || !employeeService.includes("queryWorkforceRows('history'")
+  || !employeeService.includes("queryWorkforceRows('requests'")
+  || !employeeService.includes("queryWorkforceRows('directory'")) {
+  fail('employee dashboard is not using the split Workforce resource APIs');
 }
 if (!employeeService.includes('client_request_id: input.clientRequestId') || !employeeService.includes('requestCommandId()')) {
   fail('proposal and explanation commands are missing a browser idempotency key');
@@ -197,10 +217,23 @@ if (!adminUsersFunction.includes('requestedAction !== "upsert"')
   || !adminUsersFunction.includes('commit_state: "AUTH_CREATED_PROFILE_PENDING"')) {
   fail('employee account import no longer exposes guarded retry/reconciliation states');
 }
+if (!adminUsersFunction.includes('requestedAction !== "invite"')
+  || !adminUsersFunction.includes('requestedAction !== "password-reset"')
+  || !adminUsersFunction.includes('inviteUserByEmail(')
+  || !adminUsersFunction.includes('resetPasswordForEmail(')
+  || /return\s+json\([\s\S]{0,300}(?:action_link|email_otp|hashed_token|access_token|refresh_token)/.test(adminUsersFunction)) {
+  fail('admin-users invite/password recovery contract is missing or exposes an Auth credential');
+}
+if (!adminUsersFunction.includes('rpc("reset_trusted_device_v1"')) {
+  fail('admin-users does not serialize trusted-device reset through the service-role RPC');
+}
 const accountsSection = await readFile(join(root, 'src/modules/tms/admin/components/AccountsSection.tsx'), 'utf8');
 if (!accountsSection.includes('executeEmployeeImport(imported, saveEmployee)')
   || !accountsSection.includes('refreshOnError: (error) => error instanceof EmployeeImportError')) {
   fail('employee spreadsheet import no longer reloads authoritative data after partial failure');
+}
+if (accountsSection.includes("item.role === 'Admin' ? 'Miễn khóa'")) {
+  fail('Control Center must not present Admin as exempt from trusted-device verification');
 }
 if (!constants.includes('MAX_EMPLOYEE_IMPORT_ROWS: 100')) {
   fail('interactive employee import reconciliation surface is not bounded');
@@ -208,6 +241,40 @@ if (!constants.includes('MAX_EMPLOYEE_IMPORT_ROWS: 100')) {
 const trustedDeviceFunction = await readFile(join(root, 'supabase/functions/trusted-device/index.ts'), 'utf8');
 if (!trustedDeviceFunction.includes('"kiosk.manage"') || !trustedDeviceFunction.includes('canManageDevices')) {
   fail('trusted-device reset does not enforce effective kiosk.manage capability');
+}
+if (!trustedDeviceFunction.includes('rpc("activate_trusted_device_v1"')
+  || !trustedDeviceFunction.includes('rpc("create_trusted_device_challenge_v1"')
+  || !trustedDeviceFunction.includes('rpc("consume_trusted_device_challenge_v1"')
+  || !trustedDeviceFunction.includes('rpc("reset_trusted_device_v1"')
+  || trustedDeviceFunction.includes('actor.role === "Admin" ||')
+  || trustedDeviceFunction.includes('.from("trusted_devices").insert(')
+  || trustedDeviceFunction.includes('.from("trusted_devices").update(')
+  || trustedDeviceFunction.includes('.from("trusted_device_challenges").insert(')
+  || trustedDeviceFunction.includes('.from("trusted_device_challenges").update(')
+  || trustedDeviceFunction.includes('.from("trusted_device_grants").upsert(')) {
+  fail('trusted-device state changes must use the four atomic service-role RPCs and must not exempt Admin');
+}
+if (!constants.includes("DEVICE_EXEMPT_ROLES: readonly EmployeeRole[] = ['Kiosk']")) {
+  fail('client trusted-device gate must exempt only the dedicated Kiosk role');
+}
+const trustedDeviceMigration = await readFile(
+  join(root, 'supabase/migrations/20260915001540_commercial_domain_v4_work_sessions.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'create or replace function public.activate_trusted_device_v1(',
+  'create or replace function public.create_trusted_device_challenge_v1(',
+  'create or replace function public.consume_trusted_device_challenge_v1(',
+  'create or replace function public.reset_trusted_device_v1(',
+  "'TRUSTED_DEVICE_ACTIVATED'",
+  "'TRUSTED_DEVICE_RESET'",
+]) {
+  if (!trustedDeviceMigration.includes(requiredClause)) {
+    fail(`trusted-device atomic migration missing: ${requiredClause}`);
+  }
+}
+if ((trustedDeviceMigration.match(/'trusted-device-employee:'/g) || []).length < 4) {
+  fail('all trusted-device state transitions must share the employee-level advisory lock');
 }
 
 const tmsRoutes = await readFile(join(root, 'src/modules/tms/routes.tsx'), 'utf8');
@@ -414,6 +481,22 @@ for (const requiredClause of [
   }
 }
 
+const commercialWorkflowMigration = await readFile(
+  join(root, 'supabase/migrations/20260915002913_scale_and_commercial_workflows.sql'),
+  'utf8',
+);
+if (commercialWorkflowMigration.includes('manifest=privacy_command.manifest')
+  || commercialWorkflowMigration.includes('manager_note=reason')) {
+  fail('commercial workflow migration contains ambiguous PL/pgSQL variable references');
+}
+if (!commercialWorkflowMigration.includes('manifest=export_manifest')
+  || !commercialWorkflowMigration.includes('manager_note=review_reason')) {
+  fail('commercial workflow migration must use unambiguous DSAR/review local variables');
+}
+if (!commercialWorkflowMigration.includes('and employee.employee_id=request.assigned_to')) {
+  fail('commercial workflow backfill must preserve an eligible legacy first-step assignee');
+}
+
 const requestAssignmentMigration = await readFile(
   join(root, 'supabase/migrations/20260914164800_align_request_assignment_with_policy.sql'),
   'utf8',
@@ -577,6 +660,73 @@ for (const requiredClause of [
   }
 }
 
+const p0SecurityMigration = await readFile(
+  join(root, 'supabase/migrations/20260915001521_close_p0_security_surface.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'revoke all on all tables in schema public',
+  'revoke all on all functions in schema tms_private',
+  'Authenticated users receive no direct public',
+  'graphql_public is owned by the managed supabase_admin role',
+  'service_role must not provision organizations',
+  'drop policy if exists avatar_owner_select on storage.objects',
+  'drop policy if exists avatar_owner_insert on storage.objects',
+  'drop policy if exists avatar_owner_update on storage.objects',
+  'drop policy if exists avatar_owner_delete on storage.objects',
+  'create trigger audit_logs_append_only',
+  'before update or delete or truncate on public.audit_logs',
+  'create or replace function tms_private.directory_context_v1()',
+  'security invoker',
+]) {
+  if (!p0SecurityMigration.includes(requiredClause)) {
+    fail(`P0 final security migration missing: ${requiredClause}`);
+  }
+}
+if (p0SecurityMigration.includes('drop policy %I on storage.objects')) {
+  fail('P0 migration must not drop Storage policies owned by other buckets');
+}
+
+const finalSecurityTest = await readFile(
+  join(root, 'supabase/tests/final_security_state.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'Every public table must have RLS enabled',
+  'Dedicated customer project contains multiple organizations',
+  'Shared-project service-role onboarding is still possible',
+  'Audit TRUNCATE was not blocked',
+  'Workflow decision TRUNCATE was not blocked',
+  'Avatar owner policy matrix is incomplete',
+  'Policies for other buckets may coexist on storage.objects',
+  'RPC-only authenticated role unexpectedly has',
+  'Unexpected anon execute on private function',
+  'A permissive API-role default ACL remains',
+]) {
+  if (!finalSecurityTest.includes(requiredClause)) {
+    fail(`final security-state test missing: ${requiredClause}`);
+  }
+}
+
+const finalSecuritySeal = await readFile(
+  join(root, 'supabase/migrations/20260915003500_enforce_final_security_state.sql'),
+  'utf8',
+);
+for (const requiredClause of [
+  'revoke all on all tables in schema public',
+  'revoke all on all functions in schema tms_private, wf_private',
+  'create or replace function public.workforce_query(',
+  'create or replace function public.workforce_command(',
+  'security definer',
+  'authenticated must remain RPC-only',
+  'before update or delete or truncate on public.audit_logs',
+  'before update or delete or truncate on public.workflow_decisions',
+]) {
+  if (!finalSecuritySeal.includes(requiredClause)) {
+    fail(`final security seal migration missing: ${requiredClause}`);
+  }
+}
+
 const tenantIsolationTest = await readFile(
   join(root, 'supabase/tests/tenant_configuration_isolation.sql'),
   'utf8',
@@ -595,6 +745,9 @@ for (const requiredClause of [
 const supabaseConfig = await readFile(join(root, 'supabase/config.toml'), 'utf8');
 if (!supabaseConfig.includes('auto_expose_new_tables = false')) {
   fail('new public tables must not be automatically exposed through the Data API');
+}
+if (!supabaseConfig.includes('schemas = ["public"]')) {
+  fail('unused graphql_public schema must not be exposed through the Data API');
 }
 
 const requestCodeUtility = await readFile(join(root, 'src/modules/tms/utils/requestCode.ts'), 'utf8');

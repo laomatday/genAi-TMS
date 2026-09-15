@@ -1,10 +1,12 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { Employee, ExplainableAttendanceItem } from '@/shared/types';
 import { doCheckOut } from '@/modules/tms/services/employee';
 import { recordQrAttendance } from '@/modules/tms/services/attendance';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import { triggerHaptic, playAudioChime, toISODateString } from '@/core/utils/helpers';
 import { useDashboardData } from '@/modules/tms/hooks/useDashboardData';
+import { useNotificationInbox } from '@/modules/tms/hooks/useNotificationInbox';
 import { assertValidAttendancePosition } from '@/modules/tms/utils/attendancePosition';
 import { hasControlCenterAccess } from '@/modules/tms/services/workforceCapabilities';
 import { useToast } from '@/shared/contexts/useToast';
@@ -16,13 +18,20 @@ import Header from './Header';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import Spinner from '@/shared/components/common/Spinner';
 import LoadingScreen from '@/shared/components/common/LoadingScreen';
-import { canApproveAny, scopedStorageKey, STORAGE_KEYS, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
+import { canApproveAny, TMS_LIMITS, UI_MOTION } from '@/shared/constants';
 import { useAuth } from '@/core/auth/useAuth';
 import {
   ATTENDANCE_ACTIVITY_EVENT,
   DASHBOARD_SYNC_STATE_EVENT,
   type DashboardSyncStateDetail,
 } from '@/shared/components/common/AppStatusBanner';
+import {
+  employeeSearchForModal,
+  employeeSearchForTab,
+  employeeSearchWithoutModal,
+  parseEmployeeNavigation,
+  type EmployeeModalLayer,
+} from '@/modules/tms/navigation/employeeNavigation';
 
 const TabHistory = lazy(() => import('@/modules/tms/pages/History'));
 const TabRequests = lazy(() => import('@/modules/tms/pages/Requests'));
@@ -36,6 +45,11 @@ const ModalCreateRequest = lazy(() => import('./ModalCreateRequest'));
 const ModalExplainWork = lazy(() => import('./ModalExplainWork'));
 
 interface Props { user: Employee; onLogout: () => void; onOpenWorkspace?: () => void; }
+
+interface EmployeeHistoryState {
+  tmsLayer?: 'tab' | 'modal';
+  tmsDepth?: number;
+}
 
 function requestCurrentPosition() {
   return new Promise<GeolocationPosition>((resolve, reject) => {
@@ -74,6 +88,8 @@ function receiptTime(value?: string) {
 }
 
 const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { updateProfile } = useAuth();
   const { showToast } = useToast();
   const handleShowAlert = useCallback((title: string, msg: string, type: 'success' | 'error' | 'warning' | 'info' = 'success') => {
@@ -84,39 +100,77 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   }, [showToast]);
   const notifyShiftEnd = useCallback((title: string, body: string) => handleShowAlert(title, body, 'warning'), [handleShowAlert]);
   const { data, loading, error, currentUser, isOnline, lastSyncedAt, refresh } = useDashboardData(user, onLogout, notifyShiftEnd);
-  const [activeTab, setActiveTab] = useState<TabType>('home');
+  const {
+    items: inboxItems,
+    unreadCount: inboxUnreadCount,
+    loading: inboxLoading,
+    refresh: refreshInbox,
+    markRead: markInboxRead,
+    markAllRead: markAllInboxRead,
+  } = useNotificationInbox(currentUser);
+  const navigationState = useMemo(() => parseEmployeeNavigation(location.search), [location.search]);
+  const activeTab = navigationState.tab;
+  const activeModal = navigationState.modal;
   const [pagerNavigationResetVersion, setPagerNavigationResetVersion] = useState(0);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [direction, setDirection] = useState<'left' | 'right'>('right');
   const [lastActiveTab, setLastActiveTab] = useState<TabType>('home');
   const [lastEmployeeTab, setLastEmployeeTab] = useState<EmployeeNavTab>('home');
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
-  const [showQRScanner, setShowQRScanner] = useState(false);
   const [isAttendanceProcessing, setIsAttendanceProcessing] = useState(false);
   const [isProcessOverlayVisible, setIsProcessOverlayVisible] = useState(false);
   const [checkInStatus, setCheckInStatus] = useState('');
-  const [showCheckoutConfirm, setShowCheckoutConfirm] = useState(false);
-  const [showImageCropper, setShowImageCropper] = useState(false);
-  const [showCreateRequestModal, setShowCreateRequestModal] = useState(false);
   const [createRequestType, setCreateRequestType] = useState<string | undefined>(undefined);
-  const [showExplainWorkModal, setShowExplainWorkModal] = useState(false);
   const [explainWorkInitialData, setExplainWorkInitialData] = useState<{ date: string; reason: string } | null>(null);
   const [contactsResetTrigger, setContactsResetTrigger] = useState(0);
   const [contactsSearchTrigger, setContactsSearchTrigger] = useState(0);
-  const notificationStorageKey = useMemo(
-    () => scopedStorageKey(STORAGE_KEYS.SEEN_NOTIFICATIONS, user),
-    [user.employee_id, user.organization_id],
-  );
-  const [seenNotiCount, setSeenNotiCount] = useState(() => {
-    try { return parseInt(localStorage.getItem(notificationStorageKey) || '0', 10); } catch { return 0; }
-  });
   const managerDate = new Date();
   const attendanceLockRef = useRef(false);
+  const previousTabRef = useRef<TabType>(activeTab);
+  const historyState = location.state as EmployeeHistoryState | null;
+  const showQRScanner = activeModal === 'qr';
+  const showCheckoutConfirm = activeModal === 'checkout';
+  const showCreateRequestModal = activeModal === 'request';
+  const showExplainWorkModal = activeModal === 'explanation' || activeModal === 'explanation-confirm';
+  const showExplanationConfirm = activeModal === 'explanation-confirm';
+  const showImageCropper = activeModal === 'profile-crop';
+  const isSettingsOpen = activeModal === 'settings' || activeModal === 'settings-guide' || activeModal === 'settings-support';
 
-  useEffect(() => {
-    try { setSeenNotiCount(parseInt(localStorage.getItem(notificationStorageKey) || '0', 10)); }
-    catch { setSeenNotiCount(0); }
-  }, [notificationStorageKey]);
+  const navigateToSearch = useCallback((search: string, options?: { replace?: boolean; state?: EmployeeHistoryState | null }) => {
+    navigate({ pathname: location.pathname, search }, options);
+  }, [location.pathname, navigate]);
+
+  const openModal = useCallback((modal: EmployeeModalLayer, options?: { requestType?: string; explanationDate?: string }) => {
+    navigateToSearch(employeeSearchForModal(location.search, modal, options), {
+      state: { tmsLayer: 'modal', tmsDepth: Math.max(0, historyState?.tmsDepth ?? 0) + 1 },
+    });
+  }, [historyState?.tmsDepth, location.search, navigateToSearch]);
+
+  const closeModal = useCallback(() => {
+    if (!activeModal) return;
+    if (historyState?.tmsLayer === 'modal') {
+      navigate(-1);
+      return;
+    }
+    navigateToSearch(employeeSearchWithoutModal(location.search), { replace: true, state: null });
+  }, [activeModal, historyState?.tmsLayer, location.search, navigate, navigateToSearch]);
+
+  const setSettingsOpen = useCallback((open: boolean) => {
+    if (open) openModal('settings');
+    else if (activeModal === 'settings') closeModal();
+  }, [activeModal, closeModal, openModal]);
+
+  const closeModalStack = useCallback(() => {
+    const depth = historyState?.tmsDepth ?? 0;
+    if (depth > 0) {
+      navigate(-depth);
+      return;
+    }
+    navigateToSearch(employeeSearchWithoutModal(location.search), { replace: true, state: null });
+  }, [historyState?.tmsDepth, location.search, navigate, navigateToSearch]);
+  const refreshDashboardAndInbox = useCallback(async () => {
+    const [dashboardUpdated, notificationsUpdated] = await Promise.all([refresh(), refreshInbox()]);
+    return dashboardUpdated || notificationsUpdated;
+  }, [refresh, refreshInbox]);
 
   useEffect(() => {
     const detail: DashboardSyncStateDetail = {
@@ -148,8 +202,10 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   );
 
   useEffect(() => {
-    if (!canManage && activeTab === 'manager') setActiveTab(lastEmployeeTab);
-  }, [activeTab, canManage, lastEmployeeTab]);
+    if (!canManage && activeTab === 'manager') {
+      navigateToSearch(employeeSearchForTab(location.search, lastEmployeeTab), { replace: true, state: null });
+    }
+  }, [activeTab, canManage, lastEmployeeTab, location.search, navigateToSearch]);
   const locationNames = useMemo(() => buildLocationNameMap(data), [data]);
 
   // On-time ratio across every shift in the loaded timesheet window. Shown on the
@@ -186,42 +242,42 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     };
   }, []);
 
-  const { rawNotiCount, badgeCount } = useMemo(() => {
-    if (!data) return { rawNotiCount: 0, badgeCount: 0 };
-    // Workforce V3 already returns reviewer requests scoped by capability and tenant.
-    // Do not re-create authorization in the browser from contact metadata.
-    const visibleApprovals = canManage
-      ? data.notifications.approvals.length + data.notifications.explanationApprovals.length
-      : 0;
-    const personal = data.notifications.myRequests.filter((request) => request.status !== 'Pending').length
-      + data.notifications.myExplanations.filter((request) => request.status !== 'Pending').length;
-    const rawCount = visibleApprovals + personal;
-    return { rawNotiCount: rawCount, badgeCount: Math.max(0, rawCount - seenNotiCount) };
-  }, [canManage, data, seenNotiCount]);
+  useEffect(() => {
+    const previousTab = previousTabRef.current;
+    if (previousTab === activeTab) return;
+    const activeIndex = EMPLOYEE_NAV_TABS.findIndex((item) => item === previousTab);
+    const fallbackIndex = EMPLOYEE_NAV_TABS.findIndex((item) => item === lastActiveTab);
+    const targetIndex = EMPLOYEE_NAV_TABS.findIndex((item) => item === activeTab);
+    const sourceIndex = activeIndex >= 0 ? activeIndex : fallbackIndex;
+    setDirection(targetIndex >= 0 && targetIndex > sourceIndex ? 'right' : 'left');
+    if (previousTab !== 'profile' && previousTab !== 'notifications') setLastActiveTab(previousTab);
+    if (isEmployeeNavTab(previousTab)) setLastEmployeeTab(previousTab);
+    if (previousTab === 'contacts') setContactsSearchTrigger(0);
+    setIsHeaderVisible(true);
+    previousTabRef.current = activeTab;
+  }, [activeTab, lastActiveTab]);
 
-  const handleTabChange = (tab: TabType) => {
+  const handleTabChange = useCallback((tab: TabType) => {
     triggerHaptic('light');
-    setIsSettingsOpen(false);
     if (activeTab === tab && tab === 'contacts') { setContactsResetTrigger((value) => value + 1); return; }
-    if (activeTab !== tab) {
-      setIsHeaderVisible(true);
-      const activeIndex = EMPLOYEE_NAV_TABS.findIndex((item) => item === activeTab);
-      const fallbackIndex = EMPLOYEE_NAV_TABS.findIndex((item) => item === lastActiveTab);
-      const targetIndex = EMPLOYEE_NAV_TABS.findIndex((item) => item === tab);
-      const sourceIndex = activeIndex >= 0 ? activeIndex : fallbackIndex;
-      setDirection(targetIndex >= 0 && targetIndex > sourceIndex ? 'right' : 'left');
-      if (activeTab !== 'profile' && activeTab !== 'notifications') setLastActiveTab(activeTab);
-      if (isEmployeeNavTab(activeTab)) setLastEmployeeTab(activeTab);
-      setActiveTab(tab);
-      if (activeTab === 'contacts') setContactsSearchTrigger(0);
+    if (activeTab !== tab || activeModal) {
+      navigateToSearch(employeeSearchForTab(location.search, tab), {
+        replace: Boolean(activeModal),
+        state: { tmsLayer: 'tab' },
+      });
     }
     if (tab === 'notifications') {
-      setSeenNotiCount(rawNotiCount);
-      localStorage.setItem(notificationStorageKey, String(rawNotiCount));
+      void refreshInbox();
     }
-    if (showCreateRequestModal) setShowCreateRequestModal(false);
-    if (showExplainWorkModal) setShowExplainWorkModal(false);
-  };
+  }, [activeModal, activeTab, location.search, navigateToSearch, refreshInbox]);
+
+  const closeSecondaryTab = useCallback(() => {
+    if (historyState?.tmsLayer === 'tab') {
+      navigate(-1);
+      return;
+    }
+    navigateToSearch(employeeSearchForTab(location.search, lastActiveTab), { replace: true, state: null });
+  }, [historyState?.tmsLayer, lastActiveTab, location.search, navigate, navigateToSearch]);
 
   const handleBottomNavChange = (tab: TabType) => {
     // This revision also changes for a repeated tap on the active tab. The
@@ -265,7 +321,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   };
 
   const handleQRScan = async (qrString: string) => {
-    setShowQRScanner(false);
+    closeModal();
     if (!beginAttendanceTransaction('Đang kiểm tra GPS và kết nối…')) return;
     try {
       const position = await requestCurrentPosition();
@@ -292,7 +348,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
 
   const processCheckOut = async () => {
     triggerHaptic('medium');
-    setShowCheckoutConfirm(false);
+    closeModal();
     if (!beginAttendanceTransaction('Đang kiểm tra GPS và kết nối…')) return;
     try {
       const position = await requestCurrentPosition();
@@ -391,7 +447,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
       handleShowAlert('Không có kết nối', 'Hãy kết nối mạng trước khi quét mã chấm công.', 'error');
       return;
     }
-    setShowQRScanner(true);
+    openModal('qr');
   };
 
   const openCheckoutConfirm = () => {
@@ -400,30 +456,32 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
       handleShowAlert('Không có kết nối', 'Check-out cần kết nối mạng để nhận xác nhận từ hệ thống.', 'error');
       return;
     }
-    setShowCheckoutConfirm(true);
+    openModal('checkout');
   };
+
+  const openRequestModal = useCallback((type?: string) => {
+    setCreateRequestType(type);
+    openModal('request', { requestType: type });
+  }, [openModal]);
+
+  const openExplanationModal = useCallback((date?: string, reason = '') => {
+    setExplainWorkInitialData(date ? { date, reason } : null);
+    openModal('explanation', { explanationDate: date });
+  }, [openModal]);
 
   if (loading) return <LoadingScreen />;
   if (!data) return <div className="h-full w-full page-bg flex items-center justify-center p-6"><div className="empty-state-card"><span className="material-symbols-rounded empty-state-icon" aria-hidden="true">cloud_off</span><h2>Không tải được dữ liệu</h2><p>{error || 'Vui lòng kiểm tra kết nối rồi thử lại.'}</p><button type="button" className="btn btn-primary btn-md" onClick={() => void refresh(true)}>Thử lại</button></div></div>;
 
   const activeEmployeeTab = isEmployeeNavTab(activeTab) ? activeTab : null;
   const pagerTab = activeEmployeeTab ?? lastEmployeeTab;
-  const employeePagerDisabled = isAttendanceProcessing
-    || !activeEmployeeTab
-    || showQRScanner
-    || showCheckoutConfirm
-    || showCreateRequestModal
-    || showExplainWorkModal
-    || showImageCropper
-    || isSettingsOpen;
   const renderEmployeePage = (tab: EmployeeNavTab, isActive: boolean) => {
     switch (tab) {
       case 'home':
-        return <TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} explainableItems={explainableItems} onNavigate={handleTabChange} onCreateRequest={(type) => { setCreateRequestType(type); setShowCreateRequestModal(true); }} />;
+        return <TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert} onExplain={openExplanationModal} explainableItems={explainableItems} onNavigate={handleTabChange} onCreateRequest={openRequestModal} />;
       case 'history':
-        return <TabHistory data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={(date, reason) => { setExplainWorkInitialData({ date, reason }); setShowExplainWorkModal(true); }} />;
+        return <TabHistory data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={openExplanationModal} />;
       case 'requests':
-        return <TabRequests data={data} user={currentUser} onRefresh={refresh} onCreateRequest={(type) => { setCreateRequestType(type); setShowCreateRequestModal(true); }} onCreateExplanation={() => { setExplainWorkInitialData(null); setShowExplainWorkModal(true); }} />;
+        return <TabRequests data={data} user={currentUser} onRefresh={refresh} onCreateRequest={openRequestModal} onCreateExplanation={() => openExplanationModal()} />;
       case 'calendar':
         return <CalendarPage data={data} user={currentUser} onRefresh={refresh} currentDate={managerDate} />;
       case 'contacts':
@@ -434,23 +492,23 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   return <div className="employee-shell" aria-busy={isAttendanceProcessing}>
     {isAttendanceProcessing && isProcessOverlayVisible ? <div className="app-process-backdrop animate-fade-in"><div className="app-process-dialog animate-scale-in" role="status" aria-live="polite"><Spinner size="lg" /><h3>Đang xử lý…</h3><p>{checkInStatus || 'Vui lòng đợi trong giây lát'}</p><small>Không đóng ứng dụng cho đến khi có xác nhận.</small><button type="button" onClick={() => setIsProcessOverlayVisible(false)}>Ẩn đi · vẫn chạy nền</button></div></div> : null}
     {isAttendanceProcessing && !isProcessOverlayVisible ? <button type="button" onClick={() => setIsProcessOverlayVisible(true)} className="app-processing-pill" aria-label="Mở trạng thái chấm công"><span className="app-processing-spinner" aria-hidden="true" />Đang chấm công</button> : null}
-    {activeTab !== 'profile' && isHeaderVisible && <Header user={currentUser} activeTab={activeTab} notificationCount={badgeCount} isOnline={isOnline} locationName={locationNames[currentUser.center_id]} isSettingsOpen={isSettingsOpen} onSettingsOpenChange={setIsSettingsOpen} onOpenProfile={() => handleTabChange('profile')} onOpenNotifications={() => activeTab === 'notifications' ? setActiveTab(lastActiveTab) : handleTabChange('notifications')} onContactSearch={() => setContactsSearchTrigger((value) => value + 1)} canManage={canManage} onOpenManager={() => handleTabChange('manager')} onOpenWorkspace={canOpenControlCenter ? onOpenWorkspace : undefined} />}
+    {activeTab !== 'profile' && isHeaderVisible && <Header user={currentUser} activeTab={activeTab} notificationCount={inboxUnreadCount} isOnline={isOnline} locationName={locationNames[currentUser.center_id]} isSettingsOpen={isSettingsOpen} settingsLayer={activeModal} onSettingsOpenChange={setSettingsOpen} onOpenSettingsLayer={openModal} onCloseSettingsLayer={closeModal} onOpenProfile={() => handleTabChange('profile')} onOpenNotifications={() => activeTab === 'notifications' ? closeSecondaryTab() : handleTabChange('notifications')} onContactSearch={() => setContactsSearchTrigger((value) => value + 1)} canManage={canManage} onOpenManager={() => handleTabChange('manager')} onOpenWorkspace={canOpenControlCenter ? onOpenWorkspace : undefined} />}
     <div className="employee-scroll">
       <div className="employee-pager-layer" aria-hidden={!activeEmployeeTab} inert={!activeEmployeeTab}>
         <Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
-          <EmployeePager activeTab={pagerTab} disabled={employeePagerDisabled} navigationResetVersion={pagerNavigationResetVersion} onChange={handleTabChange} renderPage={renderEmployeePage} />
+          <EmployeePager activeTab={pagerTab} disabled navigationResetVersion={pagerNavigationResetVersion} onChange={handleTabChange} renderPage={renderEmployeePage} />
         </Suspense>
       </div>
       {!activeEmployeeTab ? <div className={`employee-motion-stage ${activeTab === 'profile' ? '' : 'employee-secondary-stage'}`.trim()}><AnimatePresence initial={false} custom={direction}><motion.div key={activeTab} custom={direction} initial={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_FORWARD : UI_MOTION.PAGE_OFFSET_BACKWARD }} animate={{ x: 0 }} exit={{ x: direction === 'right' ? UI_MOTION.PAGE_OFFSET_BACKWARD : UI_MOTION.PAGE_OFFSET_FORWARD }} transition={UI_MOTION.PAGE_TRANSITION} className="employee-view"><Suspense fallback={<div className="app-loading-screen"><Spinner size="lg" /></div>}>
         {activeTab === 'manager' && <TabManager data={data} user={currentUser} onRefresh={refresh} onAlert={handleShowAlert} />}
-        {activeTab === 'profile' && <TabProfile user={currentUser} locations={data.locations || []} locationNames={locationNames} contacts={data.contacts || []} punctuality={punctuality} onLogout={onLogout} onUpdate={(profile) => { updateProfile(profile); void refresh(); }} onClose={() => { setDirection('left'); setActiveTab(lastActiveTab); }} onAlert={handleShowAlert} setShowImageCropper={setShowImageCropper} onOpenManager={canManage ? () => handleTabChange('manager') : undefined} />}
-        {activeTab === 'notifications' && <NotificationsModal data={data} user={currentUser} onSwitchTab={handleTabChange} onRefresh={refresh} />}
+        {activeTab === 'profile' && <TabProfile user={currentUser} locations={data.locations || []} locationNames={locationNames} contacts={data.contacts || []} punctuality={punctuality} onLogout={onLogout} onUpdate={(profile) => { updateProfile(profile); void refresh(); }} onClose={closeSecondaryTab} onAlert={handleShowAlert} activeModal={activeModal} onOpenModal={openModal} onCloseModal={closeModal} onOpenManager={canManage ? () => handleTabChange('manager') : undefined} />}
+        {activeTab === 'notifications' && <NotificationsModal notifications={inboxItems} unreadCount={inboxUnreadCount} loading={inboxLoading} onSwitchTab={handleTabChange} onMarkRead={markInboxRead} onMarkAllRead={markAllInboxRead} onRefresh={refreshDashboardAndInbox} />}
       </Suspense></motion.div></AnimatePresence></div> : null}
     </div>
-    <Suspense fallback={null}>{showCreateRequestModal && <ModalCreateRequest user={currentUser} isOpen initialType={createRequestType} onClose={() => setShowCreateRequestModal(false)} onSuccess={refresh} onAlert={handleShowAlert} onNavigate={handleTabChange} data={data} />} {showExplainWorkModal && <ModalExplainWork isOpen onClose={() => setShowExplainWorkModal(false)} onSuccess={refresh} onAlert={handleShowAlert} initialData={explainWorkInitialData || undefined} explainableItems={explainableItems} sourceTab={activeTab === 'requests' ? 'requests' : 'history'} onNavigate={handleTabChange} data={data} />}</Suspense>
+    <Suspense fallback={null}>{showCreateRequestModal && <ModalCreateRequest user={currentUser} isOpen initialType={navigationState.requestType || createRequestType} onClose={closeModal} onSuccess={refresh} onAlert={handleShowAlert} onNavigate={handleTabChange} data={data} />} {showExplainWorkModal && <ModalExplainWork user={currentUser} isOpen isConfirmOpen={showExplanationConfirm} onConfirmOpenChange={(open) => open ? openModal('explanation-confirm', { explanationDate: navigationState.explanationDate || explainWorkInitialData?.date }) : closeModal()} onClose={closeModal} onComplete={closeModalStack} onSuccess={refresh} onAlert={handleShowAlert} initialData={explainWorkInitialData || (navigationState.explanationDate ? { date: navigationState.explanationDate, reason: '' } : undefined)} explainableItems={explainableItems} sourceTab={activeTab === 'requests' ? 'requests' : 'history'} onNavigate={handleTabChange} data={data} />}</Suspense>
     {activeTab !== 'profile' && !showCheckoutConfirm && !showImageCropper && <><div className="employee-nav-fade" /><BottomNav activeTab={activeTab} onChange={handleBottomNavChange} /></>}
-    <Suspense fallback={null}>{showQRScanner && <ModalQRScanner onClose={() => setShowQRScanner(false)} onScan={handleQRScan} onError={(message) => handleShowAlert('Lỗi thiết bị', message, 'error')} />}</Suspense>
-    <ConfirmDialog isOpen={showCheckoutConfirm} title="Kết thúc ca làm việc?" message="Hệ thống sẽ ghi nhận giờ ra (Check-out)." confirmLabel="Xác nhận" onConfirm={processCheckOut} onCancel={() => setShowCheckoutConfirm(false)} type="danger" />
+    <Suspense fallback={null}>{showQRScanner && <ModalQRScanner onClose={closeModal} onScan={handleQRScan} onError={(message) => handleShowAlert('Lỗi thiết bị', message, 'error')} />}</Suspense>
+    <ConfirmDialog isOpen={showCheckoutConfirm} title="Kết thúc ca làm việc?" message="Hệ thống sẽ ghi nhận giờ ra (Check-out)." confirmLabel="Xác nhận" onConfirm={processCheckOut} onCancel={closeModal} type="danger" />
   </div>;
 };
 

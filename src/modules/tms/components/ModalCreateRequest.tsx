@@ -8,6 +8,7 @@ import { useListboxNavigation } from '@/shared/components/common/useListboxNavig
 import BottomNav, { TabType } from './BottomNav';
 import { LEAVE_REQUEST_TYPES } from '@/shared/constants';
 import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
+import { loadFormDraft, removeFormDraft, saveFormDraft } from '@/modules/tms/services/formDrafts';
 
 interface Props {
     user: Employee;
@@ -26,6 +27,27 @@ interface RequestFormErrors {
     fromDate?: string;
     toDate?: string;
     reason?: string;
+}
+
+interface RequestDraftValue {
+    type: string;
+    fromDate: string;
+    toDate: string;
+    reason: string;
+}
+
+const REQUEST_DRAFT_SCOPE = 'default';
+const DRAFT_SAVE_DELAY_MS = 350;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function isRequestDraftValue(value: unknown): value is RequestDraftValue {
+    if (!value || typeof value !== 'object') return false;
+    const draft = value as Partial<RequestDraftValue>;
+    return typeof draft.type === 'string'
+        && LEAVE_REQUEST_TYPES.includes(draft.type as typeof LEAVE_REQUEST_TYPES[number])
+        && typeof draft.fromDate === 'string' && (!draft.fromDate || ISO_DATE_PATTERN.test(draft.fromDate))
+        && typeof draft.toDate === 'string' && (!draft.toDate || ISO_DATE_PATTERN.test(draft.toDate))
+        && typeof draft.reason === 'string' && draft.reason.length <= REASON_MAX_LENGTH;
 }
 
 /** Same tone mapping the Requests list uses, so a draft looks like its record. */
@@ -50,7 +72,7 @@ function dayCount(from: string, to: string) {
 const REASON_MAX_LENGTH = 500;
 
 const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClose, onSuccess, onAlert, onNavigate, data }) => {
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<RequestDraftValue>({
         type: 'Nghỉ phép',
         fromDate: '',
         toDate: '',
@@ -59,6 +81,7 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
     const [loading, setLoading] = useState(false);
     const [isTypeOpen, setIsTypeOpen] = useState(false);
     const [formErrors, setFormErrors] = useState<RequestFormErrors>({});
+    const [draftReady, setDraftReady] = useState(false);
     const activeTab: TabType = 'requests';
 
     const fromDateRef = useRef<HTMLInputElement>(null);
@@ -69,7 +92,6 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
     const swipeBackHandlers = useModalSwipeBack(onClose, loading);
     const navigateFromModal = (tab: TabType) => {
         triggerHaptic('light');
-        onClose();
         onNavigate(tab);
     };
     const typeListbox = useListboxNavigation({
@@ -81,15 +103,43 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
     });
 
     useEffect(() => {
-        if (isOpen) {
-            const preset = initialType && LEAVE_REQUEST_TYPES.includes(initialType as typeof LEAVE_REQUEST_TYPES[number])
-                ? initialType
-                : 'Nghỉ phép';
-            setFormData({ type: preset, fromDate: '', toDate: '', reason: '' });
-            setFormErrors({});
-            setIsTypeOpen(false);
+        if (!isOpen) {
+            setDraftReady(false);
+            return;
         }
-    }, [isOpen, initialType]);
+        let cancelled = false;
+        const preset = initialType && LEAVE_REQUEST_TYPES.includes(initialType as typeof LEAVE_REQUEST_TYPES[number])
+            ? initialType
+            : 'Nghỉ phép';
+        const emptyForm = { type: preset, fromDate: '', toDate: '', reason: '' };
+        const nextClientRequestId = requestCommandId();
+        clientRequestIdRef.current = nextClientRequestId;
+        setDraftReady(false);
+        setFormData(emptyForm);
+        setFormErrors({});
+        setIsTypeOpen(false);
+
+        void loadFormDraft<RequestDraftValue>(user, 'request', REQUEST_DRAFT_SCOPE).then(async (draft) => {
+            if (cancelled) return;
+            if (draft && isRequestDraftValue(draft.value)) {
+                clientRequestIdRef.current = draft.clientRequestId;
+                setFormData(draft.value);
+            } else {
+                await saveFormDraft(user, 'request', REQUEST_DRAFT_SCOPE, nextClientRequestId, emptyForm);
+            }
+            if (cancelled) return;
+            setDraftReady(true);
+        });
+        return () => { cancelled = true; };
+    }, [initialType, isOpen, user.employee_id, user.organization_id]);
+
+    useEffect(() => {
+        if (!isOpen || !draftReady) return;
+        const timer = window.setTimeout(() => {
+            void saveFormDraft(user, 'request', REQUEST_DRAFT_SCOPE, clientRequestIdRef.current, formData);
+        }, DRAFT_SAVE_DELAY_MS);
+        return () => window.clearTimeout(timer);
+    }, [draftReady, formData, isOpen, user.employee_id, user.organization_id]);
 
     const focusFirstError = (errors: RequestFormErrors) => {
         const target = errors.type
@@ -162,6 +212,7 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
 
         if (res.success) {
             triggerHaptic('success');
+            await removeFormDraft(user, 'request', REQUEST_DRAFT_SCOPE);
             setFormData({ type: 'Nghỉ phép', fromDate: '', toDate: '', reason: '' });
             onSuccess();
             onClose();
@@ -197,7 +248,7 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-request-title"
-            aria-busy={loading}
+            aria-busy={loading || !draftReady}
             data-swipe-surface="modal"
             {...swipeBackHandlers}
         >
@@ -398,7 +449,7 @@ const ModalCreateRequest: React.FC<Props> = ({ user, isOpen, initialType, onClos
                     ) : null}
 
                     {/* Submit --------------------------------------------- */}
-                    <button type="button" onClick={handleSubmit} disabled={loading} className="ui-cta">
+                    <button type="button" onClick={handleSubmit} disabled={loading || !draftReady} className="ui-cta">
                         {loading ? (
                             <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span>
                         ) : (

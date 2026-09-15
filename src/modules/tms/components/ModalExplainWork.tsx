@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import type { DashboardData, ExplainableAttendanceItem } from '@/shared/types';
+import type { DashboardData, Employee, ExplainableAttendanceItem } from '@/shared/types';
 import { requestCommandId, submitExplanation } from '@/modules/tms/services/employee';
 import { formatDateString, triggerHaptic, toISODateString } from '@/core/utils/helpers';
 import ModalHeader from '@/shared/components/modals/ModalHeader';
@@ -9,10 +9,15 @@ import { useListboxNavigation } from '@/shared/components/common/useListboxNavig
 import BottomNav, { TabType } from './BottomNav';
 import { TMS_LIMITS } from '@/shared/constants';
 import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
+import { loadFormDraft, removeFormDraft, saveFormDraft } from '@/modules/tms/services/formDrafts';
 
 interface Props {
+    user: Employee;
     isOpen: boolean;
+    isConfirmOpen: boolean;
+    onConfirmOpenChange: (open: boolean) => void;
     onClose: () => void;
+    onComplete: () => void;
     onSuccess: () => void;
     onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
     initialData?: { date: string, reason: string };
@@ -31,6 +36,28 @@ interface ExplanationFormErrors {
 
 type ExplanationMode = 'EXPLANATION' | 'CORRECTION';
 
+interface ExplanationDraftValue {
+    selectedDate: string;
+    reason: string;
+    mode: ExplanationMode;
+    checkinTime: string;
+    checkoutTime: string;
+}
+
+const DRAFT_SAVE_DELAY_MS = 350;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const CLOCK_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+function isExplanationDraftValue(value: unknown): value is ExplanationDraftValue {
+    if (!value || typeof value !== 'object') return false;
+    const draft = value as Partial<ExplanationDraftValue>;
+    return typeof draft.selectedDate === 'string' && (!draft.selectedDate || ISO_DATE_PATTERN.test(draft.selectedDate))
+        && typeof draft.reason === 'string' && draft.reason.length <= TMS_LIMITS.REQUEST_REASON_MAX_LENGTH
+        && (draft.mode === 'EXPLANATION' || draft.mode === 'CORRECTION')
+        && typeof draft.checkinTime === 'string' && (!draft.checkinTime || CLOCK_PATTERN.test(draft.checkinTime))
+        && typeof draft.checkoutTime === 'string' && (!draft.checkoutTime || CLOCK_PATTERN.test(draft.checkoutTime));
+}
+
 /** An attendance flag carries its severity in its wording; the pill tone follows. */
 function flagTone(reason: string) {
     if (reason.includes('Vắng') || reason.includes('Quên') || reason.includes('Thiếu') || reason.includes('Không có') || reason.includes('vi phạm')) return 'danger';
@@ -48,28 +75,28 @@ const ReasonDisplay = ({ reasons }: { reasons: string }) => (
     </>
 );
 
-const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert, initialData, explainableItems, sourceTab = 'history', onNavigate, data }) => {
+const ModalExplainWork: React.FC<Props> = ({ user, isOpen, isConfirmOpen, onConfirmOpenChange, onClose, onComplete, onSuccess, onAlert, initialData, explainableItems, sourceTab = 'history', onNavigate, data }) => {
     const [selectedDate, setSelectedDate] = useState(initialData?.date || '');
     const [reason, setReason] = useState(initialData?.reason || '');
-    const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, isPastMonth: boolean }>({ isOpen: false, isPastMonth: false });
+    const [isPastMonthConfirmation, setIsPastMonthConfirmation] = useState(false);
     const [loading, setLoading] = useState(false);
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [formErrors, setFormErrors] = useState<ExplanationFormErrors>({});
     const [mode, setMode] = useState<ExplanationMode>('EXPLANATION');
     const [checkinTime, setCheckinTime] = useState('');
     const [checkoutTime, setCheckoutTime] = useState('');
+    const [draftReady, setDraftReady] = useState(false);
     const activeTab: TabType = sourceTab;
+    const draftScope = initialData?.date || 'general';
 
     const reasonRef = useRef<HTMLTextAreaElement>(null);
     const checkinRef = useRef<HTMLInputElement>(null);
     const checkoutRef = useRef<HTMLInputElement>(null);
-    const initializedForOpenRef = useRef(false);
     const clientRequestIdRef = useRef(requestCommandId());
     const dialogRef = useModalAccessibility(isOpen, onClose, { closeOnEscape: !loading });
-    const swipeBackHandlers = useModalSwipeBack(onClose, loading || confirmDialog.isOpen);
+    const swipeBackHandlers = useModalSwipeBack(onClose, loading || isConfirmOpen);
     const navigateFromModal = (tab: TabType) => {
         triggerHaptic('light');
-        onClose();
         onNavigate(tab);
     };
     const dateListbox = useListboxNavigation({
@@ -103,13 +130,14 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
 
     useEffect(() => {
         if (!isOpen) {
-            initializedForOpenRef.current = false;
+            setDraftReady(false);
             return;
         }
-        if (initializedForOpenRef.current) return;
-        initializedForOpenRef.current = true;
         const initialDate = initialData?.date || '';
         const initialItem = explainableItems.find((item) => item.date === initialDate);
+        const nextClientRequestId = requestCommandId();
+        clientRequestIdRef.current = nextClientRequestId;
+        setDraftReady(false);
         setSelectedDate(initialDate);
         setReason(initialData?.reason || '');
         setMode(initialItem?.missingCheckin || initialItem?.missingCheckout ? 'CORRECTION' : 'EXPLANATION');
@@ -117,7 +145,45 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
         setCheckoutTime(initialItem?.recordedCheckout || '');
         setFormErrors({});
         setIsDropdownOpen(false);
-    }, [explainableItems, initialData, isOpen]);
+
+        let cancelled = false;
+        void loadFormDraft<ExplanationDraftValue>(user, 'explanation', draftScope).then(async (draft) => {
+            if (cancelled) return;
+            if (draft && isExplanationDraftValue(draft.value)) {
+                clientRequestIdRef.current = draft.clientRequestId;
+                setSelectedDate(draft.value.selectedDate);
+                setReason(draft.value.reason);
+                setMode(draft.value.mode);
+                setCheckinTime(draft.value.checkinTime);
+                setCheckoutTime(draft.value.checkoutTime);
+            } else {
+                await saveFormDraft<ExplanationDraftValue>(user, 'explanation', draftScope, nextClientRequestId, {
+                    selectedDate: initialDate,
+                    reason: initialData?.reason || '',
+                    mode: initialItem?.missingCheckin || initialItem?.missingCheckout ? 'CORRECTION' : 'EXPLANATION',
+                    checkinTime: initialItem?.recordedCheckin || '',
+                    checkoutTime: initialItem?.recordedCheckout || '',
+                });
+            }
+            if (cancelled) return;
+            setDraftReady(true);
+        });
+        return () => { cancelled = true; };
+    }, [draftScope, isOpen, user.employee_id, user.organization_id]);
+
+    useEffect(() => {
+        if (!isOpen || !draftReady) return;
+        const timer = window.setTimeout(() => {
+            void saveFormDraft<ExplanationDraftValue>(user, 'explanation', draftScope, clientRequestIdRef.current, {
+                selectedDate,
+                reason,
+                mode,
+                checkinTime,
+                checkoutTime,
+            });
+        }, DRAFT_SAVE_DELAY_MS);
+        return () => window.clearTimeout(timer);
+    }, [checkinTime, checkoutTime, draftReady, draftScope, isOpen, mode, reason, selectedDate, user.employee_id, user.organization_id]);
 
     const handlePreSubmit = () => {
         triggerHaptic('light');
@@ -197,10 +263,8 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
         }
 
         setFormErrors({});
-        setConfirmDialog({
-            isOpen: true,
-            isPastMonth: isPast
-        });
+        setIsPastMonthConfirmation(isPast);
+        onConfirmOpenChange(true);
     };
 
     const handleSubmitExplanation = async () => {
@@ -216,16 +280,17 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
 
         if (res.success) {
             triggerHaptic('success');
+            await removeFormDraft(user, 'explanation', draftScope);
             onAlert("Thành công", isCorrection ? "Đã gửi yêu cầu bổ sung giờ công." : "Đã gửi giải trình.", 'success');
             onSuccess();
-            onClose();
+            onComplete();
         } else {
             triggerHaptic('error');
             onAlert("Lỗi", res.message, 'error');
+            onConfirmOpenChange(false);
         }
 
         setLoading(false);
-        setConfirmDialog({ isOpen: false, isPastMonth: false });
     };
 
     const handleDateSelect = (item: ExplainableAttendanceItem) => {
@@ -258,7 +323,7 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="explain-work-title"
-                aria-busy={loading}
+                aria-busy={loading || !draftReady}
                 data-swipe-surface="modal"
                 {...swipeBackHandlers}
             >
@@ -476,7 +541,7 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
                         </p>
 
                         {/* Submit ----------------------------------------- */}
-                        <button type="button" onClick={handlePreSubmit} disabled={loading} className="ui-cta">
+                        <button type="button" onClick={handlePreSubmit} disabled={loading || !draftReady} className="ui-cta">
                             {loading ? (
                                 <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span>
                             ) : (
@@ -496,9 +561,9 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
             </div>
 
             <ConfirmDialog
-                isOpen={confirmDialog.isOpen}
+                isOpen={isConfirmOpen}
                 title={isCorrection ? "Gửi điều chỉnh công?" : "Gửi giải trình?"}
-                message={confirmDialog.isPastMonth
+                message={isPastMonthConfirmation
                     ? <>Bạn đang gửi yêu cầu cho <strong>tháng trước</strong>. Đơn này có thể bị tính là trễ hạn.</>
                     : isCorrection
                         ? <>Đề nghị cập nhật ngày <strong>{formatDateString(selectedDate)}</strong> thành <strong>{checkinTime}–{checkoutTime}</strong> sau khi quản lý duyệt.</>
@@ -506,9 +571,9 @@ const ModalExplainWork: React.FC<Props> = ({ isOpen, onClose, onSuccess, onAlert
                 }
                 confirmLabel="Xác nhận gửi"
                 onConfirm={handleSubmitExplanation}
-                onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+                onCancel={() => onConfirmOpenChange(false)}
                 isLoading={loading}
-                type={confirmDialog.isPastMonth ? 'warning' : 'success'}
+                type={isPastMonthConfirmation ? 'warning' : 'success'}
             />
         </>
     );

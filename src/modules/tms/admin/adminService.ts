@@ -19,6 +19,12 @@ import type {
   TmsLocation,
   TrustedDeviceInfo,
 } from './types';
+import {
+  clearWorkforceResourceCache,
+  queryWorkforce,
+  queryWorkforceRows,
+  type WorkforceResource,
+} from '@/modules/tms/services/workforceApi';
 
 interface ServiceError { message?: string; }
 type DataRow = Record<string, unknown>;
@@ -93,119 +99,27 @@ async function workforceCommand(action: string, args: Record<string, unknown>) {
   if (!data || typeof data !== 'object' || (data as DataRow).ok !== true) {
     throw new Error(typeof (data as DataRow | null)?.message === 'string' ? String((data as DataRow).message) : 'Thao tác Workforce không thành công.');
   }
+  clearWorkforceResourceCache();
   return data as DataRow;
 }
 
-function isMissingWorkforceSchema(error: { code?: string; message?: string } | null) {
-  return error?.code === '42P01'
-    || error?.code === 'PGRST205'
-    || Boolean(error?.message?.includes('shift_assignments'))
-    || Boolean(error?.message?.includes('attendance_periods'));
-}
+let loadedConfigRevision = 0;
 
-async function getWorkforceOperations(range: AttendanceRange): Promise<{
-  shiftAssignments: ShiftAssignment[];
-  attendancePeriods: AttendancePeriod[];
-  available: boolean;
-}> {
-  const [assignments, periods] = await Promise.all([
-    supabase
-      .from('shift_assignments')
-      .select('*')
-      .gte('work_date', range.from)
-      .lte('work_date', range.to)
-      .order('work_date')
-      .order('employee_id'),
-    supabase
-      .from('attendance_periods')
-      .select('*')
-      .lte('period_start', range.to)
-      .gte('period_end', range.from)
-      .order('period_start', { ascending: false }),
-  ]);
-  if (assignments.error || periods.error) {
-    const error = assignments.error || periods.error;
-    if (isMissingWorkforceSchema(error)) return { shiftAssignments: [], attendancePeriods: [], available: false };
-    fail(error, 'Không tải được dữ liệu phân ca và kỳ công.');
+async function configPatch(operations: WorkforceResource[]) {
+  if (!loadedConfigRevision) {
+    const config = await queryWorkforce('admin.config', {}, { force: true });
+    loadedConfigRevision = Number(config.config_revision || 0);
   }
-  return {
-    shiftAssignments: (assignments.data || []) as ShiftAssignment[],
-    attendancePeriods: (periods.data || []) as AttendancePeriod[],
-    available: true,
-  };
-}
-
-async function getTimesheets(range: AttendanceRange): Promise<Timesheet[]> {
-  const rows: Timesheet[] = [];
-  let cursorDate = '';
-  let cursorId = '';
-  while (true) {
-    let query = supabase
-      .from('timesheets')
-      .select('*')
-      .gte('work_date', range.from)
-      .lte('work_date', range.to)
-      .order('work_date', { ascending: false })
-      .order('id')
-      .limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
-    if (cursorDate && cursorId) query = query.or(`work_date.lt.${cursorDate},and(work_date.eq.${cursorDate},id.gt.${cursorId})`);
-    const { data, error } = await query;
-    if (error) fail(error, 'Không tải được bảng công.');
-    const page = (data || []) as Timesheet[];
-    rows.push(...page);
-    if (page.length < TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE) break;
-    cursorDate = page[page.length - 1]?.work_date || '';
-    cursorId = page[page.length - 1]?.id || '';
-    if (!cursorDate || !cursorId) break;
+  if (!Number.isSafeInteger(loadedConfigRevision) || loadedConfigRevision < 1) {
+    throw new Error('Không đọc được phiên bản cấu hình hiện tại.');
   }
-  return rows.sort((a, b) => b.work_date.localeCompare(a.work_date) || a.employee_id.localeCompare(b.employee_id));
-}
-
-async function getPendingRequests(): Promise<AttendanceRequest[]> {
-  const rows: AttendanceRequest[] = [];
-  let cursor = '';
-  while (true) {
-    let query = supabase
-      .from('attendance_requests')
-      .select('*')
-      .eq('status', 'PENDING')
-      .in('request_type', ['EXPLANATION', 'CORRECTION'])
-      .order('id')
-      .limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
-    if (cursor) query = query.gt('id', cursor);
-    const { data, error } = await query;
-    if (error) fail(error, 'Không tải được yêu cầu chờ duyệt.');
-    const page = (data || []) as AttendanceRequest[];
-    rows.push(...page);
-    if (page.length < TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE) break;
-    cursor = page[page.length - 1]?.id || '';
-    if (!cursor) break;
-  }
-  return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
-}
-
-async function getMonthlyRequests(range: AttendanceRange): Promise<AttendanceRequest[]> {
-  const rows: AttendanceRequest[] = [];
-  let cursor = '';
-  while (true) {
-    let query = supabase
-      .from('attendance_requests')
-      .select('*')
-      .in('request_type', ['EXPLANATION', 'CORRECTION'])
-      .lte('from_date', range.to)
-      .gte('to_date', range.from)
-      .order('id')
-      .limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
-    if (cursor) query = query.gt('id', cursor);
-    const { data, error } = await query;
-    if (error) fail(error, 'Không tải được yêu cầu trong kỳ.');
-    const page = (data || []) as AttendanceRequest[];
-    rows.push(...page);
-    if (page.length < TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE) break;
-    cursor = page[page.length - 1]?.id || '';
-    if (!cursor) break;
-  }
-  return rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const result = await workforceCommand('config.patch', {
+    command_id: crypto.randomUUID(),
+    expected_revision: loadedConfigRevision,
+    operations,
+  });
+  loadedConfigRevision = Number(result.revision || 0);
+  return result;
 }
 
 function mapEmployees(rows: Array<Record<string, unknown>>): Employee[] {
@@ -219,23 +133,6 @@ function mapEmployees(rows: Array<Record<string, unknown>>): Employee[] {
   })) as Employee[];
 }
 
-async function getEmployees(): Promise<Employee[]> {
-  const rows: Array<Record<string, unknown>> = [];
-  let cursor = '';
-  while (true) {
-    let query = supabase.from('employees').select('*').order('employee_id').limit(TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE);
-    if (cursor) query = query.gt('employee_id', cursor);
-    const { data, error } = await query;
-    if (error) fail(error, 'Không tải được danh sách nhân viên.');
-    const page = (data || []) as Array<Record<string, unknown>>;
-    rows.push(...page);
-    if (page.length < TMS_LIMITS.ADMIN_FETCH_BATCH_SIZE) break;
-    cursor = String(page[page.length - 1]?.employee_id || '');
-    if (!cursor) break;
-  }
-  return mapEmployees(rows).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
-}
-
 function attachWorkDates(requests: AttendanceRequest[], timesheets: Timesheet[]) {
   const dates = new Map(timesheets.map((timesheet) => [timesheet.id, timesheet.work_date]));
   return requests.map((request) => ({
@@ -247,52 +144,55 @@ function attachWorkDates(requests: AttendanceRequest[], timesheets: Timesheet[])
 
 export async function getAdminData(range: AttendanceRange): Promise<AdminData> {
   if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
-  const [employees, locations, policies, stations, devices, shifts, systemSettings, holidays, auditLogs, timesheets, pendingRequestsRaw, monthlyRequestsRaw, workforce, bootstrap] = await Promise.all([
-    getEmployees(),
-    supabase.from('locations').select('*').order('center_name'),
-    supabase.from('attendance_policies').select('*').order('name'),
-    supabase.from('qr_stations').select('*').order('updated_at', { ascending: false }),
-    supabase.from('trusted_devices').select('device_id,employee_id,device_label,user_agent,status,activated_at,last_seen_at,organization_id').order('activated_at', { ascending: false }),
-    supabase.from('config_shifts').select('*').order('sort_order'),
-    supabase.from('config_system').select('key,value,updated_at').order('key'),
-    supabase.from('holidays').select('*').order('from_date', { ascending: false }),
-    supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(TMS_LIMITS.ADMIN_AUDIT_QUERY_LIMIT),
-    getTimesheets(range),
-    getPendingRequests(),
-    getMonthlyRequests(range),
-    getWorkforceOperations(range),
-    supabase.rpc('workforce_query', { p_resource: 'bootstrap', p_args: {} }),
-  ]);
-  for (const result of [locations, policies, stations, devices, shifts, systemSettings, holidays, auditLogs]) {
-    if (result.error) fail(result.error, 'Không tải được dữ liệu quản trị.');
-  }
-  if (bootstrap.error) fail(bootstrap.error, 'Không tải được quyền quản trị hiện hành.');
-  const bootstrapData = bootstrap.data && typeof bootstrap.data === 'object'
-    ? bootstrap.data as DataRow
+  const bootstrapData = await queryWorkforce('bootstrap', {}, { force: true });
+  const profile = bootstrapData.profile && typeof bootstrapData.profile === 'object'
+    ? bootstrapData.profile as DataRow
     : {};
+  const scope = `${String(profile.organization_id || 'unassigned')}:${String(profile.employee_id || 'admin')}`;
+  const [config, employeeRows, sessionRows, pendingRows, monthlyRows, deviceRows, auditRows, assignmentRows] = await Promise.all([
+    queryWorkforce('admin.config', {}, { scope, ttlSeconds: TMS_LIMITS.RESOURCE_CACHE_MAX_SECONDS }),
+    queryWorkforceRows('admin.people', {}, { scope }),
+    queryWorkforceRows('admin.sessions', { from: range.from, to: range.to }, { scope }),
+    queryWorkforceRows('admin.requests', { state: 'pending' }, { scope }),
+    queryWorkforceRows('admin.requests', { from: range.from, to: range.to }, { scope }),
+    queryWorkforceRows('admin.devices', {}, { scope }),
+    queryWorkforceRows('admin.audit', {}, { scope, maxPages: Math.ceil(TMS_LIMITS.ADMIN_AUDIT_QUERY_LIMIT / TMS_LIMITS.RESOURCE_PAGE_SIZE) }),
+    queryWorkforceRows('admin.schedule', { from: range.from, to: range.to }, { scope }),
+  ]);
   const capabilities = Array.isArray(bootstrapData.capabilities)
     ? bootstrapData.capabilities.filter((item): item is string => typeof item === 'string')
     : [];
-
+  const employees = mapEmployees(employeeRows).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  const timesheets = sessionRows.map((row) => ({
+    ...row,
+    work_date: String(row.business_date || row.work_date || ''),
+    status: row.status === 'NEEDS_REVIEW' ? 'EXCEPTION' : row.status,
+    source: row.source === 'IMPORT' ? 'LEGACY' : row.source,
+  })) as unknown as Timesheet[];
+  const requestTypeFilter = (row: WorkforceResource) => row.request_type === 'EXPLANATION' || row.request_type === 'CORRECTION';
+  const pendingRequestsRaw = pendingRows.filter(requestTypeFilter) as unknown as AttendanceRequest[];
+  const monthlyRequestsRaw = monthlyRows.filter(requestTypeFilter) as unknown as AttendanceRequest[];
   const requests = attachWorkDates(pendingRequestsRaw, timesheets);
   const monthlyRequests = attachWorkDates(monthlyRequestsRaw, timesheets);
+  loadedConfigRevision = Number(config.config_revision || 1);
   return {
+    configRevision: Number(config.config_revision || 1),
     capabilities,
     employees,
-    locations: (locations.data || []) as TmsLocation[],
-    policies: (policies.data || []) as AttendancePolicy[],
+    locations: (Array.isArray(config.locations) ? config.locations : []) as TmsLocation[],
+    policies: (Array.isArray(config.policies) ? config.policies : []) as AttendancePolicy[],
     timesheets,
     requests,
     monthlyRequests,
-    stations: (stations.data || []) as QrStationInfo[],
-    devices: (devices.data || []) as TrustedDeviceInfo[],
-    shifts: (shifts.data || []) as ShiftRecord[],
-    shiftAssignments: workforce.shiftAssignments,
-    attendancePeriods: workforce.attendancePeriods,
-    systemSettings: (systemSettings.data || []) as SystemSetting[],
-    holidays: (holidays.data || []) as HolidayRecord[],
-    auditLogs: (auditLogs.data || []) as AuditLogInfo[],
-    features: { workforceOperations: workforce.available },
+    stations: (Array.isArray(config.stations) ? config.stations : []) as QrStationInfo[],
+    devices: deviceRows as unknown as TrustedDeviceInfo[],
+    shifts: (Array.isArray(config.shifts) ? config.shifts : []) as ShiftRecord[],
+    shiftAssignments: assignmentRows as unknown as ShiftAssignment[],
+    attendancePeriods: (Array.isArray(config.attendancePeriods) ? config.attendancePeriods : []) as AttendancePeriod[],
+    systemSettings: (Array.isArray(config.systemSettings) ? config.systemSettings : []) as SystemSetting[],
+    holidays: (Array.isArray(config.holidays) ? config.holidays : []) as HolidayRecord[],
+    auditLogs: auditRows.slice(0, TMS_LIMITS.ADMIN_AUDIT_QUERY_LIMIT) as unknown as AuditLogInfo[],
+    features: { workforceOperations: true },
   };
 }
 
@@ -328,22 +228,19 @@ export async function saveShiftAssignments(assignments: Array<{
   revision?: number;
 }>) {
   if (!assignments.length) return 0;
-  const employeeIds = [...new Set(assignments.map((assignment) => assignment.employee_id))];
   const dates = assignments.map((assignment) => assignment.work_date).sort();
-  const { data: existing, error } = await supabase
-    .from('shift_assignments')
-    .select('employee_id,work_date,revision,publication_status')
-    .in('employee_id', employeeIds)
-    .gte('work_date', dates[0] || '')
-    .lte('work_date', dates[dates.length - 1] || '');
-  if (error) fail(error, 'Không kiểm tra được phiên bản lịch hiện tại.');
-  const existingMap = new Map((existing || []).map((item) => [`${item.employee_id}:${item.work_date}`, item]));
-  const editingPublished = (existing || []).some((item) => item.publication_status === 'PUBLISHED');
+  const existing = await queryWorkforceRows('admin.schedule', {
+    from: dates[0] || '',
+    to: dates[dates.length - 1] || '',
+  }, { maxPages: TMS_LIMITS.RESOURCE_MAX_PAGES });
+  const existingMap = new Map(existing.map((item) => [`${String(item.employee_id)}:${String(item.work_date)}`, item]));
+  const editingPublished = existing.some((item) => item.publication_status === 'PUBLISHED');
   const result = await workforceCommand('schedule.save', {
     assignments: assignments.map((assignment) => {
       const current = existingMap.get(`${assignment.employee_id}:${assignment.work_date}`);
       return {
         ...assignment,
+        assignment_id: current?.id,
         revision: current?.revision ?? assignment.revision,
       };
     }),
@@ -358,11 +255,11 @@ export async function publishShiftAssignments(range: AttendanceRange) {
 }
 
 export async function deleteShiftAssignment(id: string, _reason = '') {
-  const { data, error } = await supabase.from('shift_assignments').select('id,revision,publication_status').eq('id', id).maybeSingle();
-  if (error) fail(error, 'Không đọc được lịch phân ca.');
-  if (!data) throw new Error('Lịch phân ca không còn tồn tại.');
-  if (data.publication_status === 'PUBLISHED') throw new Error('Lịch đã công bố. Hãy điều chỉnh lịch thay vì xóa trực tiếp.');
-  await workforceCommand('schedule.delete', { id, revision: Number(data.revision || 0) });
+  const detail = await queryWorkforce('assignment.detail', { id }, { force: true });
+  const assignment = detail.row && typeof detail.row === 'object' ? detail.row as DataRow : null;
+  if (!assignment) throw new Error('Lịch phân ca không còn tồn tại.');
+  if (assignment.publication_status === 'PUBLISHED') throw new Error('Lịch đã công bố. Hãy điều chỉnh lịch thay vì xóa trực tiếp.');
+  await workforceCommand('schedule.delete', { id, revision: Number(assignment.revision || 0) });
 }
 
 export async function closeAttendancePeriod(range: AttendanceRange, note = '') {
@@ -393,14 +290,12 @@ export async function saveAttendancePolicy(policy: AttendancePolicy) {
     unpaid_break_minutes: Number(policy.unpaid_break_minutes),
     auto_approve: policy.auto_approve,
     active: policy.active,
-    updated_at: new Date().toISOString(),
   };
-  const { error } = await supabase.from('attendance_policies').upsert(payload);
-  if (error) fail(error, 'Không lưu được chính sách chấm công.');
+  await configPatch([{ resource: 'policy', op: 'upsert', ...payload }]);
 }
 
 export async function saveTmsLocation(location: TmsLocation) {
-  const { error } = await supabase.from('locations').upsert({
+  await configPatch([{ resource: 'location', op: 'upsert',
     center_id: location.center_id.trim().toUpperCase(),
     center_name: location.center_name.trim(),
     address: location.address?.trim() || null,
@@ -409,9 +304,7 @@ export async function saveTmsLocation(location: TmsLocation) {
     longitude: Number(location.longitude),
     radius_meters: Number(location.radius_meters),
     active: location.active,
-    updated_at: new Date().toISOString(),
-  });
-  if (error) fail(error, 'Không lưu được địa điểm.');
+  }]);
 }
 
 export interface EmployeeInput {
@@ -475,15 +368,16 @@ export async function saveShift(shift: ShiftRecord) {
     sort_order: Number(shift.sort_order),
     active: shift.active,
   };
-  const { error } = await supabase.from('config_shifts').upsert(payload);
-  if (error) fail(error, 'Không lưu được cấu hình ca làm.');
+  await configPatch([{ resource: 'shift', op: 'upsert', ...payload }]);
 }
 
 export async function saveSystemSettings(settings: SystemSetting[]) {
-  const timestamp = new Date().toISOString();
-  const payload = settings.map((setting) => ({ key: setting.key, value: setting.value, updated_at: timestamp }));
-  const { error } = await supabase.from('config_system').upsert(payload);
-  if (error) fail(error, 'Không lưu được tham số hệ thống.');
+  await configPatch(settings.map((setting) => ({
+    resource: 'system',
+    op: 'upsert',
+    key: setting.key,
+    value: setting.value,
+  })));
 }
 
 export async function saveHoliday(holiday: HolidayRecord) {
@@ -494,18 +388,17 @@ export async function saveHoliday(holiday: HolidayRecord) {
     to_date: holiday.to_date,
     paid: holiday.paid,
     active: holiday.active,
-    updated_at: new Date().toISOString(),
   };
-  const { error } = await supabase.from('holidays').upsert(payload);
-  if (error) fail(error, 'Không lưu được ngày nghỉ lễ.');
+  await configPatch([{ resource: 'holiday', op: 'upsert', ...payload }]);
 }
 
 export async function saveQrStation(station: QrStationInfo) {
-  const { error } = await supabase.rpc('update_qr_station_admin', {
-    p_id: station.id,
-    p_name: station.name.trim(),
-    p_center_id: station.center_id,
-    p_active: station.active,
-  });
-  if (error) fail(error, 'Không lưu được trạm QR.');
+  await configPatch([{
+    resource: 'station',
+    op: 'upsert',
+    id: station.id,
+    name: station.name.trim(),
+    center_id: station.center_id,
+    active: station.active,
+  }]);
 }

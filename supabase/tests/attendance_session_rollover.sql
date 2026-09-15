@@ -1,5 +1,8 @@
 begin;
 
+create extension if not exists pgtap with schema extensions;
+select plan(1);
+
 insert into public.organizations (id, code, name)
 values ('11000000-0000-0000-0000-000000000001', 'attendance-rollover-test', 'Attendance Rollover Test');
 
@@ -68,6 +71,23 @@ values (
   current_date - 30, '12000000-0000-0000-0000-000000000001', 'ROLLOVER-MANAGER'
 );
 
+insert into public.trusted_devices(
+  device_id,employee_id,organization_id,public_key_jwk,
+  device_label,status,activated_at
+) values(
+  'rollover-test-device','ROLLOVER-WORKER',
+  '11000000-0000-0000-0000-000000000001',
+  '{"kty":"EC","crv":"P-256","x":"test-x","y":"test-y"}',
+  'Rollover test device','ACTIVE',clock_timestamp()
+);
+
+insert into public.trusted_device_grants(
+  employee_id,device_id,verified_at,expires_at,updated_at
+) values(
+  'ROLLOVER-WORKER','rollover-test-device',clock_timestamp(),
+  clock_timestamp()+interval '1 hour',clock_timestamp()
+);
+
 insert into public.qr_stations (
   station_user_id, center_id, name, active, created_by, organization_id
 )
@@ -87,11 +107,12 @@ values (
 );
 
 insert into public.timesheets (
-  employee_id, work_date, policy_id, location_id,
+  id, employee_id, work_date, policy_id, location_id,
   expected_start, expected_end, actual_checkin,
   status, source, exception_codes
 )
 values (
+  '15000000-0000-0000-0000-000000000001',
   'ROLLOVER-WORKER', (clock_timestamp() at time zone 'Asia/Ho_Chi_Minh')::date - 1,
   '12000000-0000-0000-0000-000000000001', 'ROLLOVER-HQ',
   (((clock_timestamp() at time zone 'Asia/Ho_Chi_Minh')::date - 1 + time '08:30') at time zone 'Asia/Ho_Chi_Minh'),
@@ -99,6 +120,25 @@ values (
   (((clock_timestamp() at time zone 'Asia/Ho_Chi_Minh')::date - 1 + time '08:35') at time zone 'Asia/Ho_Chi_Minh'),
   'EXCEPTION', 'NORMAL', array['MISSING_CHECKOUT']
 );
+
+insert into public.work_sessions(
+  id,organization_id,employee_internal_id,employee_id,business_date,
+  session_sequence,policy_id,location_internal_id,location_id,
+  expected_start,expected_end,actual_checkin,status,source,exception_codes
+)
+select
+  timesheet.id,timesheet.organization_id,employee.internal_id,timesheet.employee_id,
+  timesheet.work_date,1,timesheet.policy_id,location.internal_id,location.center_id,
+  timesheet.expected_start,timesheet.expected_end,timesheet.actual_checkin,
+  'OPEN','NORMAL',timesheet.exception_codes
+from public.timesheets timesheet
+join public.employees employee
+  on employee.organization_id=timesheet.organization_id
+ and employee.employee_id=timesheet.employee_id
+join public.locations location
+  on location.organization_id=timesheet.organization_id
+ and location.center_id=timesheet.location_id
+where timesheet.id='15000000-0000-0000-0000-000000000001';
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '13000000-0000-0000-0000-000000000002', true);
@@ -241,15 +281,25 @@ select set_config('request.jwt.claim.sub', '13000000-0000-0000-0000-000000000001
 do $$
 declare
   work_day date := (clock_timestamp() at time zone 'Asia/Ho_Chi_Minh')::date - 2;
-  request_row public.attendance_requests%rowtype;
+  request_row jsonb;
+  queue jsonb;
   result jsonb;
 begin
-  select * into request_row
-  from public.attendance_requests
-  where employee_id='ROLLOVER-WORKER' and request_type='CORRECTION' and from_date=work_day;
+  queue:=public.workforce_query('requests',jsonb_build_object(
+    'team',true,'from',work_day,'to',work_day,'size',100
+  ));
+  select row into request_row
+  from jsonb_array_elements(coalesce(queue->'rows','[]'::jsonb)) row
+  where row->>'employee_id'='ROLLOVER-WORKER'
+    and row->>'request_type'='CORRECTION'
+    and (row->>'from_date')::date=work_day
+  limit 1;
+  if request_row is null then
+    raise exception 'Missing-day correction was not visible to its approver';
+  end if;
   result := public.workforce_command('request.review', jsonb_build_object(
-    'id', request_row.id,
-    'revision', request_row.revision,
+    'id', request_row->>'id',
+    'revision', (request_row->>'revision')::bigint,
     'decision', 'APPROVED',
     'note', 'Đã đối chiếu với quản lý trực tiếp'
   ));
@@ -286,4 +336,6 @@ begin
 end;
 $$;
 
+select pass('attendance rollover and missing-punch correction invariants hold');
+select * from finish();
 rollback;

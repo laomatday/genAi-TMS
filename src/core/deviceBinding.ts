@@ -1,3 +1,4 @@
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/core/supabase';
 import { STORAGE_KEYS } from '@/shared/constants';
 
@@ -13,12 +14,37 @@ interface DeviceVerificationResult {
   error?: string;
   message?: string;
   expiresAt?: string;
+  challengeId?: string;
+  challenge?: string;
   device?: {
     deviceId: string;
     label?: string | null;
     activatedAt?: string | null;
     lastSeenAt?: string | null;
   };
+}
+
+export function isServerAuthorizedDeviceExemption(
+  result: unknown,
+) {
+  if (!result || typeof result !== 'object') return false;
+  const candidate = result as Partial<DeviceVerificationResult>;
+  return candidate.ok === true && candidate.state === 'EXEMPT';
+}
+
+export function hasServerVerifiedDeviceGrant(
+  result: unknown,
+  now = Date.now(),
+) {
+  if (!result || typeof result !== 'object') return false;
+  const candidate = result as Partial<DeviceVerificationResult>;
+  if (candidate.ok !== true || candidate.state !== 'VERIFIED' || !candidate.expiresAt) return false;
+  const expiresAt = new Date(candidate.expiresAt).getTime();
+  return Number.isFinite(expiresAt) && expiresAt > now;
+}
+
+function isDeviceVerificationResult(value: unknown): value is DeviceVerificationResult {
+  return Boolean(value && typeof value === 'object' && typeof (value as { ok?: unknown }).ok === 'boolean');
 }
 
 function base64Url(buffer: ArrayBuffer) {
@@ -89,11 +115,22 @@ export function getDeviceLabel(userAgent: string = navigator.userAgent) {
 
 async function invokeDevice(body: Record<string, unknown>) {
   if (!isSupabaseConfigured) {
-    return { ok: true, state: 'VERIFIED' } as DeviceVerificationResult & { challengeId?: string; challenge?: string };
+    return { ok: true, state: 'VERIFIED' } as DeviceVerificationResult;
   }
   const { data, error } = await supabase.functions.invoke('trusted-device', { body });
+  if (error instanceof FunctionsHttpError) {
+    try {
+      const errorBody: unknown = await error.context.json();
+      if (isDeviceVerificationResult(errorBody)) return errorBody;
+    } catch {
+      // Fall through to the SDK error when the function did not return JSON.
+    }
+  }
   if (error) throw new Error(error.message);
-  return data as DeviceVerificationResult & { challengeId?: string; challenge?: string };
+  if (!isDeviceVerificationResult(data)) {
+    throw new Error('Dịch vụ xác thực thiết bị trả về dữ liệu không hợp lệ.');
+  }
+  return data;
 }
 
 export async function getDeviceBindingStatus() {

@@ -3,6 +3,7 @@ import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import Avatar from '@/shared/components/common/Avatar';
 import { EMPLOYEE_ROLES, MANAGEMENT_ROLES, TMS_LIMITS } from '@/shared/constants';
 import type { Employee, EmployeeRole } from '@/shared/types';
+import { defaultAccountPassword } from '@/core/utils/defaultPassword';
 import { DEFAULT_EMPLOYEE } from '../constants';
 import { deleteEmployeeAccount, resetEmployeeDevice, saveEmployee, type EmployeeInput } from '../adminService';
 import {
@@ -15,11 +16,6 @@ import type { AdminActionRunner, AdminData } from '../types';
 import { formatDateTime } from '../formatters';
 import { AdminSelect, EmptyState, Pagination, PanelTitle, SearchField, SpreadsheetActions } from './AdminCommon';
 
-function createTemporaryPassword() {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
-  const values = crypto.getRandomValues(new Uint32Array(TMS_LIMITS.TEMP_PASSWORD_LENGTH));
-  return Array.from(values, (value) => alphabet[value % alphabet.length]).join('');
-}
 
 function validateEmployee(
   employee: EmployeeInput,
@@ -326,7 +322,7 @@ export default function AccountsSection({
                       return <span className="admin-cell-stack"><strong>{branch.center_name}</strong>{branch.city ? <small>{branch.city}</small> : null}</span>;
                     })()}
                   </span>
-                  <span data-label="Thiết bị"><i className={`admin-dot ${device ? 'online' : ''}`} aria-hidden="true" />{item.role === 'Admin' ? 'Miễn khóa' : device ? 'Đã kích hoạt' : 'Chưa có'}</span>
+                  <span data-label="Thiết bị"><i className={`admin-dot ${device ? 'online' : ''}`} aria-hidden="true" />{device ? 'Đã kích hoạt' : 'Chưa có'}</span>
                   <span data-label="Trạng thái"><b className={`admin-status account-${item.status.toLowerCase()}`}>{item.status === 'Active' ? 'Hoạt động' : item.auth_user_id || item.uid ? 'Tạm khóa' : 'Đã xóa đăng nhập'}</b></span>
                 </button>
               );
@@ -345,7 +341,17 @@ export default function AccountsSection({
 
           <div className="admin-form-grid">
             <label><span>Mã nhân viên</span><input required disabled={mode === 'update'} value={employee.employee_id} onChange={(event) => setEmployee((current) => ({ ...current, employee_id: event.target.value.toUpperCase() }))} /></label>
-            <label><span>Họ tên</span><input required value={employee.name} onChange={(event) => setEmployee((current) => ({ ...current, name: event.target.value }))} /></label>
+            <label><span>Họ tên</span><input required value={employee.name} onChange={(event) => setEmployee((current) => {
+              const name = event.target.value;
+              // Re-deriving the previous default and comparing it to the field
+              // tells us whether an admin has typed their own password, without
+              // tracking a separate "touched" flag.
+              const untouched = !current.password
+                || current.password === defaultAccountPassword({ name: current.name, employeeId: current.employee_id });
+              return mode === 'create' && untouched
+                ? { ...current, name, password: defaultAccountPassword({ name, employeeId: current.employee_id }) }
+                : { ...current, name };
+            })} /></label>
             <label><span>Email đăng nhập</span><input required type="email" value={employee.email} onChange={(event) => setEmployee((current) => ({ ...current, email: event.target.value }))} /></label>
             <label><span>Số điện thoại</span><input type="tel" value={employee.phone || ''} onChange={(event) => setEmployee((current) => ({ ...current, phone: event.target.value }))} /></label>
             <div className="admin-field"><span>Vai trò</span><AdminSelect value={employee.role} onChange={(value) => setEmployee((current) => ({ ...current, role: value as EmployeeRole, attendance_policy_id: value === 'Kiosk' ? null : current.attendance_policy_id || (activePolicies.length === 1 ? activePolicies[0]?.id || null : null) }))} label="Vai trò" options={EMPLOYEE_ROLES.map((role) => ({ value: role, label: role }))} /></div>
@@ -366,7 +372,7 @@ export default function AccountsSection({
 
           <div className="admin-password-field">
             <label><span>{mode === 'create' || !hasAuthAccount ? 'Mật khẩu tạm' : 'Mật khẩu mới (không bắt buộc)'}</span><input type="text" minLength={TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} required={mode === 'create' || (!hasAuthAccount && employee.status === 'Active')} autoComplete="new-password" value={employee.password || ''} onChange={(event) => setEmployee((current) => ({ ...current, password: event.target.value }))} /></label>
-            <button type="button" className="admin-secondary-button" onClick={() => setEmployee((current) => ({ ...current, password: createTemporaryPassword() }))}>Tạo mật khẩu</button>
+            <button type="button" className="admin-secondary-button" onClick={() => setEmployee((current) => ({ ...current, password: defaultAccountPassword({ name: current.name, employeeId: current.employee_id }) }))}>Mật khẩu mặc định</button>
           </div>
 
           {mode === 'update' && employee.role !== 'Admin' ? (

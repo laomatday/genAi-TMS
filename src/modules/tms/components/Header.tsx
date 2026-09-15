@@ -4,6 +4,7 @@ import { TabType } from './BottomNav';
 import SettingsModal from './SettingsModal';
 import Avatar from '@/shared/components/common/Avatar';
 import IconButton from '@/shared/components/common/IconButton';
+import type { EmployeeModalLayer } from '@/modules/tms/navigation/employeeNavigation';
 
 interface Props {
     user: Employee;
@@ -12,7 +13,10 @@ interface Props {
     isOnline?: boolean;
     locationName?: string;
     isSettingsOpen: boolean;
+    settingsLayer: EmployeeModalLayer | null;
     onSettingsOpenChange: (open: boolean) => void;
+    onOpenSettingsLayer: (layer: EmployeeModalLayer) => void;
+    onCloseSettingsLayer: () => void;
     onOpenProfile: () => void;
     onOpenNotifications: () => void;
     onContactSearch?: () => void;
@@ -24,7 +28,7 @@ interface Props {
 /** Each tab carries its own title and a short tag so the header always says
  *  where you are — the mobile screens have no other place for a page name. */
 const TAB_IDENTITY: Partial<Record<TabType, { title: string; tag?: string }>> = {
-    home: { title: 'Trang chủ' },
+    home: { title: 'Trang chủ', tag: 'Tổng quan' },
     history: { title: 'Chấm công', tag: 'Nhật ký' },
     requests: { title: 'Đề xuất', tag: 'Đơn từ' },
     calendar: { title: 'Lịch làm việc', tag: 'Team' },
@@ -33,20 +37,18 @@ const TAB_IDENTITY: Partial<Record<TabType, { title: string; tag?: string }>> = 
     notifications: { title: 'Thông báo' },
 };
 
-const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline = true, locationName, isSettingsOpen, onSettingsOpenChange, onOpenProfile, onOpenNotifications, onContactSearch, canManage, onOpenManager, onOpenWorkspace }) => {
+const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isSettingsOpen, settingsLayer, onSettingsOpenChange, onOpenSettingsLayer, onCloseSettingsLayer, onOpenProfile, onOpenNotifications, onContactSearch, canManage, onOpenManager, onOpenWorkspace }) => {
     const [isActionsOpen, setIsActionsOpen] = useState(false);
     const actionsRef = useRef<HTMLDivElement>(null);
+    const settingsChangeRef = useRef(onSettingsOpenChange);
+    settingsChangeRef.current = onSettingsOpenChange;
     const identity = TAB_IDENTITY[activeTab] ?? { title: 'genAi TMS' };
-    const isHome = activeTab === 'home';
-    const title = isHome ? user.name : identity.title;
-    const subtitle = isHome
-        ? [user.position, locationName || user.center_id].filter(Boolean).join(' • ')
-        : [user.name, user.position].filter(Boolean).join(' • ');
+    const subtitle = [user.name, user.position].filter(Boolean).join(' • ');
 
     useEffect(() => {
-        onSettingsOpenChange(false);
+        settingsChangeRef.current(false);
         setIsActionsOpen(false);
-    }, [activeTab, onSettingsOpenChange]);
+    }, [activeTab]);
 
     useEffect(() => {
         if (!isActionsOpen) return undefined;
@@ -73,7 +75,7 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline 
 
     return (
         <>
-            <header className={`app-header ${isHome ? 'app-header-home' : ''}`.trim()}>
+            <header className="app-header">
                 <div className="app-header-inner">
                     <div className="app-header-identity">
                         <button
@@ -96,12 +98,8 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline 
 
                         <div className="app-header-titles">
                             <div className="app-header-title-row">
-                                <h1 className="app-header-title">{title}</h1>
-                                {isHome ? (
-                                    <span className={`app-header-online ${isOnline ? '' : 'app-header-online-off'}`.trim()}>
-                                        <i aria-hidden="true" />{isOnline ? 'Online' : 'Offline'}
-                                    </span>
-                                ) : identity.tag ? <span className="app-header-tag">{identity.tag}</span> : null}
+                                <h1 className="app-header-title">{identity.title}</h1>
+                                {identity.tag ? <span className="app-header-tag">{identity.tag}</span> : null}
                             </div>
                             <p className="app-header-subtitle">{subtitle}</p>
                         </div>
@@ -178,7 +176,7 @@ const Header: React.FC<Props> = ({ user, activeTab, notificationCount, isOnline 
                 </div>
             </header>
 
-            <SettingsModal isOpen={isSettingsOpen} onClose={() => onSettingsOpenChange(false)} />
+            <SettingsModal isOpen={isSettingsOpen} activeLayer={settingsLayer} onOpenLayer={onOpenSettingsLayer} onCloseLayer={onCloseSettingsLayer} onClose={() => onSettingsOpenChange(false)} />
         </>
     );
 };

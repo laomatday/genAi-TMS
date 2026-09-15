@@ -1,5 +1,8 @@
 begin;
 
+create extension if not exists pgtap with schema extensions;
+select plan(1);
+
 -- Mutating the original customer must not mutate the frozen provisioning
 -- template used by organizations created afterwards.
 update public.workforce_role_capabilities
@@ -83,40 +86,40 @@ values
   );
 
 insert into public.employees (
-  employee_id, auth_user_id, organization_id, name, email, role,
+  employee_id, employee_code, auth_user_id, organization_id, name, email, role,
   center_id, status, employment_start_date
 )
 values
   (
-    'TENANT-A-ADMIN',
+    'TENANT-A-ADMIN', 'TENANT-A-ADMIN',
     '20000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000001',
     'Tenant A Admin', 'tenant-a-admin@example.test', 'Admin',
     'TENANT-A-HQ', 'Active', current_date
   ),
   (
-    'TENANT-B-ADMIN',
+    'TENANT-B-ADMIN', 'TENANT-B-ADMIN',
     '20000000-0000-0000-0000-000000000002',
     '10000000-0000-0000-0000-000000000002',
     'Tenant B Admin', 'tenant-b-admin@example.test', 'Admin',
     'TENANT-B-HQ', 'Active', current_date
   ),
   (
-    'TENANT-A-MANAGER',
+    'TENANT-A-MANAGER', 'TENANT-A-MANAGER',
     '20000000-0000-0000-0000-000000000003',
     '10000000-0000-0000-0000-000000000001',
     'Tenant A Manager', 'tenant-a-manager@example.test', 'Manager',
     'TENANT-A-HQ', 'Active', current_date
   ),
   (
-    'TENANT-A-WORKER',
+    'TENANT-A-WORKER', 'TENANT-A-WORKER',
     '20000000-0000-0000-0000-000000000005',
     '10000000-0000-0000-0000-000000000001',
     'Tenant A Worker', 'tenant-a-worker@example.test', 'Staff',
     'TENANT-A-HQ', 'Active', current_date
   ),
   (
-    'TENANT-A-KIOSK',
+    'TENANT-A-KIOSK', 'TENANT-A-KIOSK',
     '20000000-0000-0000-0000-000000000004',
     '10000000-0000-0000-0000-000000000001',
     'Tenant A Kiosk', 'tenant-a-kiosk@example.test', 'Kiosk',
@@ -124,9 +127,10 @@ values
   );
 
 insert into public.employees(
-  employee_id,organization_id,name,email,role,center_id,status,employment_start_date
+  employee_id,employee_code,organization_id,name,email,role,center_id,status,employment_start_date
 )
 select
+  'TENANT-A-SCALE-'||lpad(scale_id::text,3,'0'),
   'TENANT-A-SCALE-'||lpad(scale_id::text,3,'0'),
   '10000000-0000-0000-0000-000000000001',
   'Scale Employee '||lpad(scale_id::text,3,'0'),
@@ -298,6 +302,25 @@ values
   ('10000000-0000-0000-0000-000000000001', 'Tenant A Holiday', '2026-12-01', '2026-12-01', true, true),
   ('10000000-0000-0000-0000-000000000002', 'Tenant B Holiday', '2026-12-02', '2026-12-02', true, true);
 
+insert into public.config_system(organization_id,key,value)
+values(
+  '10000000-0000-0000-0000-000000000001',
+  'PRIVATE_SENTINEL','must-not-reach-browser'
+);
+
+insert into public.work_sessions(
+  id,organization_id,employee_internal_id,employee_id,
+  business_date,session_sequence,status
+)
+select
+  ('31000000-0000-0000-0000-'||lpad(scale_id::text,12,'0'))::uuid,
+  employee.organization_id,employee.internal_id,employee.employee_id,
+  current_date,1,'SCHEDULED'
+from generate_series(1,3) scale_id
+join public.employees employee
+  on employee.employee_id='TENANT-A-SCALE-'||lpad(scale_id::text,3,'0')
+ and employee.organization_id='10000000-0000-0000-0000-000000000001';
+
 set local role authenticated;
 select set_config(
   'request.jwt.claim.sub',
@@ -306,96 +329,69 @@ select set_config(
 );
 
 do $$
+declare
+  directory jsonb;
+  metadata jsonb;
+  first_page jsonb;
+  second_page jsonb;
 begin
-  if jsonb_array_length(
-    coalesce(public.tms_directory_context_v1()->'people','[]'::jsonb)
-  )<>100 then
-    raise exception 'Dashboard directory context is not bounded to its 100-row page';
+  directory:=public.workforce_query('directory',jsonb_build_object('size',100));
+  if jsonb_array_length(coalesce(directory->'rows','[]'::jsonb))<>100 then
+    raise exception 'Directory RPC is not bounded to its 100-row page';
   end if;
-  if (select count(distinct organization_id) from public.config_shifts) <> 1
-    or exists(
-      select 1 from public.config_shifts
-      where organization_id <> '10000000-0000-0000-0000-000000000001'
-    ) then
-    raise exception 'config_shifts RLS leaked another tenant';
-  end if;
-  if (select count(distinct organization_id) from public.config_system) <> 1
-    or exists(
-      select 1 from public.config_system
-      where organization_id <> '10000000-0000-0000-0000-000000000001'
-    ) then
-    raise exception 'config_system RLS leaked another tenant';
-  end if;
-  if (select count(*) from public.holidays) <> 1
-    or exists(
-      select 1 from public.holidays
-      where organization_id <> '10000000-0000-0000-0000-000000000001'
-    ) then
-    raise exception 'holidays RLS leaked another tenant';
-  end if;
-  if (
-    select count(*)
-    from public.attendance_policies
-    where name = 'Shared Policy Name'
-  ) <> 1
-    or exists(
-      select 1
-      from public.attendance_policies
-      where name = 'Shared Policy Name'
-        and organization_id <> '10000000-0000-0000-0000-000000000001'
-    ) then
-    raise exception 'attendance_policies RLS leaked another tenant';
-  end if;
-  if (
-    select count(*)
-    from public.attendance_periods
-    where period_start = '2020-11-01'
-      and period_end = '2020-11-30'
-  ) <> 1
-    or exists(
-      select 1
-      from public.attendance_periods
-      where organization_id <> '10000000-0000-0000-0000-000000000001'
-    ) then
-    raise exception 'attendance_periods RLS leaked another tenant';
-  end if;
-  if (
-    select count(*)
-    from public.audit_logs
-    where action = 'TENANT_BOUNDARY_TEST'
-  ) <> 1
-    or exists(
-      select 1
-      from public.audit_logs
-      where organization_id <> '10000000-0000-0000-0000-000000000001'
-    ) then
-    raise exception 'audit_logs RLS leaked another tenant';
-  end if;
-end;
-$$;
-
--- Omitted organization_id is derived from the authenticated employee.
-insert into public.config_system (key, value)
-values ('TENANT_TEST_SETTING', 'enabled');
-
-do $$
-begin
-  if not exists (
-    select 1 from public.config_system
-    where organization_id = '10000000-0000-0000-0000-000000000001'
-      and key = 'TENANT_TEST_SETTING'
+  if exists(
+    select 1 from jsonb_array_elements(directory->'rows') row
+    where row->>'employee_id' like 'TENANT-B-%'
   ) then
-    raise exception 'Tenant-derived configuration insert failed';
+    raise exception 'Directory RPC leaked another tenant';
   end if;
-
+  metadata:=public.workforce_query('metadata','{}'::jsonb);
+  if exists(
+    select 1
+    from jsonb_array_elements(coalesce(metadata->'system_settings','[]'::jsonb)) setting
+    where setting->>'key'='PRIVATE_SENTINEL'
+       or setting ? 'organization_id'
+       or setting ? 'updated_at'
+  ) then
+    raise exception 'Metadata exposed a private setting or tenant internals';
+  end if;
+  first_page:=public.workforce_query(
+    'sessions',jsonb_build_object('size',2,'team',true)
+  );
+  second_page:=public.workforce_query(
+    'sessions',jsonb_build_object(
+      'size',2,'team',true,'cursor',first_page->'next_cursor'
+    )
+  );
+  if jsonb_array_length(first_page->'rows')<>2
+    or coalesce((first_page->>'has_more')::boolean,false) is not true
+    or jsonb_array_length(second_page->'rows')<>1
+    or exists(
+      select 1
+      from jsonb_array_elements(first_page->'rows') first_row
+      join jsonb_array_elements(second_page->'rows') second_row
+        on first_row->>'id'=second_row->>'id'
+    ) then
+    raise exception 'Session keyset cursor skipped or duplicated equal date/sequence rows';
+  end if;
+  if has_table_privilege('authenticated','public.config_shifts','SELECT')
+    or has_table_privilege('authenticated','public.config_system','SELECT')
+    or has_table_privilege('authenticated','public.holidays','SELECT')
+    or has_table_privilege('authenticated','public.attendance_policies','SELECT')
+    or has_table_privilege('authenticated','public.attendance_periods','SELECT')
+    or has_table_privilege('authenticated','public.audit_logs','SELECT') then
+    raise exception 'Authenticated retained a legacy Data API table grant';
+  end if;
   begin
-    insert into public.config_system (organization_id, key, value)
-    values (
-      '10000000-0000-0000-0000-000000000002',
-      'CROSS_TENANT_WRITE',
-      'blocked'
-    );
-    raise exception 'Cross-tenant configuration insert was not blocked';
+    perform public.tms_directory_context_v1();
+    raise exception 'Retired directory RPC remained executable';
+  exception
+    when insufficient_privilege then null;
+  end;
+  begin
+    insert into public.config_system(key,value)
+    values('LEGACY_DATA_API_WRITE','blocked');
+    raise exception 'Authenticated retained legacy Data API write access';
   exception
     when insufficient_privilege then null;
   end;
@@ -408,9 +404,10 @@ reset role;
 -- every browser-writable configuration table directly so UI gating cannot hide
 -- a permissive RLS regression.
 insert into public.locations(
-  center_id,organization_id,center_name,latitude,longitude,radius_meters,active
+  center_id,location_code,organization_id,center_name,
+  latitude,longitude,radius_meters,active
 ) values (
-  'TENANT-A-SETTINGS',
+  'TENANT-A-SETTINGS','TENANT-A-SETTINGS',
   '10000000-0000-0000-0000-000000000001',
   'Tenant A Settings Test',10,106,200,true
 );
@@ -511,44 +508,18 @@ select set_config(
 );
 
 do $$
-declare
-  changed integer;
 begin
-  if tms_private.can_manage_settings(
-    '10000000-0000-0000-0000-000000000001'
-  ) then
-    raise exception 'settings.manage deny override was ignored';
-  end if;
-
-  update public.config_shifts
-  set sort_order=sort_order
-  where organization_id='10000000-0000-0000-0000-000000000001';
-  get diagnostics changed=row_count;
-  if changed<>0 then raise exception 'settings.manage deny allowed config_shifts update'; end if;
-
-  update public.config_system
-  set value=value
-  where organization_id='10000000-0000-0000-0000-000000000001';
-  get diagnostics changed=row_count;
-  if changed<>0 then raise exception 'settings.manage deny allowed config_system update'; end if;
-
-  update public.holidays
-  set name=name
-  where organization_id='10000000-0000-0000-0000-000000000001';
-  get diagnostics changed=row_count;
-  if changed<>0 then raise exception 'settings.manage deny allowed holidays update'; end if;
-
-  update public.locations
-  set center_name=center_name
-  where center_id='TENANT-A-SETTINGS';
-  get diagnostics changed=row_count;
-  if changed<>0 then raise exception 'settings.manage deny allowed locations update'; end if;
-
-  update public.attendance_policies
-  set name=name
-  where organization_id='10000000-0000-0000-0000-000000000001';
-  get diagnostics changed=row_count;
-  if changed<>0 then raise exception 'settings.manage deny allowed attendance_policies update'; end if;
+  begin
+    perform public.workforce_command('config.patch',jsonb_build_object(
+      'command_id','33000000-0000-4000-8000-000000000001',
+      'expected_revision',1,
+      'operations',jsonb_build_array(jsonb_build_object(
+        'resource','system','op','upsert','key','LATE_TOLERANCE','value','15'
+      ))
+    ));
+    raise exception 'settings.manage deny allowed config.patch';
+  exception when insufficient_privilege then null;
+  end;
 
   begin
     insert into public.config_shifts(name,start_time,end_time,break_point,sort_order)
@@ -595,6 +566,58 @@ where organization_id='10000000-0000-0000-0000-000000000001'
   and employee_id='TENANT-A-ADMIN'
   and capability='settings.manage';
 
+set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub',
+  '20000000-0000-0000-0000-000000000001',
+  true
+);
+
+do $$
+declare
+  revision bigint;
+begin
+  revision:=(public.workforce_query('metadata','{}'::jsonb)->>'config_revision')::bigint;
+  begin
+    perform public.workforce_command('config.patch',jsonb_build_object(
+      'command_id','32000000-0000-4000-8000-000000000001',
+      'expected_revision',revision,
+      'operations',jsonb_build_array(jsonb_build_object(
+        'resource','system','op','upsert','key','PRIVATE_BROWSER_KEY','value','no'
+      ))
+    ));
+    raise exception 'config.patch accepted an unknown browser setting';
+  exception when sqlstate '22023' then null;
+  end;
+  begin
+    perform public.workforce_command('config.patch',jsonb_build_object(
+      'command_id','32000000-0000-4000-8000-000000000002',
+      'expected_revision',revision,
+      'operations',jsonb_build_array(jsonb_build_object(
+        'resource','policy','op','upsert','work_days',jsonb_build_array(1,1),
+        'gps_good_accuracy_m',50,'gps_max_accuracy_m',150
+      ))
+    ));
+    raise exception 'config.patch accepted duplicate policy work days';
+  exception when sqlstate '22023' then null;
+  end;
+  begin
+    perform public.workforce_command('config.patch',jsonb_build_object(
+      'command_id','32000000-0000-4000-8000-000000000003',
+      'expected_revision',revision,
+      'operations',jsonb_build_array(jsonb_build_object(
+        'resource','policy','op','upsert','work_days',jsonb_build_array(1,2),
+        'gps_good_accuracy_m',200,'gps_max_accuracy_m',100
+      ))
+    ));
+    raise exception 'config.patch accepted inverted GPS thresholds';
+  exception when sqlstate '22023' then null;
+  end;
+end;
+$$;
+
+reset role;
+
 insert into public.workforce_employee_capabilities(
   organization_id,employee_id,capability,enabled
 ) values (
@@ -611,9 +634,6 @@ select set_config(
 
 do $$
 begin
-  if exists(select 1 from public.audit_logs) then
-    raise exception 'User without audit.view could read audit_logs directly';
-  end if;
   begin
     perform public.workforce_query('audit',jsonb_build_object('page',1,'size',10));
     raise exception 'User without audit.view could read the audit RPC';
@@ -645,10 +665,13 @@ select set_config(
 
 do $$
 begin
-  if tms_private.can_manage_employee('TENANT-A-SCALE-001')
-    or exists(select 1 from public.employees where employee_id='TENANT-A-SCALE-001') then
-    raise exception 'team.read_all deny override did not restrict direct-table scope';
-  end if;
+  begin
+    perform public.workforce_query('admin.sessions',jsonb_build_object(
+      'from',current_date-7,'to',current_date,'size',10
+    ));
+    raise exception 'team.read_all deny allowed organization attendance query';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $$;
 
@@ -668,9 +691,11 @@ select set_config(
 
 do $$
 begin
-  if public.tms_directory_context_v1() is not null then
-    raise exception 'Kiosk without directory.read could enumerate directory context';
-  end if;
+  begin
+    perform public.tms_directory_context_v1();
+    raise exception 'Retired directory RPC remained executable by Kiosk';
+  exception when insufficient_privilege then null;
+  end;
 end;
 $$;
 
@@ -705,16 +730,9 @@ declare
   queue jsonb;
   denied_message text;
 begin
-  if exists(
-    select 1 from public.attendance_requests
-    where id='30000000-0000-0000-0000-000000000001'
-  ) then
-    raise exception 'Role excluded by APPROVAL_ROLES could read the request table';
-  end if;
-
   queue := public.workforce_query('requests',jsonb_build_object(
-    'scope','team','status','all','from',current_date,'to',current_date+30,
-    'page',1,'size',100
+    'team',true,'state','all','from',current_date,'to',current_date+30,
+    'size',100
   ));
   if jsonb_array_length(coalesce(queue->'rows','[]'::jsonb))<>0 then
     raise exception 'Role excluded by APPROVAL_ROLES could read the reviewer RPC queue';
@@ -778,15 +796,9 @@ declare
   queue jsonb;
   denied_message text;
 begin
-  if exists(
-    select 1 from public.attendance_requests
-    where id='30000000-0000-0000-0000-000000000001'
-  ) then
-    raise exception 'User without attendance.review could read the request table';
-  end if;
   queue := public.workforce_query('requests',jsonb_build_object(
-    'scope','team','status','all','from',current_date,'to',current_date+30,
-    'page',1,'size',100
+    'team',true,'state','all','from',current_date,'to',current_date+30,
+    'size',100
   ));
   if jsonb_array_length(coalesce(queue->'rows','[]'::jsonb))<>0 then
     raise exception 'User without attendance.review could read the reviewer RPC queue';
@@ -829,20 +841,16 @@ select set_config(
 );
 
 do $$
+declare
+  queue jsonb;
 begin
-  if tms_private.can_manage_employee('TENANT-A-WORKER')
-    or exists(select 1 from public.employees where employee_id='TENANT-A-WORKER')
-    or exists(select 1 from public.attendance_requests where id='30000000-0000-0000-0000-000000000001') then
-    raise exception 'User without team.read could read scoped team data';
+  queue:=public.workforce_query('requests',jsonb_build_object(
+    'team',true,'state','all','from',current_date,'to',current_date+30,
+    'size',100
+  ));
+  if jsonb_array_length(coalesce(queue->'rows','[]'::jsonb))<>0 then
+    raise exception 'User without team.read received a team queue';
   end if;
-  begin
-    perform public.workforce_query('requests',jsonb_build_object(
-      'scope','team','status','all','from',current_date,'to',current_date+30,
-      'page',1,'size',100
-    ));
-    raise exception 'User without team.read could query a team queue';
-  exception when insufficient_privilege then null;
-  end;
   begin
     perform public.workforce_command('request.review',jsonb_build_object(
       'id','30000000-0000-0000-0000-000000000001',
@@ -872,15 +880,9 @@ do $$
 declare
   queue jsonb;
 begin
-  if not exists(
-    select 1 from public.attendance_requests
-    where id='30000000-0000-0000-0000-000000000001'
-  ) then
-    raise exception 'Configured approver could not read the request table';
-  end if;
   queue := public.workforce_query('requests',jsonb_build_object(
-    'scope','team','status','all','from',current_date,'to',current_date+30,
-    'page',1,'size',100
+    'team',true,'state','all','from',current_date,'to',current_date+30,
+    'size',100
   ));
   if jsonb_array_length(coalesce(queue->'rows','[]'::jsonb))<>1 then
     raise exception 'Configured approver did not receive the reviewer RPC queue';
@@ -999,35 +1001,22 @@ declare
     'wf_private.review_request(jsonb)'::regprocedure
   );
 begin
-  if position('period_lock(a.organization_id,day,day,false)' in attendance_definition)=0
-    or position('period_lock(a.organization_id,day,day,false)' in attendance_definition)
-      >=position('day between ap.period_start and ap.period_end' in attendance_definition) then
-    raise exception 'Attendance is not serialized against payroll close';
-  end if;
-  if position('order by actual_checkin desc limit 1;' in attendance_definition)=0
-    or position(
-      'day between closed_period.period_start and closed_period.period_end'
-      in attendance_definition
-    )=0
-    or position(
-      'select * into sheet from public.timesheets where id=sheet.id'
-      in attendance_definition
-    )=0
-    or position('order by actual_checkin desc limit 1;' in attendance_definition)
-      >=position('period_lock(a.organization_id,day,day,false)' in attendance_definition)
-    or position('period_lock(a.organization_id,day,day,false)' in attendance_definition)
+  if position('workforce-config:' in attendance_definition)=0
+    or position('workforce-config:' in attendance_definition)
+      >=position('select * into policy from public.attendance_policies' in attendance_definition)
+    or position('select stale.id,stale.business_date' in attendance_definition)=0
+    or position('select stale.id,stale.business_date' in attendance_definition)
+      >=position('perform wf_private.period_lock(' in attendance_definition)
+    or position('perform wf_private.period_lock(' in attendance_definition)
       >=position(
-        'day between closed_period.period_start and closed_period.period_end'
+        'v_business_date between period.period_start and period.period_end'
         in attendance_definition
       )
     or position(
-      'day between closed_period.period_start and closed_period.period_end'
+      'v_business_date between period.period_start and period.period_end'
       in attendance_definition
-    )>=position(
-      'select * into sheet from public.timesheets where id=sheet.id'
-      in attendance_definition
-    ) then
-    raise exception 'Active attendance lock order regressed';
+    )>=position('select stale.* into work_session' in attendance_definition) then
+    raise exception 'Attendance config/period/session lock order regressed';
   end if;
   if position('''replayed'',true' in submit_definition)=0
     or position('''replayed'',true' in submit_definition)
@@ -1055,4 +1044,6 @@ begin
 end;
 $$;
 
+select pass('tenant, capability, cursor and lock-order invariants hold');
+select * from finish();
 rollback;

@@ -25,11 +25,50 @@ export interface ImportedExcelRow {
  *  this module is first evaluated. */
 const brandHexCache = new Map<string, string>();
 
+/** Normalizes a CSS colour to the `#RRGGBB` form the workbook writer expects.
+ *  Production CSS minification rewrites every brand hex into its shortest form,
+ *  so `--color-on-dark: #FFFFFF` reaches the browser as `#fff`. The writer only
+ *  concatenates `FF` with everything after the `#`, so a short hex would silently
+ *  produce a malformed ARGB value instead of failing.
+ *
+ *  Exported for direct unit testing — this only diverges from dev builds in a
+ *  minified bundle, which is exactly where a regression would go unnoticed. */
+export function normalizeBrandHex(value: string): string | null {
+  const input = value.trim();
+  const hex = /^#([0-9a-fA-F]{3,8})$/.exec(input)?.[1];
+  if (hex) {
+    // 4- and 8-digit forms carry an alpha channel that Excel fills cannot use.
+    if (hex.length === 3 || hex.length === 4) return `#${[...hex.slice(0, 3)].map((digit) => digit + digit).join('')}`.toUpperCase();
+    if (hex.length === 6 || hex.length === 8) return `#${hex.slice(0, 6)}`.toUpperCase();
+    return null;
+  }
+  const channels = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/.exec(input)?.slice(1, 4).map(Number);
+  if (!channels || channels.some((channel) => channel > 255)) return null;
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`.toUpperCase();
+}
+
+/** Minifiers also collapse a hex into a colour keyword whenever that is shorter
+ *  (`#FF0000` becomes `red`). Only the browser knows the full keyword table, so
+ *  let a canvas context serialize the value back into a hex. */
+function canvasBrandHex(value: string) {
+  const context = document.createElement('canvas').getContext('2d');
+  if (!context) return null;
+  // An unparseable assignment leaves `fillStyle` untouched, so probe with two
+  // different seeds: only a colour the browser accepts overrides both.
+  const readings = ['#000000', '#ffffff'].map((seed) => {
+    context.fillStyle = seed;
+    context.fillStyle = value;
+    return String(context.fillStyle);
+  });
+  return readings[0] === readings[1] ? normalizeBrandHex(readings[0] ?? '') : null;
+}
+
 function brandHex(token: string) {
   const cached = brandHexCache.get(token);
   if (cached) return cached;
-  const value = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
-  if (!/^#[0-9a-fA-F]{6}$/.test(value)) {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  const value = raw ? normalizeBrandHex(raw) ?? canvasBrandHex(raw) : null;
+  if (!value) {
     throw new Error(`Thiếu token màu ${token} trong style.css — không thể xuất file.`);
   }
   brandHexCache.set(token, value);

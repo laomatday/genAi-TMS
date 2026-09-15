@@ -9,13 +9,16 @@
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
+    "dev:e2e": "vite --host 127.0.0.1 --port 3107 --strictPort",
     "audit:repo": "bun scripts/verify-production-readiness.mjs",
     "audit:dependencies": "bun audit --audit-level=high",
     "deadcode": "knip",
     "build": "tsc --noEmit && vite build",
     "lint": "tsc --noEmit",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "test:load": "bun scripts/load-test-dashboard.mjs",
+    "reset:passwords": "bun scripts/reset-default-passwords.mjs",
     "check": "bun run audit:repo && bun run deadcode && bun run test && bun run build",
     "check:release": "bun run check && bun run audit:dependencies",
     "preview": "vite preview --host 0.0.0.0 --port 3000"
@@ -33,6 +36,7 @@
     "write-excel-file": "4.1.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.2.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

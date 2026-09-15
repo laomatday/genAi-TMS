@@ -10,6 +10,7 @@ import {
   readExcelRows,
   type ExcelColumn,
 } from '@/core/utils/excel';
+import { defaultAccountPassword } from '@/core/utils/defaultPassword';
 import type { EmployeeInput } from './adminService';
 import type { AdminData, ShiftAssignment } from './types';
 
@@ -28,7 +29,7 @@ const EMPLOYEE_COLUMNS: ExcelColumn<Employee>[] = [
   { header: 'Chức danh', width: 22, value: (item) => item.position || '' },
   { header: 'Phòng ban', width: 22, value: (item) => item.department || '' },
   { header: 'Trạng thái', width: 18, value: (item) => item.status === 'Active' ? 'Hoạt động' : 'Tạm khóa' },
-  { header: 'Mật khẩu tạm (chỉ tài khoản mới)', width: 32, value: () => '' },
+  { header: 'Mật khẩu tạm (bỏ trống = mặc định)', width: 34, value: () => '' },
 ];
 
 export function exportEmployeesExcel(employees: Employee[]) {
@@ -171,8 +172,14 @@ export async function parseEmployeesExcel(file: File, data: AdminData) {
     const email = excelText(row, 'Email').toLocaleLowerCase();
     const role = excelText(row, 'Vai trò') as EmployeeRole;
     const centerId = excelText(row, 'Địa điểm chính').toUpperCase();
-    const password = excelText(row, 'Mật khẩu tạm (chỉ tài khoản mới)', 'Mật khẩu tạm');
+    // Older exports carry the previous header, so both spellings stay readable.
+    const suppliedPassword = excelText(row, 'Mật khẩu tạm (bỏ trống = mặc định)', 'Mật khẩu tạm (chỉ tài khoản mới)', 'Mật khẩu tạm');
     const mode = employeeIds.has(employeeId) ? 'update' : 'create';
+    // A new account left blank is provisioned with the name-derived default;
+    // an existing one keeps its password unless the operator typed a new value.
+    const password = mode === 'create' && !suppliedPassword
+      ? defaultAccountPassword({ name, employeeId })
+      : suppliedPassword;
     const allowedLocations = excelList(row, 'Địa điểm được phép').map((item) => item.toUpperCase());
     const managedLocations = excelList(row, 'Địa điểm quản lý').map((item) => item.toUpperCase());
     const annualLeave = excelNumber(row, 0, 'Số ngày phép');
@@ -192,7 +199,8 @@ export async function parseEmployeesExcel(file: File, data: AdminData) {
     else if (role !== 'Kiosk' && policyId && !activePolicyIds.has(policyId)) errors.push(`Dòng ${row.rowNumber}: chính sách ${policyId} không tồn tại hoặc đã tắt.`);
     else if (managerId && !managerIds.has(managerId)) errors.push(`Dòng ${row.rowNumber}: quản lý ${managerId} không tồn tại hoặc không hoạt động.`);
     else if (!Number.isFinite(annualLeave) || annualLeave < 0 || annualLeave > TMS_LIMITS.MAX_ANNUAL_LEAVE_DAYS) errors.push(`Dòng ${row.rowNumber}: số ngày phép không hợp lệ.`);
-    else if (mode === 'create' && password.length < TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH) errors.push(`Dòng ${row.rowNumber}: tài khoản mới cần mật khẩu tạm từ ${TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} ký tự.`);
+    else if (mode === 'create' && password.length < TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH) errors.push(`Dòng ${row.rowNumber}: mật khẩu mặc định theo họ tên ngắn hơn ${TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} ký tự, hãy nhập mật khẩu tạm cho dòng này.`);
+    else if (mode === 'update' && suppliedPassword && suppliedPassword.length < TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH) errors.push(`Dòng ${row.rowNumber}: mật khẩu mới phải có ít nhất ${TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} ký tự.`);
     else if (!/^\S+@\S+\.\S+$/.test(email)) errors.push(`Dòng ${row.rowNumber}: email không hợp lệ.`);
 
     seen.add(employeeId);

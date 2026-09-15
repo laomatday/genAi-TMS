@@ -1,30 +1,44 @@
 import { supabase, isSupabaseConfigured } from '@/core/supabase';
 import { LOGIN_EMAIL_DOMAINS, TMS_DEFAULTS } from '@/shared/constants';
+import {
+  AUTH_LOGIN_UNAVAILABLE_MESSAGE,
+  isRetryableAuthFailure,
+  withAuthDeadline,
+} from './authFailure';
 import type { Employee } from '@/shared/types';
 
-export async function fetchMyProfile(): Promise<Employee> {
+export async function fetchMyProfile(expectedAuthUserId?: string): Promise<Employee> {
   if (!isSupabaseConfigured) {
     throw new Error('Chưa cấu hình kết nối Supabase. Vui lòng kiểm tra biến môi trường.');
   }
 
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-  if (authError || !authData.user) throw new Error('Vui lòng đăng nhập.');
+  let authUserId = expectedAuthUserId?.trim() || '';
+  if (!authUserId) {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+    if (!authData.user) throw new Error('Vui lòng đăng nhập.');
+    authUserId = authData.user.id;
+  }
 
-  const { data, error } = await supabase
-    .from('employees')
-    .select('employee_id, auth_user_id, organization_id, name, email, phone, role, center_id, allowed_locations, managed_locations, direct_manager_id, annual_leave_balance, attendance_policy_id, trusted_device_id, trusted_device_bound_at, position, department, avatar_url, face_ref_url, employment_start_date, employment_end_date, status')
-    .eq('auth_user_id', authData.user.id)
-    .single();
-
-  if (error || !data) throw new Error('Không tìm thấy hồ sơ nhân viên.');
+  const { data: response, error } = await supabase.rpc('workforce_query', {
+    p_resource: 'bootstrap',
+    p_args: {},
+  });
+  const data = response && typeof response === 'object' && !Array.isArray(response)
+    ? (response as Record<string, unknown>).profile as Record<string, unknown> | undefined
+    : undefined;
+  if (error) throw error;
+  if (!data || data.auth_user_id !== authUserId) {
+    throw new Error('Không tìm thấy hồ sơ nhân viên.');
+  }
 
   const annualLeaveBalance = Number(data.annual_leave_balance ?? TMS_DEFAULTS.ANNUAL_LEAVE_DAYS);
 
   return {
     ...data,
     annual_leave_balance: Number.isFinite(annualLeaveBalance) ? annualLeaveBalance : TMS_DEFAULTS.ANNUAL_LEAVE_DAYS,
-    id: data.employee_id,
-    uid: data.auth_user_id,
+    id: String(data.employee_id),
+    uid: String(data.auth_user_id),
   } as Employee;
 }
 
@@ -35,6 +49,14 @@ export function buildLoginEmailCandidates(loginId: string): string[] {
   return cleanId.includes('@')
     ? [cleanId]
     : LOGIN_EMAIL_DOMAINS.map((domain) => `${cleanId}@${domain}`);
+}
+
+async function bestEffortLocalSignOut() {
+  try {
+    await withAuthDeadline(supabase.auth.signOut({ scope: 'local' }));
+  } catch (error) {
+    console.warn('Unable to complete remote sign-out:', error);
+  }
 }
 
 export async function doLogin(loginId: string, password: string) {
@@ -50,25 +72,47 @@ export async function doLogin(loginId: string, password: string) {
   let lastError: unknown;
   for (const email of candidates) {
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      const profile = await fetchMyProfile();
+      let profile: Employee;
+      try {
+        profile = await withAuthDeadline(fetchMyProfile(authData.user?.id));
+      } catch (error) {
+        if (isRetryableAuthFailure(error)) {
+          console.warn('Authentication service temporarily unavailable:', error);
+          return {
+            success: false as const,
+            sessionEstablished: true as const,
+            message: AUTH_LOGIN_UNAVAILABLE_MESSAGE,
+          };
+        }
+        console.error('Unable to load authenticated profile:', error);
+        await bestEffortLocalSignOut();
+        return {
+          success: false as const,
+          message: error instanceof Error ? error.message : 'Không thể tải hồ sơ nhân viên.',
+        };
+      }
       if (profile.status !== 'Active') {
-        await supabase.auth.signOut({ scope: 'local' });
+        await bestEffortLocalSignOut();
         return { success: false as const, message: 'Tài khoản đã bị vô hiệu hóa.' };
       }
       if (!profile.organization_id) {
-        await supabase.auth.signOut({ scope: 'local' });
+        await bestEffortLocalSignOut();
         return { success: false as const, message: 'Hồ sơ chưa được gán tổ chức. Vui lòng liên hệ quản trị hệ thống.' };
       }
 
       return { success: true as const, data: profile };
     } catch (error) {
       lastError = error;
-      await supabase.auth.signOut({ scope: 'local' });
+      if (isRetryableAuthFailure(error)) {
+        console.warn('Authentication service temporarily unavailable:', error);
+        return { success: false as const, message: AUTH_LOGIN_UNAVAILABLE_MESSAGE };
+      }
     }
   }
 
   console.error('Login failed:', lastError);
+  await bestEffortLocalSignOut();
   return { success: false as const, message: 'Tài khoản hoặc mật khẩu không đúng.' };
 }

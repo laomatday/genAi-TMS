@@ -1,10 +1,12 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DashboardData, Employee, LeaveRequest } from '@/shared/types';
 import { toISODateString, triggerHaptic } from '@/core/utils/helpers';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import Avatar from '@/shared/components/common/Avatar';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
+import { getMySchedule, type WorkforceScheduleItem } from '@/modules/tms/services/schedule';
+import { useSearchParams } from 'react-router-dom';
 
 interface Props {
   data: DashboardData | null;
@@ -32,10 +34,44 @@ const isRemote = (type: string) => type.includes('Làm việc tại nhà') || ty
 const isAnnualLeave = (type: string) => type.includes('Nghỉ phép');
 
 const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const calendarView: 'mine' | 'team' = searchParams.get('calendarView') === 'team' ? 'team' : 'mine';
   const [viewDate, setViewDate] = useState<Date>(() => new Date(currentDate.getFullYear(), currentDate.getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date(currentDate));
   const [activeCenter, setActiveCenter] = useState<string>(ALL_CENTERS);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const [schedule, setSchedule] = useState<WorkforceScheduleItem[]>([]);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+  const monthRange = useMemo(() => ({
+    from: toISODateString(new Date(viewDate.getFullYear(), viewDate.getMonth(), 1)),
+    to: toISODateString(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0)),
+  }), [viewDate]);
+
+  const loadSchedule = useCallback(async () => {
+    setScheduleLoading(true);
+    setScheduleError(null);
+    try {
+      const result = await getMySchedule(monthRange.from, monthRange.to);
+      setSchedule(result.items);
+      return true;
+    } catch (error) {
+      setScheduleError(error instanceof Error ? error.message : 'Không tải được ca làm việc.');
+      return false;
+    } finally {
+      setScheduleLoading(false);
+    }
+  }, [monthRange.from, monthRange.to]);
+
+  useEffect(() => {
+    void loadSchedule();
+  }, [loadSchedule]);
+
+  const refreshCalendar = useCallback(async () => {
+    const [dashboardResult, scheduleResult] = await Promise.all([onRefresh(), loadSchedule()]);
+    return Boolean(dashboardResult || scheduleResult);
+  }, [loadSchedule, onRefresh]);
 
   const teamLeaves = useMemo(() => data?.teamLeaves || [], [data?.teamLeaves]);
   const contacts = useMemo(() => data?.contacts || [], [data?.contacts]);
@@ -77,6 +113,16 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
     return index;
   }, [centerFiltered, viewDate]);
 
+  const scheduleOn = useMemo(() => {
+    const index = new Map<string, WorkforceScheduleItem[]>();
+    schedule.forEach((item) => {
+      const rows = index.get(item.workDate) ?? [];
+      rows.push(item);
+      index.set(item.workDate, rows);
+    });
+    return index;
+  }, [schedule]);
+
   /** Working days in the month after removing weekly off days and holidays —
    *  the denominator every absence figure on this screen is read against. */
   const standardWorkDays = useMemo(() => {
@@ -107,6 +153,22 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
     };
   }, [centerFiltered, viewDate]);
 
+  const myScheduleStats = useMemo(() => {
+    const minutes = schedule.reduce((total, item) => {
+      const [startHour = 0, startMinute = 0] = item.startTime.split(':').map(Number);
+      const [endHour = 0, endMinute = 0] = item.endTime.split(':').map(Number);
+      const start = startHour * 60 + startMinute;
+      let end = endHour * 60 + endMinute;
+      if (end <= start) end += 24 * 60;
+      return total + Math.max(0, end - start);
+    }, 0);
+    return {
+      shifts: schedule.length,
+      hours: Math.round((minutes / 60) * 10) / 10,
+      locations: new Set(schedule.map((item) => item.locationId || item.locationName).filter(Boolean)).size,
+    };
+  }, [schedule]);
+
   const calendarCells = useMemo(() => {
     const year = viewDate.getFullYear();
     const month = viewDate.getMonth();
@@ -123,6 +185,7 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
     () => centerFiltered.filter(l => l.from_date <= selectedKey && l.to_date >= selectedKey),
     [centerFiltered, selectedKey],
   );
+  const selectedSchedule = scheduleOn.get(selectedKey) ?? [];
 
   const centers = useMemo(() => {
     const ids = new Set<string>();
@@ -182,13 +245,75 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
     setSelectedDate(new Date(today));
   };
 
+  const selectCalendarView = (view: 'mine' | 'team') => {
+    triggerHaptic('light');
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      if (view === 'mine') next.delete('calendarView');
+      else next.set('calendarView', view);
+      return next;
+    });
+  };
+
+  const handleCalendarTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const nextView = event.key === 'ArrowRight' || event.key === 'End' ? 'team' : 'mine';
+    selectCalendarView(nextView);
+    window.requestAnimationFrame(() => document.getElementById(`calendar-tab-${nextView}`)?.focus());
+  };
+
   const selectedLabel = selectedKey === todayKey
     ? 'Hôm nay'
     : `${WEEKDAYS[selectedDate.getDay()]}, ${selectedDate.getDate()}/${selectedDate.getMonth() + 1}`;
 
   return (
-    <PullToRefresh onRefresh={onRefresh} className="page-bg font-sans">
+    <PullToRefresh onRefresh={refreshCalendar} className="page-bg font-sans">
       <div className="employee-page employee-page-standard calendar-page animate-fade-in ui-stack">
+
+        <div className="requests-switch" role="tablist" aria-label="Chế độ lịch làm việc">
+          <button
+            type="button"
+            role="tab"
+            id="calendar-tab-mine"
+            aria-selected={calendarView === 'mine'}
+            aria-controls="calendar-panel"
+            tabIndex={calendarView === 'mine' ? 0 : -1}
+            className={`requests-switch-option ${calendarView === 'mine' ? 'requests-switch-option-active' : ''}`.trim()}
+            onClick={() => selectCalendarView('mine')}
+            onKeyDown={handleCalendarTabKeyDown}
+          >
+            <span className="material-symbols-rounded" aria-hidden="true">badge</span>
+            <span className="requests-switch-text">
+              <span className="requests-switch-label">Ca của tôi</span>
+              <span className="requests-switch-sub">Lịch đã công bố</span>
+            </span>
+            <span className="ui-pill ui-pill-muted">{schedule.length}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="calendar-tab-team"
+            aria-selected={calendarView === 'team'}
+            aria-controls="calendar-panel"
+            tabIndex={calendarView === 'team' ? 0 : -1}
+            className={`requests-switch-option ${calendarView === 'team' ? 'requests-switch-option-active' : ''}`.trim()}
+            onClick={() => selectCalendarView('team')}
+            onKeyDown={handleCalendarTabKeyDown}
+          >
+            <span className="material-symbols-rounded" aria-hidden="true">groups</span>
+            <span className="requests-switch-text">
+              <span className="requests-switch-label">Vắng mặt team</span>
+              <span className="requests-switch-sub">Theo quyền xem</span>
+            </span>
+            <span className="ui-pill ui-pill-muted">{visibleLeaves.length}</span>
+          </button>
+        </div>
+
+        <div id="calendar-panel" role="tabpanel" aria-labelledby={calendarView === 'mine' ? 'calendar-tab-mine' : 'calendar-tab-team'} className="contents">
+          <p className="sr-only" role="status" aria-live="polite">
+            {scheduleLoading ? 'Đang tải ca của tôi.' : scheduleError || `Đã tải ${schedule.length} ca của tôi.`}
+          </p>
 
         {/* Period ------------------------------------------------------- */}
         <section className="ui-card">
@@ -219,16 +344,16 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
 
           <div className="ui-card-section ui-stat-strip">
             <div className="ui-stat">
-              <span className="ui-stat-value">{monthStats.total}<span className="ui-stat-unit">lượt</span></span>
-              <span className="ui-stat-label">Tổng vắng team</span>
+              <span className="ui-stat-value">{calendarView === 'mine' ? myScheduleStats.shifts : monthStats.total}<span className="ui-stat-unit">{calendarView === 'mine' ? 'ca' : 'lượt'}</span></span>
+              <span className="ui-stat-label">{calendarView === 'mine' ? 'Ca đã xếp' : 'Tổng vắng team'}</span>
             </div>
             <div className="ui-stat">
-              <span className="ui-stat-value">{monthStats.remote}<span className="ui-stat-unit">lượt</span></span>
-              <span className="ui-stat-label">Làm từ xa</span>
+              <span className="ui-stat-value">{calendarView === 'mine' ? myScheduleStats.hours : monthStats.remote}<span className="ui-stat-unit">{calendarView === 'mine' ? 'giờ' : 'lượt'}</span></span>
+              <span className="ui-stat-label">{calendarView === 'mine' ? 'Thời lượng' : 'Làm từ xa'}</span>
             </div>
             <div className="ui-stat">
-              <span className="ui-stat-value">{monthStats.annual}<span className="ui-stat-unit">lượt</span></span>
-              <span className="ui-stat-label">Nghỉ phép năm</span>
+              <span className="ui-stat-value">{calendarView === 'mine' ? myScheduleStats.locations : monthStats.annual}<span className="ui-stat-unit">{calendarView === 'mine' ? 'nơi' : 'lượt'}</span></span>
+              <span className="ui-stat-label">{calendarView === 'mine' ? 'Địa điểm' : 'Nghỉ phép năm'}</span>
             </div>
           </div>
         </section>
@@ -236,46 +361,56 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
         {/* Matrix ------------------------------------------------------- */}
         <section className="ui-card ui-card-pad">
           <div className="ui-cal" role="grid" aria-label={`Lịch tháng ${viewDate.getMonth() + 1}`}>
-            {WEEKDAYS.map((label, index) => (
-              <div key={label} className={`ui-cal-head ${index === 0 ? 'ui-cal-head-sun' : ''}`.trim()}>{label}</div>
-            ))}
-            {calendarCells.map((date, index) => {
-              if (!date) return <div key={`blank-${index}`} className="ui-cal-day ui-cal-day-blank" aria-hidden="true" />;
-              const key = toISODateString(date);
-              const count = leavesOn.get(key)?.length ?? 0;
-              const isSelected = key === selectedKey;
-              const classes = [
-                'ui-cal-day',
-                date.getDay() === 0 && !isSelected ? 'ui-cal-day-sun' : '',
-                key === todayKey && !isSelected ? 'ui-cal-day-today' : '',
-                isSelected ? 'ui-cal-day-selected' : '',
-              ].filter(Boolean).join(' ');
+            <div role="row" className="ui-cal-row">
+              {WEEKDAYS.map((label, index) => (
+                <div role="columnheader" key={label} className={`ui-cal-head ${index === 0 ? 'ui-cal-head-sun' : ''}`.trim()}>{label}</div>
+              ))}
+            </div>
+            {Array.from({ length: calendarCells.length / 7 }, (_, weekIndex) => (
+              <div role="row" className="ui-cal-row" key={`week-${weekIndex}`}>
+                {calendarCells.slice(weekIndex * 7, weekIndex * 7 + 7).map((date, dayIndex) => {
+                  const index = weekIndex * 7 + dayIndex;
+                  if (!date) return <div role="gridcell" key={`blank-${index}`} className="ui-cal-cell"><span className="ui-cal-day ui-cal-day-blank" aria-hidden="true" /></div>;
+                  const key = toISODateString(date);
+                  const count = calendarView === 'mine'
+                    ? scheduleOn.get(key)?.length ?? 0
+                    : leavesOn.get(key)?.length ?? 0;
+                  const isSelected = key === selectedKey;
+                  const classes = [
+                    'ui-cal-day',
+                    date.getDay() === 0 && !isSelected ? 'ui-cal-day-sun' : '',
+                    key === todayKey && !isSelected ? 'ui-cal-day-today' : '',
+                    isSelected ? 'ui-cal-day-selected' : '',
+                  ].filter(Boolean).join(' ');
+                  const countLabel = calendarView === 'mine' ? `${count} ca làm việc` : `${count} nhân sự vắng`;
 
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={isSelected}
-                  aria-label={`Ngày ${date.getDate()}/${date.getMonth() + 1}: ${count} nhân sự vắng`}
-                  className={classes}
-                  onClick={() => { triggerHaptic('light'); setSelectedDate(date); }}
-                >
-                  <span>{date.getDate()}</span>
-                  {count > 0 ? <span className="ui-cal-badge">+{count}</span> : null}
-                </button>
-              );
-            })}
+                  return (
+                    <div role="gridcell" key={key} className="ui-cal-cell">
+                      <button
+                        type="button"
+                        aria-pressed={isSelected}
+                        aria-label={`Ngày ${date.getDate()}/${date.getMonth() + 1}: ${countLabel}`}
+                        className={classes}
+                        onClick={() => { triggerHaptic('light'); setSelectedDate(date); }}
+                      >
+                        <span>{date.getDate()}</span>
+                        {count > 0 ? <span className="ui-cal-badge">+{count}</span> : null}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
 
           <div className="ui-legend calendar-legend">
             <span className="ui-legend-item"><span className="ui-legend-dot ui-tone-primary" aria-hidden="true" />Đang chọn</span>
-            <span className="ui-legend-item"><span className="ui-legend-dot ui-tone-success" aria-hidden="true" />Có nhân sự nghỉ</span>
+            <span className="ui-legend-item"><span className="ui-legend-dot ui-tone-success" aria-hidden="true" />{calendarView === 'mine' ? 'Có ca làm việc' : 'Có nhân sự nghỉ'}</span>
             <span className="ui-legend-item"><span className="ui-legend-dot ui-tone-danger" aria-hidden="true" />Ngày nghỉ tuần</span>
           </div>
         </section>
 
-        {/* Branch filter ------------------------------------------------ */}
-        {centers.length > 1 && (
+        {calendarView === 'team' && centers.length > 1 && (
           <div className="ui-chips">
             <button
               type="button"
@@ -302,10 +437,62 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
           </div>
         )}
 
-        {/* Absence list ------------------------------------------------- */}
-        <div>
+        {calendarView === 'mine' ? (
+          <section aria-labelledby="my-schedule-day-title">
+            <div className="ui-label-row">
+              <span id="my-schedule-day-title" className="ui-label">Ca của tôi · {selectedLabel}</span>
+              <span className="ui-pill ui-pill-primary">{selectedSchedule.length} ca</span>
+            </div>
+
+            {scheduleError ? (
+              <div className="ui-empty" role="alert">
+                <span className="material-symbols-rounded" aria-hidden="true">event_busy</span>
+                <span className="ui-empty-title">Chưa tải được lịch</span>
+                <span className="ui-empty-text">{scheduleError}</span>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => void loadSchedule()}>Thử lại</button>
+              </div>
+            ) : scheduleLoading ? (
+              <div className="ui-empty" role="status">
+                <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span>
+                <span className="ui-empty-title">Đang tải ca làm việc…</span>
+              </div>
+            ) : selectedSchedule.length === 0 ? (
+              <div className="ui-empty">
+                <span className="material-symbols-rounded" aria-hidden="true">event_available</span>
+                <span className="ui-empty-title">Chưa có ca được công bố</span>
+                <span className="ui-empty-text">Kéo xuống để làm mới khi quản lý cập nhật lịch.</span>
+              </div>
+            ) : (
+              <div className="ui-stack">
+                {selectedSchedule.map((item) => (
+                  <article className="ui-card" key={item.id}>
+                    <div className="ui-card-head">
+                      <span className="ui-tile ui-tone-primary" aria-hidden="true">
+                        <span className="material-symbols-rounded">work_history</span>
+                      </span>
+                      <span className="ui-card-head-text">
+                        <span className="ui-card-head-title">{item.shiftName}</span>
+                        <span className="ui-card-head-sub">{item.startTime.slice(0, 5)} – {item.endTime.slice(0, 5)}</span>
+                      </span>
+                      <span className="ui-pill ui-pill-success">Đã công bố</span>
+                    </div>
+                    {(item.locationName || item.locationId || item.note) ? (
+                      <div className="ui-card-section">
+                        <div className="ui-note calendar-shift-note">
+                          <span className="material-symbols-rounded" aria-hidden="true">location_on</span>
+                          {[item.locationName || item.locationId, item.note].filter(Boolean).join(' • ')}
+                        </div>
+                      </div>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : (
+        <section aria-labelledby="team-absence-day-title">
           <div className="ui-label-row">
-            <span className="ui-label">Danh sách vắng mặt · {selectedLabel}</span>
+            <span id="team-absence-day-title" className="ui-label">Danh sách vắng mặt · {selectedLabel}</span>
             <span className="ui-pill ui-pill-primary">{selectedLeaves.length} nhân sự</span>
           </div>
 
@@ -378,13 +565,17 @@ const CalendarPage: React.FC<Props> = ({ data, user, onRefresh, currentDate }) =
               })}
             </div>
           )}
-        </div>
+        </section>
+        )}
 
         <p className="ui-note">
           <span className="material-symbols-rounded" aria-hidden="true">info</span>
-          Chạm vào từng ngày trên lịch để xem nhân sự vắng mặt và loại đơn đã được duyệt.
+          {calendarView === 'mine'
+            ? 'Chạm vào từng ngày để xem ca làm việc đã được công bố cho bạn.'
+            : 'Chạm vào từng ngày để xem nhân sự vắng mặt và loại đơn đã được duyệt.'}
           {!isCurrentMonth ? ' Bạn đang xem một tháng khác — chạm “Hôm nay” để quay lại.' : ''}
         </p>
+        </div>
       </div>
     </PullToRefresh>
   );

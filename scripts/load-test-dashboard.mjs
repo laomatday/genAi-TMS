@@ -138,7 +138,8 @@ const config = Object.freeze({
   ),
 });
 
-const endpoint = new URL('/rest/v1/rpc/tms_dashboard_bundle_v1', baseUrl);
+const endpoint = new URL('/rest/v1/rpc/workforce_query', baseUrl);
+const resources = ['bootstrap', 'today'];
 const durations = [];
 const errors = new Map();
 let successCount = 0;
@@ -162,6 +163,7 @@ async function virtualUser(workerIndex) {
   while (performance.now() < deadline) {
     if (!await waitForRequestPermit()) break;
     const token = accessTokens[(workerIndex + iteration) % accessTokens.length];
+    const resource = resources[(workerIndex + iteration) % resources.length];
     const requestStartedAt = performance.now();
     let response;
     try {
@@ -173,23 +175,27 @@ async function virtualUser(workerIndex) {
           authorization: `Bearer ${token}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify({ p_history_days: 120 }),
+        body: JSON.stringify({ p_resource: resource, p_args: {} }),
         signal: AbortSignal.timeout(config.requestTimeoutMs),
       });
       const payload = await response.json().catch(() => null);
       requestCount += 1;
       durations.push(performance.now() - requestStartedAt);
-      const validDashboard = payload
+      const validBootstrap = resource === 'bootstrap'
         && typeof payload === 'object'
-        && payload.bootstrap
-        && typeof payload.bootstrap === 'object'
-        && !Array.isArray(payload.bootstrap)
-        && payload.bootstrap.profile
-        && typeof payload.bootstrap.profile === 'object'
-        && !Array.isArray(payload.bootstrap.profile)
-        && typeof payload.bootstrap.profile.employee_id === 'string'
-        && payload.bootstrap.profile.employee_id.trim().length > 0;
-      if (response.ok && validDashboard) successCount += 1;
+        && payload
+        && payload.profile
+        && typeof payload.profile === 'object'
+        && !Array.isArray(payload.profile)
+        && typeof payload.profile.employee_id === 'string'
+        && payload.profile.employee_id.trim().length > 0;
+      const validToday = resource === 'today'
+        && typeof payload === 'object'
+        && payload
+        && Array.isArray(payload.sessions)
+        && typeof payload.local_date === 'string';
+      const validDashboardResource = validBootstrap || validToday;
+      if (response.ok && validDashboardResource) successCount += 1;
       else if (!response.ok) {
         const key = `HTTP_${response.status}`;
         errors.set(key, (errors.get(key) || 0) + 1);
@@ -214,6 +220,7 @@ const errorCount = requestCount - successCount;
 const errorRate = requestCount ? errorCount / requestCount : 1;
 const summary = {
   target: endpoint.origin,
+  resources,
   concurrency: config.concurrency,
   testUsers: accessTokens.length,
   durationSeconds: Math.round(elapsedSeconds * 100) / 100,

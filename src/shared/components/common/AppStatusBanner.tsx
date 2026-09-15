@@ -51,7 +51,7 @@ export default function AppStatusBanner() {
     };
     const handleDashboardSync = (event: Event) => {
       const detail = (event as CustomEvent<DashboardSyncStateDetail>).detail;
-      setDashboardSync(detail?.error ? detail : null);
+      setDashboardSync(detail?.error || detail?.lastSyncedAt ? detail : null);
     };
 
     window.addEventListener('offline', handleOffline);
@@ -75,10 +75,13 @@ export default function AppStatusBanner() {
     updateAction();
   };
 
-  if (isOnline && !connectionRestored && !updateAction && !dashboardSync) return null;
+  const hasDashboardSyncError = Boolean(dashboardSync?.error);
+  if (isOnline && !connectionRestored && !updateAction && !hasDashboardSyncError) return null;
 
   const lastSyncedLabel = dashboardSync?.lastSyncedAt
-    ? new Date(dashboardSync.lastSyncedAt).toLocaleTimeString('vi-VN', {
+    ? new Date(dashboardSync.lastSyncedAt).toLocaleString('vi-VN', {
+        day: '2-digit',
+        month: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
         hour12: false,
@@ -96,7 +99,9 @@ export default function AppStatusBanner() {
           <span className="material-symbols-rounded" aria-hidden="true">wifi_off</span>
           <div className="app-status-banner-body">
             <strong>Đang ngoại tuyến</strong>
-            <span>Bạn vẫn có thể xem dữ liệu đã tải. Chấm công và cập nhật dữ liệu đang tạm khóa.</span>
+            <span>{lastSyncedLabel
+              ? `Đang xem bản đã đồng bộ lúc ${lastSyncedLabel}. Chấm công và cập nhật dữ liệu đang tạm khóa.`
+              : 'Chưa có bản dữ liệu ngoại tuyến. Chấm công và cập nhật dữ liệu đang tạm khóa.'}</span>
           </div>
         </div>
       ) : connectionRestored ? (
@@ -135,14 +140,14 @@ export default function AppStatusBanner() {
         </div>
       ) : null}
 
-      {isOnline && dashboardSync ? (
+      {isOnline && hasDashboardSyncError ? (
         <div className="app-status-banner app-status-banner-warning" role="status">
           <span className="material-symbols-rounded" aria-hidden="true">sync_problem</span>
           <div className="app-status-banner-body">
             <strong>Dữ liệu chưa đồng bộ</strong>
             <span>{lastSyncedLabel ? `Bản gần nhất lúc ${lastSyncedLabel}.` : 'Chưa có bản đồng bộ thành công.'}</span>
           </div>
-          {dashboardSync.retry ? (
+          {dashboardSync?.retry ? (
             <button type="button" className="app-status-banner-action" onClick={dashboardSync.retry}>
               Thử lại
             </button>

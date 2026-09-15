@@ -29,6 +29,8 @@ export interface Employee {
   annual_leave_balance?: number;
   trusted_device_id?: string | null;
   trusted_device_bound_at?: string | null;
+  /** True while the account still uses the default password issued at provisioning. */
+  password_change_required?: boolean;
   position?: string;
   department?: string;
   avatar_url?: string;
@@ -172,6 +174,9 @@ export interface SystemConfig {
 }
 
 export interface DashboardData {
+  organizationTimezone?: string;
+  serverLocalDate?: string;
+  serverTime?: string;
   userProfile: Employee;
   history: {
     history: Attendance[];
@@ -206,6 +211,7 @@ export interface WorkforceReceipt {
   gps_accuracy_m?: number;
   device_verified?: boolean;
   timesheet_id?: string;
+  work_session_id?: string;
   status?: string;
 }
 

@@ -7,9 +7,13 @@ import { getThemeMode, setThemeMode, type ThemeMode } from '@/shared/contexts/Th
 import { getFeedbackPrefs, setFeedbackPrefs, type FeedbackPrefs } from '@/core/utils/helpers';
 import { APP_INFO } from '@/shared/constants';
 import { useModalSwipeBack } from '@/shared/hooks/useModalSwipeBack';
+import type { EmployeeModalLayer } from '@/modules/tms/navigation/employeeNavigation';
 
 interface Props {
     isOpen: boolean;
+    activeLayer: EmployeeModalLayer | null;
+    onOpenLayer: (layer: EmployeeModalLayer) => void;
+    onCloseLayer: () => void;
     onClose: () => void;
 }
 
@@ -75,11 +79,11 @@ const THEME_CHOICES: ReadonlyArray<{ mode: ThemeMode; icon: string; label: strin
     { mode: 'dark', icon: 'dark_mode', label: 'Tối' },
 ];
 
-const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
+const SettingsModal: React.FC<Props> = ({ isOpen, activeLayer, onOpenLayer, onCloseLayer, onClose }) => {
     const [selectedTheme, setSelectedTheme] = useState<ThemeMode>('system');
     const [feedback, setFeedback] = useState<FeedbackPrefs>(() => getFeedbackPrefs());
-    const [isGuideOpen, setIsGuideOpen] = useState(false);
-    const [showSupportModal, setShowSupportModal] = useState(false);
+    const isGuideOpen = activeLayer === 'settings-guide';
+    const showSupportModal = activeLayer === 'settings-support';
     const dialogRef = useModalAccessibility(isOpen, onClose);
     const swipeBackHandlers = useModalSwipeBack(onClose, isGuideOpen || showSupportModal);
 
@@ -89,8 +93,6 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
             setFeedback(getFeedbackPrefs());
             return;
         }
-        setIsGuideOpen(false);
-        setShowSupportModal(false);
     }, [isOpen]);
 
     const handleThemeChange = (mode: ThemeMode) => {
@@ -176,9 +178,9 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
                         <div>
                             <div className="ui-label-row"><span className="ui-label">Trợ giúp &amp; hỗ trợ</span></div>
                             <section className="ui-card ui-card-flush">
-                                <SettingItem icon="phone_in_talk" tone="primary" title="Tổng đài hỗ trợ" subtitle={APP_INFO.SUPPORT_PHONE_LABEL} onClick={() => setShowSupportModal(true)} />
+                                <SettingItem icon="phone_in_talk" tone="primary" title="Tổng đài hỗ trợ" subtitle={APP_INFO.SUPPORT_PHONE_LABEL} onClick={() => onOpenLayer('settings-support')} />
                                 <SettingItem href={`mailto:${APP_INFO.CONTACT_EMAIL}`} icon="send" tone="success" title="Gửi phản hồi" subtitle="Báo lỗi hoặc góp ý tính năng" />
-                                <SettingItem icon="menu_book" tone="info" title="Hướng dẫn sử dụng" subtitle="Câu hỏi thường gặp (FAQ)" onClick={() => setIsGuideOpen(true)} />
+                                <SettingItem icon="menu_book" tone="info" title="Hướng dẫn sử dụng" subtitle="Câu hỏi thường gặp (FAQ)" onClick={() => onOpenLayer('settings-guide')} />
                             </section>
                         </div>
 
@@ -207,14 +209,14 @@ const SettingsModal: React.FC<Props> = ({ isOpen, onClose }) => {
                 </div>
             </div>
 
-            <UserGuideModal isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} />
+            <UserGuideModal isOpen={isGuideOpen} onClose={onCloseLayer} />
             <ConfirmDialog
                 isOpen={showSupportModal}
                 title="Gọi tổng đài?"
                 message={<>Gọi đến <strong>{APP_INFO.SUPPORT_PHONE_LABEL}</strong> để được hỗ trợ trực tiếp.</>}
                 confirmLabel="Gọi ngay"
-                onConfirm={() => { window.location.href = `tel:${APP_INFO.SUPPORT_PHONE}`; setShowSupportModal(false); }}
-                onCancel={() => setShowSupportModal(false)}
+                onConfirm={() => { window.location.href = `tel:${APP_INFO.SUPPORT_PHONE}`; onCloseLayer(); }}
+                onCancel={onCloseLayer}
                 type="success"
             />
         </>
