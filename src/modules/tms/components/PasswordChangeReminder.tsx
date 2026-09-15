@@ -1,18 +1,20 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
+import { getDeviceActivation, subscribeDeviceActivation } from '@/core/deviceActivation';
 import { scopedStorageKey } from '@/shared/constants';
 import type { Employee } from '@/shared/types';
 
 const DISMISSED_KEY = 'genai_password_reminder_dismissed';
 
-/** Session scoped on purpose: dismissing the prompt silences it for the rest of
- *  this sign-in, and it returns the next time the employee logs in. Every access
- *  is guarded because restricted and private browsing modes throw on the getter
- *  itself, and a reminder must never break the screen behind it. */
+/** Kept per device rather than per session: this is a one-time nudge at setup,
+ *  not a standing reminder, and an employee who chose to keep the issued
+ *  password should not be asked again on every sign-in. Every access is guarded
+ *  because restricted and private browsing modes throw on the getter itself,
+ *  and a reminder must never break the screen behind it. */
 function readDismissed(key: string) {
   try {
-    return globalThis.sessionStorage?.getItem(key) === '1';
+    return globalThis.localStorage?.getItem(key) === '1';
   } catch {
     return false;
   }
@@ -20,7 +22,7 @@ function readDismissed(key: string) {
 
 function storeDismissed(key: string) {
   try {
-    globalThis.sessionStorage?.setItem(key, '1');
+    globalThis.localStorage?.setItem(key, '1');
   } catch {
     // The prompt still closes for this render; only the memory of it is lost.
   }
@@ -35,11 +37,18 @@ interface Props {
 
 /** Prompts an employee whose account still carries the default password issued
  *  at provisioning. It is deliberately dismissible — it informs rather than
- *  gates, so it never stands between someone and a check-in. */
+ *  gates, so it never stands between someone and a check-in.
+ *
+ *  It belongs to first setup, so it is shown only while the account has no
+ *  trusted device bound on this browser. Once the device is activated the
+ *  employee has been through the setup they were going to go through, and an
+ *  account that stays on its issued password is then a matter for the admin
+ *  report, not for a dialog on every sign-in. */
 const PasswordChangeReminder = ({ user, profilePath }: Props) => {
   const navigate = useNavigate();
   const dismissedKey = scopedStorageKey(DISMISSED_KEY, user);
   const [dismissed, setDismissed] = useState(() => readDismissed(dismissedKey));
+  const activation = useSyncExternalStore(subscribeDeviceActivation, getDeviceActivation);
 
   const dismiss = useCallback(() => {
     storeDismissed(dismissedKey);
@@ -52,8 +61,11 @@ const PasswordChangeReminder = ({ user, profilePath }: Props) => {
   }, [dismiss, navigate, profilePath]);
 
   // Kiosk stations are shared hardware signed in by an operator, so there is no
-  // individual owner to prompt.
+  // individual owner to prompt. 'unknown' covers both the moment before the
+  // device status lands and an account held at the device gate, neither of
+  // which should have a dialog laid over it.
   if (dismissed || user.role === 'Kiosk' || !user.password_change_required) return null;
+  if (activation !== 'unbound') return null;
 
   return (
     <ConfirmDialog

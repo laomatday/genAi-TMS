@@ -15,6 +15,8 @@ interface Props {
   viewerId: string;
   /** Turns an employee id into a display name, falling back to the id itself. */
   resolveName: (employeeId: string) => string;
+  /** True when the viewer may decide steps assigned to other reviewers. */
+  mayOverride: boolean;
   expandedApprovalGroup: string | null;
   setExpandedApprovalGroup: React.Dispatch<React.SetStateAction<string | null>>;
   totalPending: number;
@@ -27,6 +29,7 @@ interface Props {
 const ModalListRequest: React.FC<Props> = ({
   viewerId,
   resolveName,
+  mayOverride,
   expandedApprovalGroup,
   setExpandedApprovalGroup,
   totalPending,
@@ -138,7 +141,7 @@ const ModalListRequest: React.FC<Props> = ({
                               </span>
 
                               <span className="approval-open-cta">
-                                {waitingOn ? 'Theo dõi' : 'Xem chi tiết'}
+                                {!waitingOn ? 'Xem chi tiết' : mayOverride ? 'Duyệt thay' : 'Theo dõi'}
                                 <span className="material-symbols-rounded" aria-hidden="true">arrow_forward</span>
                               </span>
                             </button>

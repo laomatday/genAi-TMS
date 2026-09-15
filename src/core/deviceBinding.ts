@@ -1,6 +1,7 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/core/supabase';
 import { STORAGE_KEYS } from '@/shared/constants';
+import { activationFromStatus, setDeviceActivation } from '@/core/deviceActivation';
 
 const DEVICE_ID_KEY = STORAGE_KEYS.DEVICE_ID;
 const DB_NAME = STORAGE_KEYS.DB_NAME;
@@ -134,7 +135,11 @@ async function invokeDevice(body: Record<string, unknown>) {
 }
 
 export async function getDeviceBindingStatus() {
-  return invokeDevice({ action: 'status', deviceId: getLogicalDeviceId() });
+  const status = await invokeDevice({ action: 'status', deviceId: getLogicalDeviceId() });
+  // Recorded here rather than in the gate so every caller of the status keeps
+  // the shared answer current, and nothing needs a second round trip to ask.
+  setDeviceActivation(activationFromStatus(status));
+  return status;
 }
 
 export async function activateTrustedDevice() {
@@ -154,7 +159,9 @@ export async function activateTrustedDevice() {
     userAgent: navigator.userAgent,
   });
   if (!result.ok) throw new Error(result.error || 'Không kích hoạt được thiết bị.');
-  return verifyTrustedDevice();
+  const verified = await verifyTrustedDevice();
+  setDeviceActivation('activated');
+  return verified;
 }
 
 export async function verifyTrustedDevice() {

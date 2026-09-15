@@ -9,7 +9,12 @@ import ModalListRequest from '@/modules/tms/components/ModalListRequest';
 import type { ApprovalGroup, ApprovalItem, ApprovalTypeConfig } from '@/modules/tms/components/ModalListRequest';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
-import { isReviewerTurn } from '@/modules/tms/utils/approvalTurn';
+import {
+  canOverrideReview,
+  isOverrideReasonValid,
+  isReviewerTurn,
+  OVERRIDE_REASON_MIN_LENGTH,
+} from '@/modules/tms/utils/approvalTurn';
 
 interface Props {
   data: DashboardData | null;
@@ -59,6 +64,7 @@ function deadlineText(value?: string) {
 interface ManagerApprovalDetailProps {
   item: ApprovalItem;
   reviewer: Employee;
+  capabilities: string[];
   contacts: Employee[];
   teamLeaves: LeaveRequest[];
   locationNames: Record<string, string>;
@@ -74,6 +80,7 @@ interface ManagerApprovalDetailProps {
 const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
   item,
   reviewer,
+  capabilities,
   contacts,
   teamLeaves,
   locationNames,
@@ -102,6 +109,9 @@ const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
     ? contacts.find(contact => contact.employee_id === activeReviewerId)
     : null;
   const isMyTurn = isReviewerTurn(item, reviewer.employee_id);
+  const mayOverride = !isMyTurn && canOverrideReview(capabilities);
+  const overrideReasonReady = isOverrideReasonValid(note);
+  const canDecide = isMyTurn || (mayOverride && overrideReasonReady);
   const overlappingLeaves = teamLeaves.filter(leave => (
     leave.status === 'Approved'
     && leave.employee_id !== item.employee_id
@@ -278,29 +288,59 @@ const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
         </ol>
       </section>
 
-      {isMyTurn ? (
+      {isMyTurn || mayOverride ? (
         <section className="ui-card manager-note-card">
-          <label htmlFor="manager-approval-note">Lời nhắn cho nhân sự <span>Tùy chọn</span></label>
+          <label htmlFor="manager-approval-note">
+            {mayOverride ? 'Lý do duyệt thay' : 'Lời nhắn cho nhân sự'}
+            <span>{mayOverride ? 'Bắt buộc' : 'Tùy chọn'}</span>
+          </label>
           <textarea
             id="manager-approval-note"
             className="ui-control"
             rows={3}
             maxLength={500}
             value={note}
-            placeholder="Nhập lời nhắn kèm theo quyết định…"
+            placeholder={mayOverride
+              ? `Vì sao bạn xử lý thay ${assignedReviewer?.name || activeReviewerId}?`
+              : 'Nhập lời nhắn kèm theo quyết định…'}
             onChange={event => onNoteChange(event.target.value)}
           />
-          <small>{note.length}/500</small>
+          <small>
+            {mayOverride && !overrideReasonReady
+              ? `Cần ít nhất ${OVERRIDE_REASON_MIN_LENGTH} ký tự để ghi nhận việc duyệt thay.`
+              : `${note.length}/500`}
+          </small>
         </section>
       ) : null}
 
-      {isMyTurn ? (
+      {mayOverride ? (
+        <section className="ui-card manager-handover-card">
+          <span className="ui-row-icon ui-tone-muted" aria-hidden="true">
+            <span className="material-symbols-rounded">shield_person</span>
+          </span>
+          <div>
+            <strong>Bạn đang xử lý thay</strong>
+            <p>
+              Bước này thuộc về <b>{assignedReviewer?.name || activeReviewerId}</b>
+              {assignedReviewer?.role ? ` (${assignedReviewer.role})` : ''}. Quyết định của bạn
+              vẫn có hiệu lực, kèm lý do ở trên và được ghi vào nhật ký kiểm toán.
+            </p>
+          </div>
+        </section>
+      ) : null}
+
+      {isMyTurn || mayOverride ? (
         <div className="manager-detail-actions" aria-label="Thao tác phê duyệt">
           <button type="button" className="approval-action approval-action-reject" disabled={!!processing} onClick={onReject}>
             <span className="material-symbols-rounded" aria-hidden="true">close</span>
             Từ chối
           </button>
-          <button type="button" className="approval-action approval-action-approve" disabled={!!processing} onClick={onApprove}>
+          <button
+            type="button"
+            className="approval-action approval-action-approve"
+            disabled={!!processing || !canDecide}
+            onClick={onApprove}
+          >
             {processing ? <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span> : <span className="material-symbols-rounded" aria-hidden="true">verified</span>}
             Phê duyệt đề xuất
           </button>
@@ -347,6 +387,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
 
   const contacts = useMemo(() => data?.contacts || [], [data?.contacts]);
   const approvalRoles = data?.approvalRoles || DEFAULT_APPROVAL_ROLES;
+  const capabilities = useMemo(() => data?.capabilities || [], [data?.capabilities]);
   const approvals = useMemo(() => data?.notifications.approvals || [], [data?.notifications.approvals]);
   const explanationApprovals = useMemo(
     () => data?.notifications.explanationApprovals || [],
@@ -555,6 +596,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
           <ManagerApprovalDetail
             item={selectedApproval}
             reviewer={user}
+            capabilities={capabilities}
             contacts={contacts}
             teamLeaves={data?.teamLeaves ?? []}
             locationNames={locationsMap}
@@ -570,6 +612,7 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
           <ModalListRequest
             viewerId={user.employee_id}
             resolveName={resolveEmployeeName}
+            mayOverride={canOverrideReview(capabilities)}
             expandedApprovalGroup={expandedApprovalGroup}
             setExpandedApprovalGroup={setExpandedApprovalGroup}
             totalPending={totalPending}
