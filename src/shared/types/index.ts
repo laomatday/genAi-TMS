@@ -117,6 +117,7 @@ export interface Explanation {
   reason: string;
   status: ReviewStatus;
   request_type?: 'EXPLANATION' | 'CORRECTION';
+  assigned_to?: string | null;
   requested_checkin?: string | null;
   requested_checkout?: string | null;
   manager_note?: string;

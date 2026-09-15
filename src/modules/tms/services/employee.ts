@@ -350,6 +350,7 @@ function mapExplanation(row: DataRow): Explanation | null {
     reason: textValue(row.reason),
     status,
     request_type: type,
+    assigned_to: optionalText(row.assigned_to) ?? null,
     requested_checkin: optionalText(row.requested_checkin) ?? null,
     requested_checkout: optionalText(row.requested_checkout) ?? null,
     manager_note: optionalText(row.manager_note),

@@ -4728,7 +4728,15 @@ button.ui-control { cursor: pointer; justify-content: space-between; }
 .manager-request-detail,
 .manager-impact-card,
 .manager-process-card,
+.manager-handover-card,
 .manager-note-card { padding: var(--space-4); }
+
+/* Stands in for the decision bar when the active workflow step belongs to
+   somebody else, so the reviewer sees why there is nothing to press. */
+.manager-handover-card { display: flex; align-items: flex-start; gap: var(--space-3); }
+.manager-handover-card strong { display: block; color: var(--color-text-primary); font-size: 0.875rem; font-weight: 700; }
+.manager-handover-card p { margin-top: 2px; color: var(--color-text-muted); font-size: 0.8125rem; line-height: 1.5; }
+.manager-handover-card b { color: var(--color-text-primary); font-weight: 700; }
 
 .manager-status-card { position: relative; overflow: hidden; }
 .manager-status-card::after {

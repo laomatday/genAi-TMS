@@ -4,12 +4,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { Employee, Explanation, LeaveRequest } from '@/shared/types';
 import Avatar from '@/shared/components/common/Avatar';
 import { formatDateString, triggerHaptic } from '@/core/utils/helpers';
+import { isReviewerTurn } from '@/modules/tms/utils/approvalTurn';
 
 export type ApprovalItem = ((LeaveRequest & { itemType: 'leave' }) | (Explanation & { itemType: 'explanation' })) & { emp?: Employee };
 export interface ApprovalGroup { id: string; title: string; items: ApprovalItem[]; }
 export interface ApprovalTypeConfig { label: string; icon: string; tone: string; }
 
 interface Props {
+  /** Employee id of the person reading the queue, to mark rows they cannot act on. */
+  viewerId: string;
+  /** Turns an employee id into a display name, falling back to the id itself. */
+  resolveName: (employeeId: string) => string;
   expandedApprovalGroup: string | null;
   setExpandedApprovalGroup: React.Dispatch<React.SetStateAction<string | null>>;
   totalPending: number;
@@ -20,6 +25,8 @@ interface Props {
 }
 
 const ModalListRequest: React.FC<Props> = ({
+  viewerId,
+  resolveName,
   expandedApprovalGroup,
   setExpandedApprovalGroup,
   totalPending,
@@ -90,6 +97,7 @@ const ModalListRequest: React.FC<Props> = ({
                           ? renderDateRange(item.from_date, item.to_date)
                           : formatDateString(item.date.split('T')[0]);
                         const itemName = item.name || item.emp?.name || item.employee_id;
+                        const waitingOn = isReviewerTurn(item, viewerId) ? null : item.assigned_to ?? null;
                         return (
                           <article key={item.id} className="approval-item">
                             <button type="button" className="approval-open" onClick={() => onOpenDetail(item)}>
@@ -115,6 +123,12 @@ const ModalListRequest: React.FC<Props> = ({
                                   <span className="approval-meta">
                                     {item.emp?.department ? <span className="ui-pill ui-pill-muted">{item.emp.department}</span> : null}
                                     {item.emp?.position ? <span className="ui-pill ui-pill-muted">{item.emp.position}</span> : null}
+                                    {waitingOn ? (
+                                      <span className="ui-pill ui-pill-muted">
+                                        <span className="material-symbols-rounded" aria-hidden="true">hourglass_top</span>
+                                        Chờ {resolveName(waitingOn)}
+                                      </span>
+                                    ) : null}
                                   </span>
                                 </span>
                               </span>
@@ -124,7 +138,7 @@ const ModalListRequest: React.FC<Props> = ({
                               </span>
 
                               <span className="approval-open-cta">
-                                Xem chi tiết
+                                {waitingOn ? 'Theo dõi' : 'Xem chi tiết'}
                                 <span className="material-symbols-rounded" aria-hidden="true">arrow_forward</span>
                               </span>
                             </button>

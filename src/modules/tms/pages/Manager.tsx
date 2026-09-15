@@ -9,7 +9,7 @@ import ModalListRequest from '@/modules/tms/components/ModalListRequest';
 import type { ApprovalGroup, ApprovalItem, ApprovalTypeConfig } from '@/modules/tms/components/ModalListRequest';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
-import { displayRequestCode } from '@/modules/tms/utils/requestCode';
+import { isReviewerTurn } from '@/modules/tms/utils/approvalTurn';
 
 interface Props {
   data: DashboardData | null;
@@ -94,13 +94,14 @@ const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
   const duration = inclusiveDayCount(fromDate, toDate);
   const dueAt = isLeave ? item.due_at : undefined;
   const deadline = deadlineText(dueAt);
-  const requestCode = displayRequestCode(item);
   const directManager = employee?.direct_manager_id
     ? contacts.find(contact => contact.employee_id === employee.direct_manager_id)
     : null;
-  const assignedReviewer = isLeave && item.assigned_to
-    ? contacts.find(contact => contact.employee_id === item.assigned_to)
+  const activeReviewerId = item.assigned_to ?? null;
+  const assignedReviewer = activeReviewerId
+    ? contacts.find(contact => contact.employee_id === activeReviewerId)
     : null;
+  const isMyTurn = isReviewerTurn(item, reviewer.employee_id);
   const overlappingLeaves = teamLeaves.filter(leave => (
     leave.status === 'Approved'
     && leave.employee_id !== item.employee_id
@@ -120,7 +121,6 @@ const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
           <span className="material-symbols-rounded" aria-hidden="true">arrow_back</span>
           Hàng đợi
         </button>
-        {requestCode ? <span className="ui-pill ui-pill-primary">{requestCode}</span> : null}
       </div>
 
       <section className="ui-card manager-status-card">
@@ -132,7 +132,6 @@ const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
             <span className="manager-status-title">Chờ phê duyệt</span>
             <span className="manager-status-sub">Gửi lúc {formatDateTime(item.created_at)}</span>
           </span>
-          {item.revision ? <span className="ui-pill ui-pill-muted">Phiên bản {item.revision}</span> : null}
         </div>
         {deadline ? (
           <div className={`manager-deadline ${dueAt && new Date(dueAt).getTime() < Date.now() ? 'manager-deadline-overdue' : ''}`.trim()}>
@@ -263,7 +262,14 @@ const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
           </li>
           <li className="manager-timeline-current">
             <span className="material-symbols-rounded" aria-hidden="true">hourglass_top</span>
-            <p><strong>Chờ quyết định</strong><small>{assignedReviewer?.name || reviewer.name} đang được phân công xử lý</small></p>
+            <p>
+              <strong>Chờ quyết định</strong>
+              <small>
+                {isMyTurn
+                  ? 'Bạn đang được phân công xử lý'
+                  : `${assignedReviewer?.name || activeReviewerId} đang được phân công xử lý`}
+              </small>
+            </p>
           </li>
           <li>
             <span className="material-symbols-rounded" aria-hidden="true">sync</span>
@@ -272,30 +278,48 @@ const ManagerApprovalDetail: React.FC<ManagerApprovalDetailProps> = ({
         </ol>
       </section>
 
-      <section className="ui-card manager-note-card">
-        <label htmlFor="manager-approval-note">Lời nhắn cho nhân sự <span>Tùy chọn</span></label>
-        <textarea
-          id="manager-approval-note"
-          className="ui-control"
-          rows={3}
-          maxLength={500}
-          value={note}
-          placeholder="Nhập lời nhắn kèm theo quyết định…"
-          onChange={event => onNoteChange(event.target.value)}
-        />
-        <small>{note.length}/500</small>
-      </section>
+      {isMyTurn ? (
+        <section className="ui-card manager-note-card">
+          <label htmlFor="manager-approval-note">Lời nhắn cho nhân sự <span>Tùy chọn</span></label>
+          <textarea
+            id="manager-approval-note"
+            className="ui-control"
+            rows={3}
+            maxLength={500}
+            value={note}
+            placeholder="Nhập lời nhắn kèm theo quyết định…"
+            onChange={event => onNoteChange(event.target.value)}
+          />
+          <small>{note.length}/500</small>
+        </section>
+      ) : null}
 
-      <div className="manager-detail-actions" aria-label="Thao tác phê duyệt">
-        <button type="button" className="approval-action approval-action-reject" disabled={!!processing} onClick={onReject}>
-          <span className="material-symbols-rounded" aria-hidden="true">close</span>
-          Từ chối
-        </button>
-        <button type="button" className="approval-action approval-action-approve" disabled={!!processing} onClick={onApprove}>
-          {processing ? <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span> : <span className="material-symbols-rounded" aria-hidden="true">verified</span>}
-          Phê duyệt đề xuất
-        </button>
-      </div>
+      {isMyTurn ? (
+        <div className="manager-detail-actions" aria-label="Thao tác phê duyệt">
+          <button type="button" className="approval-action approval-action-reject" disabled={!!processing} onClick={onReject}>
+            <span className="material-symbols-rounded" aria-hidden="true">close</span>
+            Từ chối
+          </button>
+          <button type="button" className="approval-action approval-action-approve" disabled={!!processing} onClick={onApprove}>
+            {processing ? <span className="material-symbols-rounded ui-spin" aria-hidden="true">progress_activity</span> : <span className="material-symbols-rounded" aria-hidden="true">verified</span>}
+            Phê duyệt đề xuất
+          </button>
+        </div>
+      ) : (
+        <section className="ui-card manager-handover-card">
+          <span className="ui-row-icon ui-tone-muted" aria-hidden="true">
+            <span className="material-symbols-rounded">hourglass_top</span>
+          </span>
+          <div>
+            <strong>Đang chờ người khác xử lý</strong>
+            <p>
+              Bước hiện tại thuộc về <b>{assignedReviewer?.name || activeReviewerId}</b>
+              {assignedReviewer?.role ? ` (${assignedReviewer.role})` : ''}. Yêu cầu vẫn
+              hiện ở đây để bạn theo dõi, nhưng quyết định phải do người này đưa ra.
+            </p>
+          </div>
+        </section>
+      )}
     </div>
   );
 };
@@ -377,6 +401,11 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
     });
     return groups;
   }, [groupedApprovals]);
+
+  const resolveEmployeeName = useCallback(
+    (employeeId: string) => contacts.find(contact => contact.employee_id === employeeId)?.name || employeeId,
+    [contacts],
+  );
 
   const selectedApproval = useMemo(
     () => approvalGroups.flatMap(group => group.items).find(item => item.id === selectedApprovalId) || null,
@@ -539,6 +568,8 @@ const TabManager: React.FC<Props> = ({ data, user, onRefresh, onAlert }) => {
           />
         ) : (
           <ModalListRequest
+            viewerId={user.employee_id}
+            resolveName={resolveEmployeeName}
             expandedApprovalGroup={expandedApprovalGroup}
             setExpandedApprovalGroup={setExpandedApprovalGroup}
             totalPending={totalPending}

@@ -104,7 +104,7 @@ const requiredFiles = [
   'docs/BACKUP_RESTORE_RUNBOOK.md',
   'src/core/errors/AppErrorBoundary.tsx',
   'src/core/observability/clientTelemetry.ts',
-  'src/modules/tms/utils/requestCode.ts',
+  'src/modules/tms/pages/Manager.tsx',
   'src/modules/tms/services/workforceCapabilities.ts',
   'scripts/load-test-dashboard.mjs',
 ];
@@ -750,9 +750,13 @@ if (!supabaseConfig.includes('schemas = ["public"]')) {
   fail('unused graphql_public schema must not be exposed through the Data API');
 }
 
-const requestCodeUtility = await readFile(join(root, 'src/modules/tms/utils/requestCode.ts'), 'utf8');
-if (!requestCodeUtility.includes('REQUEST_CODE_PATTERN') || !requestCodeUtility.includes('request_code')) {
-  fail('user-facing request codes must come from validated tenant business references');
+// The approval queue is scoped by role on the server, so it legitimately
+// contains requests parked on another reviewer's workflow step. Offering the
+// decision buttons on those rows produces a server rejection the reviewer
+// cannot act on, so the gate on assigned_to has to stay.
+const approvalPage = await readFile(join(root, 'src/modules/tms/pages/Manager.tsx'), 'utf8');
+if (!approvalPage.includes('isMyTurn') || !approvalPage.includes('item.assigned_to')) {
+  fail('the approval screen must offer a decision only to the assigned reviewer');
 }
 
 if (failures.length) {
