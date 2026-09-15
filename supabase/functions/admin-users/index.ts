@@ -339,6 +339,12 @@ Deno.serve(async (req: Request) => {
   const role = cleanText(input.role, 30);
   const centerId = cleanText(input.center_id, 60).toUpperCase();
   const status = input.status === "Inactive" ? "Inactive" : "Active";
+  // Three states: true and false force the device lock either way, anything else
+  // (including an omitted field) means "follow the role policy". A Kiosk station
+  // is shared hardware, so it can never be forced on.
+  const deviceLockRequired = role === "Kiosk"
+    ? (input.device_lock_required === false ? false : null)
+    : (typeof input.device_lock_required === "boolean" ? input.device_lock_required : null);
   const directManagerId = cleanText(input.direct_manager_id, 40).toUpperCase() || null;
   const allowedLocations = cleanList(input.allowed_locations);
   const managedLocations = cleanList(input.managed_locations);
@@ -426,6 +432,7 @@ Deno.serve(async (req: Request) => {
     direct_manager_id: directManagerId,
     annual_leave_balance: annualLeaveBalance,
     attendance_policy_id: role === "Kiosk" ? null : attendancePolicyId,
+    device_lock_required: deviceLockRequired,
     position: cleanText(input.position, 120) || null,
     department: cleanText(input.department, 120) || null,
     status,

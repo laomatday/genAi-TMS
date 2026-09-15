@@ -322,6 +322,8 @@ export interface EmployeeInput {
   position?: string;
   department?: string;
   status: Employee['status'];
+  /** Device lock override: true/false force it, null follows the role policy. */
+  device_lock_required?: boolean | null;
   password?: string;
   reset_trusted_device?: boolean;
   reset_device_reason?: string;

@@ -73,6 +73,26 @@ export function requiresDeviceLock(
   return role !== 'Kiosk' && lockedRoles.includes(role);
 }
 
+/**
+ * Effective device lock for one employee, in precedence order: a Kiosk station is
+ * never locked whatever is configured, then the employee's own override, then the
+ * tenant role policy. `null`/`undefined` on the override means "follow the role",
+ * which is what every employee carries until an admin decides otherwise.
+ *
+ * Exported for direct unit testing — the server decides this for real, and a
+ * client that disagreed would show someone a device gate the server will not
+ * enforce, or hide one it will.
+ */
+export function resolveDeviceLock(input: {
+  role: EmployeeRole;
+  override?: boolean | null;
+  lockedRoles?: readonly EmployeeRole[];
+}): boolean {
+  if (input.role === 'Kiosk') return false;
+  if (typeof input.override === 'boolean') return input.override;
+  return requiresDeviceLock(input.role, input.lockedRoles ?? DEFAULT_DEVICE_LOCK_ROLES);
+}
+
 // Which roles may approve which request family. Configurable from Admin →
 // Tham số hệ thống → Phân quyền duyệt (stored in config_system as APPROVAL_ROLES).
 // Admin is always an approver and is not stored. Leader is excluded by default.

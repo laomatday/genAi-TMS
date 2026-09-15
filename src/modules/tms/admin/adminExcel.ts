@@ -29,6 +29,9 @@ const EMPLOYEE_COLUMNS: ExcelColumn<Employee>[] = [
   { header: 'Chức danh', width: 22, value: (item) => item.position || '' },
   { header: 'Phòng ban', width: 22, value: (item) => item.department || '' },
   { header: 'Trạng thái', width: 18, value: (item) => item.status === 'Active' ? 'Hoạt động' : 'Tạm khóa' },
+  // Blank is a third, meaningful state: follow the role policy. Writing TRUE or
+  // FALSE here pins this employee regardless of what the policy later becomes.
+  { header: 'Khóa thiết bị', width: 16, value: (item) => item.device_lock_required === true ? 'TRUE' : item.device_lock_required === false ? 'FALSE' : '' },
   { header: 'Mật khẩu tạm (bỏ trống = mặc định)', width: 34, value: () => '' },
 ];
 
@@ -186,6 +189,12 @@ export async function parseEmployeesExcel(file: File, data: AdminData) {
     const suppliedPolicyId = excelText(row, 'Mã chính sách');
     const policyId = role === 'Kiosk' ? null : suppliedPolicyId || soleActivePolicyId;
     const managerId = excelText(row, 'Mã quản lý').toUpperCase();
+    // An empty cell must stay "follow the role", so this cannot go through
+    // excelBoolean, which collapses blank onto a fallback of its own.
+    const deviceLockCell = excelText(row, 'Khóa thiết bị');
+    const deviceLock = deviceLockCell === ''
+      ? null
+      : excelBoolean(row, true, 'Khóa thiết bị');
     const emailOwner = employeeByEmail.get(email);
 
     if (!employeeId || !name || !email || !role || !centerId) errors.push(`Dòng ${row.rowNumber}: thiếu trường bắt buộc.`);
@@ -223,6 +232,7 @@ export async function parseEmployeesExcel(file: File, data: AdminData) {
         position: excelText(row, 'Chức danh'),
         department: excelText(row, 'Phòng ban'),
         status: excelBoolean(row, true, 'Trạng thái') ? 'Active' : 'Inactive',
+        device_lock_required: deviceLock,
         password,
       },
     });

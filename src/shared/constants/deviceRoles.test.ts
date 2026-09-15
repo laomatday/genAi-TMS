@@ -5,6 +5,7 @@ import {
   DEVICE_LOCK_EDITABLE_ROLES,
   normalizeDeviceLockRoles,
   requiresDeviceLock,
+  resolveDeviceLock,
 } from './index';
 
 describe('trusted-device role contract', () => {
@@ -55,5 +56,30 @@ describe('device lock policy', () => {
   // An explicitly empty list is a deliberate choice and is honoured.
   it('honours an explicit empty list', () => {
     expect(normalizeDeviceLockRoles('[]')).toEqual([]);
+  });
+});
+
+describe('per-employee device lock override', () => {
+  it('follows the role policy when the employee has no override', () => {
+    expect(resolveDeviceLock({ role: 'Staff', override: null })).toBe(true);
+    expect(resolveDeviceLock({ role: 'Admin', override: null })).toBe(false);
+    // An omitted field must read the same as an explicit null.
+    expect(resolveDeviceLock({ role: 'Staff' })).toBe(true);
+  });
+
+  it('lets an explicit value win over the role policy in both directions', () => {
+    expect(resolveDeviceLock({ role: 'Staff', override: false })).toBe(false);
+    expect(resolveDeviceLock({ role: 'Admin', override: true })).toBe(true);
+  });
+
+  // Shared hardware has no individual owner to bind, so this is not a policy
+  // choice that an override gets to make.
+  it('never locks a kiosk station, even when overridden to true', () => {
+    expect(resolveDeviceLock({ role: 'Kiosk', override: true })).toBe(false);
+  });
+
+  it('resolves against the tenant policy it is given, not the default', () => {
+    expect(resolveDeviceLock({ role: 'Admin', override: null, lockedRoles: ['Admin'] })).toBe(true);
+    expect(resolveDeviceLock({ role: 'Staff', override: null, lockedRoles: [] })).toBe(false);
   });
 });

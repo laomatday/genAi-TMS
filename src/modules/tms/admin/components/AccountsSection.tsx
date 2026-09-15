@@ -1,7 +1,14 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import Avatar from '@/shared/components/common/Avatar';
-import { EMPLOYEE_ROLES, MANAGEMENT_ROLES, TMS_LIMITS } from '@/shared/constants';
+import {
+  DEVICE_LOCK_CONFIG_KEY,
+  EMPLOYEE_ROLES,
+  MANAGEMENT_ROLES,
+  normalizeDeviceLockRoles,
+  requiresDeviceLock,
+  TMS_LIMITS,
+} from '@/shared/constants';
 import type { Employee, EmployeeRole } from '@/shared/types';
 import { defaultAccountPassword } from '@/core/utils/defaultPassword';
 import { DEFAULT_EMPLOYEE } from '../constants';
@@ -138,6 +145,13 @@ export default function AccountsSection({
   const activeDevices = useMemo(() => new Map(data.devices.filter((device) => device.status === 'ACTIVE').map((device) => [device.employee_id, device])), [data.devices]);
   const activeDevice = activeDevices.get(employee.employee_id);
   const managers = data.employees.filter((item) => item.status === 'Active' && MANAGEMENT_ROLES.includes(item.role) && item.employee_id !== employee.employee_id);
+  // Spell out what "theo vai trò" resolves to right now, so choosing the default
+  // is not a guess about a setting that lives on another screen.
+  const lockedRoles = useMemo(
+    () => normalizeDeviceLockRoles(data.systemSettings.find((setting) => setting.key === DEVICE_LOCK_CONFIG_KEY)?.value ?? null),
+    [data.systemSettings],
+  );
+  const rolePolicyLabel = requiresDeviceLock(employee.role, lockedRoles) ? 'đang khóa' : 'không khóa';
   const activePolicies = data.policies.filter((policy) => policy.active);
 
   const startCreate = () => {
@@ -369,6 +383,25 @@ export default function AccountsSection({
 
           <LocationChecklist title="Địa điểm được phép chấm công" locations={data.locations} selected={employee.allowed_locations || []} onChange={(allowedLocations) => setEmployee((current) => ({ ...current, allowed_locations: allowedLocations }))} />
           {MANAGEMENT_ROLES.includes(employee.role) ? <LocationChecklist title="Địa điểm được phép quản lý" locations={data.locations} selected={employee.managed_locations || []} onChange={(managedLocations) => setEmployee((current) => ({ ...current, managed_locations: managedLocations }))} /> : null}
+
+          {employee.role !== 'Kiosk' ? (
+            <div className="admin-field admin-grid-span">
+              <span>Khóa thiết bị</span>
+              <AdminSelect
+                value={employee.device_lock_required === true ? 'true' : employee.device_lock_required === false ? 'false' : ''}
+                onChange={(value) => setEmployee((current) => ({
+                  ...current,
+                  device_lock_required: value === 'true' ? true : value === 'false' ? false : null,
+                }))}
+                label="Khóa thiết bị"
+                options={[
+                  { value: '', label: `Theo vai trò — ${rolePolicyLabel}`, description: 'Đổi chính sách vai trò thì nhân viên này đổi theo' },
+                  { value: 'true', label: 'True — luôn khóa', description: 'Chỉ đăng nhập được trên đúng một điện thoại' },
+                  { value: 'false', label: 'False — không khóa', description: 'Đăng nhập được trên mọi máy' },
+                ]}
+              />
+            </div>
+          ) : null}
 
           <div className="admin-password-field">
             <label><span>{mode === 'create' || !hasAuthAccount ? 'Mật khẩu tạm' : 'Mật khẩu mới (không bắt buộc)'}</span><input type="text" minLength={TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} required={mode === 'create' || (!hasAuthAccount && employee.status === 'Active')} autoComplete="new-password" value={employee.password || ''} onChange={(event) => setEmployee((current) => ({ ...current, password: event.target.value }))} /></label>

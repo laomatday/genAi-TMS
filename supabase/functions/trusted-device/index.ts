@@ -72,7 +72,7 @@ Deno.serve(async (request: Request) => {
 
   const { data: actor, error: actorError } = await admin
     .from("employees")
-    .select("employee_id,role,status,organization_id")
+    .select("employee_id,role,status,organization_id,device_lock_required")
     .eq("auth_user_id", authData.user.id)
     .single();
   if (actorError || !actor || actor.status !== "Active" || !actor.organization_id) {
@@ -151,18 +151,27 @@ Deno.serve(async (request: Request) => {
     return json({ ok: true, exempt: true, state: "EXEMPT" });
   }
 
-  const { data: lockSetting, error: lockSettingError } = await admin
-    .from("config_system")
-    .select("value")
-    .eq("organization_id", actor.organization_id)
-    .eq("key", "DEVICE_LOCK_ROLES")
-    .maybeSingle();
-  if (lockSettingError) {
-    // Fail closed: an unreadable policy keeps device proof required rather than
-    // handing out an exemption the administrator never granted.
-    return json({ ok: false, error: "Không đọc được chính sách khóa thiết bị." }, 500);
+  // An explicit per-employee decision outranks the role policy in both
+  // directions, so the tenant setting is only consulted when the employee has
+  // none. Reading it lazily also keeps the common case to one query.
+  let locked: boolean;
+  if (typeof actor.device_lock_required === "boolean") {
+    locked = actor.device_lock_required;
+  } else {
+    const { data: lockSetting, error: lockSettingError } = await admin
+      .from("config_system")
+      .select("value")
+      .eq("organization_id", actor.organization_id)
+      .eq("key", "DEVICE_LOCK_ROLES")
+      .maybeSingle();
+    if (lockSettingError) {
+      // Fail closed: an unreadable policy keeps device proof required rather than
+      // handing out an exemption the administrator never granted.
+      return json({ ok: false, error: "Không đọc được chính sách khóa thiết bị." }, 500);
+    }
+    locked = deviceLockRoles(lockSetting?.value).includes(actor.role);
   }
-  if (!deviceLockRoles(lockSetting?.value).includes(actor.role)) {
+  if (!locked) {
     return json({ ok: true, exempt: true, state: "EXEMPT" });
   }
 

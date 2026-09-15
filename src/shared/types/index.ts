@@ -31,6 +31,8 @@ export interface Employee {
   trusted_device_bound_at?: string | null;
   /** True while the account still uses the default password issued at provisioning. */
   password_change_required?: boolean;
+  /** Per-employee device lock override. Null follows the role policy. */
+  device_lock_required?: boolean | null;
   position?: string;
   department?: string;
   avatar_url?: string;
