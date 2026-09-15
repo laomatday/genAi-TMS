@@ -68,17 +68,23 @@ async function applyCapabilityOverrides(
   employeeId: string,
   overrides: Map<string, boolean>,
   known: string[],
+  { clearExisting }: { clearExisting: boolean },
 ) {
-  // Replace only the capabilities the caller could actually see. An older browser
-  // that predates a newly added capability must not delete an override it never
-  // rendered and therefore could not send back.
-  const { error: clearError } = await admin
-    .from("workforce_employee_capabilities")
-    .delete()
-    .eq("organization_id", organizationId)
-    .eq("employee_id", employeeId)
-    .in("capability", known);
-  if (clearError) return clearError;
+  // A freshly created employee has no rows to replace, so the clear is skipped
+  // there: the common case of an account with no override then performs no write
+  // at all and has nothing that can fail.
+  if (clearExisting) {
+    // Replace only the capabilities the caller could actually see. An older
+    // browser that predates a newly added capability must not delete an override
+    // it never rendered and therefore could not send back.
+    const { error: clearError } = await admin
+      .from("workforce_employee_capabilities")
+      .delete()
+      .eq("organization_id", organizationId)
+      .eq("employee_id", employeeId)
+      .in("capability", known);
+    if (clearError) return clearError;
+  }
   if (!overrides.size) return null;
   const { error: insertError } = await admin
     .from("workforce_employee_capabilities")
@@ -608,8 +614,9 @@ Deno.serve(async (req: Request) => {
         }, 500);
       }
     }
-    if (overridesSupplied) {
-      const overrideError = await applyCapabilityOverrides(admin, organizationId, employeeId, capabilityOverrides, KNOWN_CAPABILITIES);
+    if (overridesSupplied && capabilityOverrides.size) {
+      const overrideError = await applyCapabilityOverrides(
+        admin, organizationId, employeeId, capabilityOverrides, KNOWN_CAPABILITIES, { clearExisting: false });
       if (overrideError) {
         return json({
           ok: false,
@@ -772,7 +779,8 @@ Deno.serve(async (req: Request) => {
   }
 
   if (overridesSupplied) {
-    const overrideError = await applyCapabilityOverrides(admin, organizationId, employeeId, capabilityOverrides, KNOWN_CAPABILITIES);
+    const overrideError = await applyCapabilityOverrides(
+      admin, organizationId, employeeId, capabilityOverrides, KNOWN_CAPABILITIES, { clearExisting: true });
     if (overrideError) {
       return json({
         ok: false,
