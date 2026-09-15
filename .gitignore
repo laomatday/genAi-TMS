@@ -27,3 +27,4 @@ playwright-report/
 
 # High-resolution screen captures (bun run screens)
 screenshots/
+.cache/

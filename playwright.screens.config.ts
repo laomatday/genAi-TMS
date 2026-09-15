@@ -1,4 +1,21 @@
 import { defineConfig } from '@playwright/test';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+// Built by scripts/build-fake-camera.mjs from the kiosk capture. When it is
+// absent — first run, or no ffmpeg — Chromium falls back to its own test
+// pattern and the scanner shot is still taken, just less convincing.
+// Chromium resolves this flag itself, outside any working directory Playwright
+// sets, so it has to be absolute.
+const FAKE_CAMERA = resolve('.cache/fake-camera.y4m');
+// --use-file-for-fake-video-capture only swaps what the fake device plays; the
+// device itself still has to be created by --use-fake-device-for-media-stream,
+// and without that pair the page sees no camera at all.
+const cameraArgs = [
+  '--use-fake-ui-for-media-stream',
+  '--use-fake-device-for-media-stream',
+  ...(existsSync(FAKE_CAMERA) ? [`--use-file-for-fake-video-capture=${FAKE_CAMERA}`] : []),
+];
 
 /**
  * Screenshot capture, kept in its own config and directory so `bun run test:e2e`
@@ -22,6 +39,10 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:3107',
     browserName: 'chromium',
+    // The scanner modal opens a camera, so one is supplied; without it the
+    // modal would be captured in its permission-denied state.
+    permissions: ['camera'],
+    launchOptions: { args: cameraArgs },
     locale: 'vi-VN',
     timezoneId: 'Asia/Ho_Chi_Minh',
     colorScheme: 'light',
@@ -55,6 +76,16 @@ export default defineConfig({
       use: {
         viewport: { width: 1920, height: 1080 },
         screen: { width: 1920, height: 1080 },
+        deviceScaleFactor: 2,
+      },
+    },
+    {
+      // A kiosk runs on a wall-mounted screen turned on its side, so it is
+      // captured at portrait 1080p doubled — 2160 x 3840, 4K the tall way.
+      name: 'kiosk',
+      use: {
+        viewport: { width: 1080, height: 1920 },
+        screen: { width: 1080, height: 1920 },
         deviceScaleFactor: 2,
       },
     },

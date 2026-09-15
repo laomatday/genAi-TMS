@@ -4,6 +4,15 @@ import { mockBackend, openEmployeeApp } from '../e2e/support/backend';
 
 const OUT = 'screenshots';
 
+/**
+ * Viewport widths from playwright.screens.config.ts, used to route each suite to
+ * its own project. A describe-level `test.skip` only receives fixtures, not the
+ * project, and the three screens cannot be told apart by shape alone — the kiosk
+ * is portrait like the phone and wide like the desktop — so the width is what
+ * identifies them.
+ */
+const WIDTH = { mobile: 432, desktop: 1920, kiosk: 1080 } as const;
+
 /** Full page, or just the device-sized frame? Set SCREENS_FULL_PAGE=1 for the
  *  whole scrollable document, which is what documentation usually wants; the
  *  default is the viewport, which is what a device actually shows. */
@@ -64,7 +73,7 @@ async function shoot(page: Page, project: string, name: string) {
 }
 
 test.describe('employee app', () => {
-  test.skip(({ viewport }) => (viewport?.width ?? 0) >= 768, 'phone layout only');
+  test.skip(({ viewport }) => viewport?.width !== WIDTH.mobile, 'phone layout only');
 
   test('every tab', async ({ page }, testInfo) => {
     const project = testInfo.project.name;
@@ -103,11 +112,27 @@ test.describe('employee app', () => {
     await page.goBack();
     await page.getByRole('button', { name: 'Trang chủ', exact: true }).last().click();
     await shootElement(page, project, '09-thanh-dieu-huong', 'nav[aria-label="Điều hướng chính"]');
+
+    // The scanner. Opened through the home button rather than by URL so the
+    // checks that guard it (attendance lock, connectivity) run for real.
+    await page.getByRole('button', { name: /Chấm công/ }).first().click();
+    const scanner = page.locator('[role="dialog"][aria-labelledby="qr-scanner-title"]');
+    await expect(scanner).toBeVisible({ timeout: 15_000 });
+    // Wait for the fake camera to deliver frames; a shot taken before the first
+    // one shows an empty black stage rather than a viewfinder.
+    await expect.poll(
+      () => page.evaluate(() => {
+        const video = document.querySelector('.scanner-stage video') as HTMLVideoElement | null;
+        return video ? video.readyState >= 2 && video.videoWidth > 0 : false;
+      }),
+      { timeout: 15_000 },
+    ).toBe(true);
+    await shoot(page, project, '10-quet-qr');
   });
 });
 
 test.describe('control center', () => {
-  test.skip(({ viewport }) => (viewport?.width ?? 0) < 768, 'desktop layout only');
+  test.skip(({ viewport }) => viewport?.width !== WIDTH.desktop, 'desktop layout only');
 
   test('portal and admin sections', async ({ page }, testInfo) => {
     const project = testInfo.project.name;
@@ -150,5 +175,39 @@ test.describe('control center', () => {
     expect(missing, 'admin sections absent from the sidebar').toEqual([]);
 
     await shootElement(page, project, '10-thanh-dieu-huong', 'nav[aria-label="Điều hướng quản trị"]');
+  });
+});
+
+
+test.describe('kiosk station', () => {
+  test.skip(({ viewport }) => viewport?.width !== WIDTH.kiosk, 'portrait kiosk screen only');
+
+  test('qr station', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await mockBackend(page);
+    await page.goto('/');
+    await page.getByLabel('Tài khoản').fill('admin@example.com');
+    await page.locator('#login-password').fill('correct-password');
+    await page.getByRole('button', { name: 'Đăng nhập' }).click();
+    await expect(page.locator('#login-account')).toBeHidden({ timeout: 15_000 });
+
+    await page.goto('/kiosk');
+    // The station is only worth a picture once it is showing a live code.
+    await expect(page.locator('svg').first()).toBeVisible({ timeout: 20_000 });
+    await shoot(page, project, '01-tram-qr');
+
+    // A tight crop around the QR panel, used as the camera source for the
+    // scanner shot so the code lands inside the scan window rather than off in
+    // a corner of the frame.
+    await mkdir('.cache', { recursive: true });
+    const panel = await page.locator('.qr-panel').boundingBox();
+    if (panel) {
+      const pad = 70;
+      await page.screenshot({
+        path: '.cache/kiosk-qr.png',
+        clip: { x: panel.x - pad, y: panel.y - pad, width: panel.width + pad * 2, height: panel.height + pad * 2 },
+        scale: 'device',
+      });
+    }
   });
 });

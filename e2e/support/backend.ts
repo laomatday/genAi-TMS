@@ -369,6 +369,19 @@ export async function mockBackend(
       await route.fulfill({ status: 200, headers, json: workforcePayload(body.p_resource || '') });
       return;
     }
+    if (url.pathname.endsWith('/rest/v1/rpc/create_attendance_qr')) {
+      await route.fulfill({
+        status: 200,
+        headers,
+        json: {
+          // Shaped like the real token so the rendered QR has realistic density.
+          payload: `genai-tms:v4:DN01:${'8f2a41c7d9e3b605'.repeat(2)}:${Date.now()}`,
+          expiresAt: Date.now() + 110_000,
+          branchName: 'Đà Nẵng 1',
+        },
+      });
+      return;
+    }
     if (url.pathname.endsWith('/rest/v1/rpc/workforce_command')) {
       await route.fulfill({ status: 200, headers, json: { ok: true, count: 1 } });
       return;

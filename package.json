@@ -18,7 +18,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:load": "bun scripts/load-test-dashboard.mjs",
-    "screens": "playwright test --config playwright.screens.config.ts",
+    "screens": "playwright test --config playwright.screens.config.ts --project=kiosk && bun scripts/build-fake-camera.mjs && playwright test --config playwright.screens.config.ts --project=mobile --project=desktop",
     "check": "bun run audit:repo && bun run deadcode && bun run test && bun run build",
     "check:release": "bun run check && bun run audit:dependencies",
     "preview": "vite preview --host 0.0.0.0 --port 3000"
@@ -55,6 +55,9 @@
     "ignoreDependencies": [
       "jsr",
       "npm"
+    ],
+    "ignoreBinaries": [
+      "ffmpeg"
     ]
   }
 }
