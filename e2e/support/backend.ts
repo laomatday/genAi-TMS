@@ -101,7 +101,24 @@ function workforcePayload(resource: string) {
       local_date: today,
       server_time: `${today}T08:00:00+07:00`,
       unread: 1,
-      today: null,
+      // An open shift: checked in this morning, not yet out. The home screen
+      // then shows a running timer and the check-out path, which is the state
+      // an employee is actually in for most of the day.
+      today: {
+        id: 'ts-open',
+        employee_id: EMPLOYEE_ID,
+        work_date: today,
+        business_date: today,
+        actual_checkin: `${today}T01:28:00Z`,
+        actual_checkout: null,
+        work_minutes: 0,
+        late_minutes: 0,
+        break_minutes: 0,
+        status: 'OPEN',
+        location_id: 'DN01',
+        location_name: 'Đà Nẵng 1',
+        exception_codes: [],
+      },
     };
   }
 

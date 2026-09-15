@@ -8,7 +8,7 @@ Kết quả ghi vào `screenshots/` (đã nằm trong `.gitignore`):
 
 | Thư mục | Kích thước ảnh | Nội dung |
 |---|---|---|
-| `screenshots/mobile/` | 2160 × 4680 | 9 màn app chấm công, gồm modal quét QR |
+| `screenshots/mobile/` | 2160 × 4680 | 19 màn app chấm công, gồm toàn bộ modal |
 | `screenshots/desktop/` | 3840 × 2160 (UHD 4K) | 9 màn Control Center trên máy tính |
 | `screenshots/kiosk/` | 2160 × 3840 (4K khổ dọc) | Trạm QR, màn treo tường xoay dọc |
 
@@ -34,6 +34,27 @@ SCREENS_FULL_PAGE=1 bun run screens
 Điều này quan trọng. Nếu tăng kích thước khung nhìn để lấy 4K thì ứng dụng sẽ
 nhận được một màn hình không thiết bị nào có, và `isMobile` sẽ chọn bố cục máy
 tính cho ảnh đáng lẽ phải là điện thoại.
+
+## Cách chụp modal
+
+Mọi lớp phủ trong app chấm công đều địa chỉ hoá được bằng `?modal=<tên>` — xem
+`EmployeeModalLayer` trong `src/modules/tms/navigation/employeeNavigation.ts`.
+Bộ chụp mở chúng bằng URL, tức là đi đúng con đường mà một deep link hay nút
+Back của trình duyệt đi, chứ không bấm lần theo giao diện (dễ vỡ khi bố cục
+đổi).
+
+Ba ngoại lệ:
+
+- **Cài đặt** phải mở qua menu ở header. Deep link `?modal=settings` **tự đóng**:
+  sheet báo "closed" lúc mount và `setSettingsOpen(false)` đóng đúng lớp đó.
+  Hai lớp con `settings-guide` và `settings-support` không bị, nên vẫn mở thẳng
+  bằng URL được.
+- **Hộp xác nhận** (kết thúc ca) mang `role="alertdialog"`, không phải `dialog`.
+- **Chi tiết liên hệ** và **cắt ảnh đại diện** không có URL riêng; cái đầu mở từ
+  một dòng trong danh bạ, cái sau cần ảnh đã chọn nên không chụp tự động được.
+
+Modal nào không mở được sẽ được gom lại và báo lỗi ở cuối bài test, thay vì âm
+thầm chụp cái đang nằm phía sau.
 
 ## Camera của modal quét QR
 

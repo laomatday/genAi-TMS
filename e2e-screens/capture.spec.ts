@@ -63,6 +63,36 @@ async function shootElement(page: Page, project: string, name: string, selector:
   await page.evaluate((id) => document.getElementById(id)?.remove(), styleId);
 }
 
+/**
+ * Opens a modal by URL and captures it.
+ *
+ * Every overlay in the employee app is addressable as ?modal=<layer>, which is
+ * what makes this reliable: the screen is reached the same way a deep link or a
+ * browser Back would reach it, not by clicking a path through the UI that could
+ * change shape.
+ *
+ * A modal that does not appear is collected and reported at the end of the test
+ * rather than quietly producing a screenshot of whatever was behind it.
+ */
+async function shootModal(
+  page: Page,
+  project: string,
+  name: string,
+  url: string,
+  missing: string[],
+  selector = '[role="dialog"]',
+) {
+  await page.goto(url);
+  const dialog = page.locator(selector).first();
+  try {
+    await expect(dialog).toBeVisible({ timeout: 10_000 });
+  } catch {
+    missing.push(`${name} (${url})`);
+    return;
+  }
+  await shoot(page, project, name);
+}
+
 async function shoot(page: Page, project: string, name: string) {
   await mkdir(`${OUT}/${project}`, { recursive: true });
   // Web fonts decide glyph widths, so a shot taken before they land is laid out
@@ -128,6 +158,53 @@ test.describe('employee app', () => {
       { timeout: 15_000 },
     ).toBe(true);
     await shoot(page, project, '10-quet-qr');
+
+    // Every remaining overlay, reached by its own URL.
+    const missing: string[] = [];
+    await page.goto('/?tab=profile');
+    await expect(page.getByRole('heading', { name: /Hồ sơ|Nhân sự E2E/ }).first()).toBeVisible({ timeout: 15_000 });
+    await shoot(page, project, '11-ho-so');
+
+    await shootModal(page, project, '12-doi-mat-khau', '/?tab=profile&modal=profile-password', missing);
+    await shootModal(page, project, '13-dang-xuat', '/?tab=profile&modal=profile-logout', missing);
+    // Settings is opened through the header menu rather than its URL: deep
+    // linking to ?modal=settings closes itself, because the sheet reports
+    // "closed" on mount and setSettingsOpen(false) acts on exactly that layer.
+    // The sub-layers survive it, which is why they are still linked directly.
+    await page.goto('/?tab=home');
+    const actionsMenu = page.getByRole('button', { name: 'Mở menu tác vụ' });
+    await expect(actionsMenu).toBeVisible({ timeout: 15_000 });
+    await actionsMenu.click();
+    await page.getByRole('menuitem', { name: 'Cài đặt' }).click();
+    const settings = page.getByRole('dialog', { name: 'Cài đặt' });
+    try {
+      await expect(settings).toBeVisible({ timeout: 10_000 });
+      await shoot(page, project, '14-cai-dat');
+    } catch {
+      missing.push('14-cai-dat (header menu)');
+    }
+    await shootModal(page, project, '15-huong-dan', '/?tab=home&modal=settings-guide', missing);
+    await shootModal(page, project, '16-ho-tro', '/?tab=home&modal=settings-support', missing);
+    // A confirm is an alertdialog, not a dialog.
+    await shootModal(page, project, '17-ket-thuc-ca', '/?tab=home&modal=checkout', missing, '[role="alertdialog"]');
+
+    const explainDate = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+    await shootModal(page, project, '18-giai-trinh', `/?tab=history&modal=explanation&date=${explainDate}`, missing);
+
+    // Contact detail is the one overlay with no URL of its own; it opens from a
+    // row in the directory.
+    await page.goto('/?tab=contacts');
+    const contact = page.getByText('Trần Minh Khoa').first();
+    try {
+      await expect(contact).toBeVisible({ timeout: 15_000 });
+      await contact.click();
+      await expect(page.locator('[role="dialog"]').first()).toBeVisible({ timeout: 10_000 });
+      await shoot(page, project, '19-chi-tiet-lien-he');
+    } catch {
+      missing.push('19-chi-tiet-lien-he (directory row)');
+    }
+
+    expect(missing, 'overlays that did not open').toEqual([]);
   });
 });
 
