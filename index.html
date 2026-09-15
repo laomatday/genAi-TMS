@@ -17,6 +17,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://lh3.googleusercontent.com" />
     <!--
+      Every RPC in the app goes to this one origin, and it is the first thing the
+      session needs. Without a preconnect the opening call pays DNS, TCP and TLS
+      before it can send a byte — three round trips to the region before any work
+      starts. Vite substitutes the deployment's own URL at build time, so this
+      stays correct for a white-label project pointed at a different Supabase.
+    -->
+    <link rel="preconnect" href="%VITE_SUPABASE_URL%" crossorigin />
+    <!--
       Both font requests belong in the document rather than behind an @import in
       style.css. An @import is only discovered once the bundled stylesheet has
       downloaded and parsed, which pushes the font two round trips later than it
