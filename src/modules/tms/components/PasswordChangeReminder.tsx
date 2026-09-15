@@ -62,9 +62,12 @@ const PasswordChangeReminder = ({ user, profilePath }: Props) => {
       title="Hãy đổi mật khẩu"
       message={
         <>
-          Tài khoản của bạn vẫn đang dùng mật khẩu mặc định được cấp khi khởi tạo.
-          Mật khẩu này được tạo theo họ tên nên người khác có thể đoán ra.
-          {profilePath ? ' Hãy đặt mật khẩu riêng để bảo vệ dữ liệu chấm công của bạn.' : ' Hãy liên hệ quản trị viên để đặt mật khẩu riêng.'}
+          {/* The flag is also raised for accounts that were never reset, so this
+              must not assert that the reader is still on the default password —
+              it states why the default is weak and lets them judge. */}
+          Mật khẩu mặc định cấp khi khởi tạo được tạo theo họ tên, nên người khác có thể đoán ra.
+          Nếu bạn chưa từng đổi, hãy đặt mật khẩu riêng ngay.
+          {profilePath ? ' Chỉ mất một phút và bảo vệ được dữ liệu chấm công của bạn.' : ' Liên hệ quản trị viên để được hỗ trợ.'}
         </>
       }
       confirmLabel={profilePath ? 'Đổi mật khẩu' : 'Đã hiểu'}
