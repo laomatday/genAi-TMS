@@ -8,6 +8,7 @@ import {
   type MouseEventHandler,
   type ReactNode,
   type TouchEventHandler,
+  type UIEventHandler,
 } from 'react';
 import { TMS_LIMITS } from '@/shared/constants';
 import {
@@ -87,6 +88,23 @@ const pointFromTouch = (touch: { clientX: number; clientY: number }, time: numbe
   time,
 });
 
+interface ResettablePagerSurface {
+  dataset: { pagerPhase?: string };
+  scrollLeft: number;
+  style: { removeProperty: (property: string) => unknown };
+}
+
+/**
+ * Clear both the gesture transform and any native horizontal scroll. Browsers
+ * may scroll an overflow-hidden ancestor when a descendant calls
+ * scrollIntoView(), so transform state alone is not a complete reset.
+ */
+export function resetPagerSurface(surface: ResettablePagerSurface) {
+  surface.scrollLeft = 0;
+  surface.style.removeProperty('--pager-offset-x');
+  delete surface.dataset.pagerPhase;
+}
+
 export function adjacentPagerIndex(activeIndex: number, direction: 'left' | 'right', length: number) {
   const target = activeIndex + (direction === 'left' ? 1 : -1);
   return target >= 0 && target < length ? target : null;
@@ -149,8 +167,7 @@ export default function EmployeePager({
 
   const clearSurface = useCallback((surface = surfaceRef.current) => {
     if (!surface) return;
-    surface.style.removeProperty('--pager-offset-x');
-    delete surface.dataset.pagerPhase;
+    resetPagerSurface(surface);
   }, []);
 
   const hardReset = useCallback((surface = surfaceRef.current) => {
@@ -330,6 +347,11 @@ export default function EmployeePager({
     event.stopPropagation();
   }, [clearClickSuppression]);
 
+  const onScroll = useCallback<UIEventHandler<HTMLDivElement>>((event) => {
+    // Recovery path for older WebViews that treat overflow: clip as hidden.
+    if (event.currentTarget.scrollLeft !== 0) event.currentTarget.scrollLeft = 0;
+  }, []);
+
   return (
     <div
       ref={surfaceRef}
@@ -340,6 +362,7 @@ export default function EmployeePager({
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       onTouchCancel={cancelGesture}
+      onScroll={onScroll}
     >
       {visibleTabs.map(({ index, tab }) => {
         const position = index - activeIndex;

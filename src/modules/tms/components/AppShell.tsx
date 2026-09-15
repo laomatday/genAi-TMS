@@ -427,7 +427,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
       case 'calendar':
         return <CalendarPage data={data} user={currentUser} onRefresh={refresh} currentDate={managerDate} />;
       case 'contacts':
-        return <TabContacts data={data} resetTrigger={isActive ? contactsResetTrigger : 0} searchTrigger={isActive ? contactsSearchTrigger : 0} setIsHeaderVisible={isActive ? setIsHeaderVisible : undefined} onNavigate={handleTabChange} />;
+        return <TabContacts isActive={isActive} data={data} resetTrigger={isActive ? contactsResetTrigger : 0} searchTrigger={isActive ? contactsSearchTrigger : 0} setIsHeaderVisible={isActive ? setIsHeaderVisible : undefined} onNavigate={handleTabChange} />;
     }
   };
 

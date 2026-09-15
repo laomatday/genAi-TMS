@@ -9,6 +9,7 @@ import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import type { TabType } from '@/modules/tms/components/BottomNav';
 
 interface Props {
+    isActive?: boolean;
     data: DashboardData | null;
     resetTrigger?: number;
     searchTrigger?: number; // Header Search Trigger
@@ -47,7 +48,7 @@ const groupIcon = (groupId: string) => {
     return 'badge';
 };
 
-const TabContacts: React.FC<Props> = ({ data, resetTrigger = 0, searchTrigger = 0, setIsHeaderVisible, onNavigate }) => {
+const TabContacts: React.FC<Props> = ({ isActive = true, data, resetTrigger = 0, searchTrigger = 0, setIsHeaderVisible, onNavigate }) => {
     const [term, setTerm] = useState('');
     const [debouncedTerm, setDebouncedTerm] = useState('');
     const [selectedContact, setSelectedContact] = useState<Employee | null>(null);
@@ -122,13 +123,27 @@ const TabContacts: React.FC<Props> = ({ data, resetTrigger = 0, searchTrigger = 
     }, [contacts, locationsMap, data?.userProfile?.managed_locations]);
 
     useEffect(() => {
-        if (activeCenter && tabsRef.current) {
+        const tabs = tabsRef.current;
+        if (isActive && activeCenter && tabs) {
             const tab = tabRefs.current.get(activeCenter);
             if (tab) {
-                tab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                const tabsRect = tabs.getBoundingClientRect();
+                const tabRect = tab.getBoundingClientRect();
+                const centeredLeft = tabs.scrollLeft
+                    + tabRect.left
+                    - tabsRect.left
+                    - (tabsRect.width - tabRect.width) / 2;
+
+                // Keep this scroll local. scrollIntoView() also scrolls the
+                // off-canvas pager ancestor when Contacts is pre-rendered.
+                const maxScrollLeft = Math.max(0, tabs.scrollWidth - tabs.clientWidth);
+                tabs.scrollTo({
+                    left: Math.min(maxScrollLeft, Math.max(0, centeredLeft)),
+                    behavior: 'smooth',
+                });
             }
         }
-    }, [activeCenter]);
+    }, [activeCenter, isActive]);
 
     useEffect(() => {
         if (searchTrigger > 0) {

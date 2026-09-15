@@ -555,7 +555,10 @@
   --pager-offset-x: 0px;
   position: absolute;
   inset: 0;
+  /* Hidden is the fallback; clip prevents descendant scrollIntoView() from
+     turning the swipe surface into a native horizontal scroll container. */
   overflow: hidden;
+  overflow: clip;
   overscroll-behavior-x: none;
   touch-action: pan-y pinch-zoom;
 }

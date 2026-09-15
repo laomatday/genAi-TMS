@@ -6,6 +6,7 @@ import EmployeePager, {
   INITIAL_PAGER_TRANSITION_STATE,
   adjacentPagerIndex,
   reducePagerTransition,
+  resetPagerSurface,
 } from './EmployeePager';
 
 describe('EmployeePager', () => {
@@ -56,5 +57,20 @@ describe('EmployeePager', () => {
     const finished = reducePagerTransition(settling, { type: 'finish', generation: settling.generation });
 
     expect(finished).toEqual({ generation: settling.generation, phase: 'idle', targetIndex: null });
+  });
+
+  it('resets native horizontal drift together with gesture state', () => {
+    const removeProperty = vi.fn();
+    const surface = {
+      dataset: { pagerPhase: 'settling' },
+      scrollLeft: 1_558,
+      style: { removeProperty },
+    };
+
+    resetPagerSurface(surface);
+
+    expect(surface.scrollLeft).toBe(0);
+    expect(surface.dataset).not.toHaveProperty('pagerPhase');
+    expect(removeProperty).toHaveBeenCalledWith('--pager-offset-x');
   });
 });
