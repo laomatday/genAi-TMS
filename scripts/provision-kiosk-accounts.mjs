@@ -1,6 +1,6 @@
 import process from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 
 // Creates one dedicated Kiosk account per branch. A Kiosk account only displays
 // the rotating QR code: it never self-attends, and it is exempt from the trusted
@@ -37,21 +37,28 @@ const MIN_PASSWORD_LENGTH = 8;
 
 /** The project URL is not a secret — it ships in the browser bundle — so reading
  *  it from .env.local saves the operator retyping it and removes a chance of
- *  aiming at the wrong project. The service key is never read from a file: it
- *  must be supplied deliberately, for this one run. Typing the hostname back
- *  still guards the target either way. */
-function projectUrlFromEnvFile() {
+ *  aiming at the wrong project. Typing the hostname back still guards the target.
+ */
+function readEnvFile(name, variable) {
   try {
-    const file = readFileSync(new URL('../.env.local', import.meta.url), 'utf8');
-    const match = /^\s*VITE_SUPABASE_URL\s*=\s*"?([^"\r\n]+)"?/m.exec(file);
-    return match?.[1]?.trim() || '';
+    const file = readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
+    const match = new RegExp(`^\\s*${variable}\\s*=\\s*"?([^"\\r\\n]+)"?`, 'm').exec(file);
+    return { value: match?.[1]?.trim() || '', mode: statSync(new URL(`../${name}`, import.meta.url)).mode };
   } catch {
-    return '';
+    return { value: '', mode: 0 };
   }
 }
 
+/** The service key may also live in .env.admin.local, which .gitignore already
+ *  covers. Keeping it out of the shell entirely is the point: an operator who has
+ *  to assemble a one-off env var for every run eventually pastes the key
+ *  somewhere it does not belong. The file is warned about if it is readable by
+ *  anyone but its owner, and it is never the .env.local the app itself uses —
+ *  nothing that feeds the browser bundle should be able to carry this key. */
+const ADMIN_ENV_FILE = '.env.admin.local';
+
 function resolveProjectUrl() {
-  const url = process.env.TMS_ADMIN_URL?.trim() || projectUrlFromEnvFile();
+  const url = process.env.TMS_ADMIN_URL?.trim() || readEnvFile('.env.local', 'VITE_SUPABASE_URL').value;
   if (!url) {
     throw new Error('Missing TMS_ADMIN_URL, and no VITE_SUPABASE_URL found in .env.local.');
   }
@@ -59,12 +66,25 @@ function resolveProjectUrl() {
 }
 
 function resolveServiceKey() {
-  const key = process.env.TMS_ADMIN_SERVICE_KEY?.trim();
+  let key = process.env.TMS_ADMIN_SERVICE_KEY?.trim();
+  if (!key) {
+    const fromFile = readEnvFile(ADMIN_ENV_FILE, 'TMS_ADMIN_SERVICE_KEY');
+    // 0o077 is every permission bit outside the owner.
+    if (fromFile.value && (fromFile.mode & 0o077)) {
+      console.warn(`Canh bao: ${ADMIN_ENV_FILE} dang cho nguoi khac doc. Chay: chmod 600 ${ADMIN_ENV_FILE}`);
+    }
+    key = fromFile.value;
+  }
   if (!key) {
     throw new Error(
       'Missing TMS_ADMIN_SERVICE_KEY.\n\n'
-      + 'Lay tai: Supabase Dashboard -> Project Settings -> API -> service_role (secret).\n'
-      + 'Chay lai, key se khong hien tren man hinh va khong vao shell history:\n\n'
+      + 'Lay tai: Supabase Dashboard -> Project Settings -> API -> service_role (secret).\n\n'
+      + 'Dat mot lan, dung mai (file da duoc gitignore):\n\n'
+      + '  install -m 600 /dev/null ' + ADMIN_ENV_FILE + ' \\\n'
+      + '    && read -rsp "Service-role key: " KEY && echo \\\n'
+      + '    && printf \'TMS_ADMIN_SERVICE_KEY=%s\\n\' "$KEY" > ' + ADMIN_ENV_FILE + ' \\\n'
+      + '    && unset KEY\n\n'
+      + 'Hoac chi cho mot lan chay:\n\n'
       + '  read -rsp "Service-role key: " KEY && echo \\\n'
       + '    && TMS_ADMIN_SERVICE_KEY="$KEY" bun run ' + `provision:kiosks${APPLY ? ' -- --apply' : ''}` + '\n',
     );
