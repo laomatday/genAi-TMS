@@ -24,3 +24,6 @@ playwright-report/
 # the live project, so it stays on the machine that granted it.
 .claude/settings.json
 .claude/settings.local.json
+
+# High-resolution screen captures (bun run screens)
+screenshots/
