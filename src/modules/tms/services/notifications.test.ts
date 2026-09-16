@@ -11,6 +11,7 @@ vi.mock('./workforceApi', () => ({
   queryWorkforce: workforceMocks.query,
 }));
 
+import { TMS_LIMITS } from '@/shared/constants';
 import {
   getNotificationInbox,
   getNotificationUnreadCount,
@@ -61,7 +62,7 @@ describe('normalizeNotificationInbox', () => {
     expect(workforceMocks.query).toHaveBeenCalledWith(
       'bootstrap',
       {},
-      { scope: 'org-1:employee-1', force: false, ttlSeconds: 30 },
+      { scope: 'org-1:employee-1', force: false, ttlSeconds: Math.ceil(TMS_LIMITS.DASHBOARD_VISIBLE_STALE_MS / 1_000) },
     );
   });
 

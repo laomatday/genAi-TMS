@@ -262,10 +262,43 @@ export const TMS_LIMITS = {
   // Comfortably past a GPS fix plus a slow round trip, short enough that an
   // employee is never stranded by a request the network silently dropped.
   ATTENDANCE_WATCHDOG_MS: 45_000,
-  DASHBOARD_REFRESH_MS: 120_000,
+  /**
+   * How often an open app asks for the dashboard again on its own.
+   *
+   * Two pollers run on this interval — the dashboard and the notification
+   * inbox — so each open app costs four queries every cycle. At two minutes
+   * that was 120 queries an hour per phone, and at the morning peak with most
+   * of the company's phones open it was the largest single source of load on a
+   * database measured at 161ms for a query over a 43-row table.
+   *
+   * Ten minutes, because an attendance app's own data changes when the
+   * employee acts, and those actions refresh explicitly. What polling is
+   * actually for is noticing someone else's work — an approval, a
+   * notification — and none of that is second-sensitive. Returning to the app
+   * still refreshes through the staleness window below, and pull-to-refresh is
+   * always there.
+   *
+   * Polling stops entirely while the tab is hidden.
+   */
+  DASHBOARD_REFRESH_MS: 600_000,
   DASHBOARD_REFRESH_JITTER_RATIO: 0.2,
-  DASHBOARD_REFRESH_MAX_BACKOFF_MS: 15 * 60_000,
-  DASHBOARD_VISIBLE_STALE_MS: 30_000,
+  /**
+   * Ceiling on the backoff after repeated failures. Has to stay well above the
+   * base interval above — at fifteen minutes against a ten-minute base the
+   * clamp bit on the first failure and there was effectively no backoff, which
+   * is the opposite of what a struggling database needs.
+   */
+  DASHBOARD_REFRESH_MAX_BACKOFF_MS: 60 * 60_000,
+  /**
+   * How stale the dashboard may be before returning to the app refetches it.
+   *
+   * Thirty seconds meant every glance at the phone cost a round trip. Three
+   * minutes still gives fresh data to anyone actually coming back to work in
+   * the app, without charging for the habit of flicking between apps.
+   *
+   * Also the window the bootstrap response is cached for.
+   */
+  DASHBOARD_VISIBLE_STALE_MS: 180_000,
   QR_REFRESH_MS: 30_000,
   QR_VALIDITY_SECONDS: 45,
   QR_SCAN_FPS: 12,

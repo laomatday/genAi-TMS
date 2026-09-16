@@ -25,6 +25,7 @@ vi.mock('./workforceApi', () => ({
 }));
 
 import { getDashboardData } from './employee';
+import { TMS_LIMITS } from '@/shared/constants';
 
 function bootstrap(capabilities: string[]) {
   return {
@@ -66,7 +67,7 @@ describe('getDashboardData read fan-out', () => {
     expect(workforceMocks.query).toHaveBeenCalledWith(
       'bootstrap',
       {},
-      { scope: 'org-1:EMP-1', force: undefined, ttlSeconds: 30 },
+      { scope: 'org-1:EMP-1', force: undefined, ttlSeconds: Math.ceil(TMS_LIMITS.DASHBOARD_VISIBLE_STALE_MS / 1_000) },
     );
     expect(workforceMocks.rows.mock.calls.filter(([, args]) => args.team === true)).toHaveLength(0);
   });
