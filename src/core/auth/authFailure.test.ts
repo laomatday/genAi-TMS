@@ -17,6 +17,24 @@ describe('isRetryableAuthFailure', () => {
     expect(isRetryableAuthFailure({ code: 'PGRST202', message: 'Unknown query resource' })).toBe(false);
   });
 
+  it('keeps the session when the database is merely overloaded', () => {
+    // Exactly what PostgREST returns for the profile read under peak load: a
+    // SQLSTATE, no HTTP status, and a message with no recognizable code in it.
+    expect(isRetryableAuthFailure({
+      code: '57014',
+      message: 'canceling statement due to statement timeout',
+    })).toBe(true);
+    expect(isRetryableAuthFailure({ code: '53300', message: 'too many connections' })).toBe(true);
+    expect(isRetryableAuthFailure({ code: '40P01', message: 'deadlock detected' })).toBe(true);
+  });
+
+  it('still signs out when the database answers about who the caller is', () => {
+    // Signing out is the correct response to these, and must not be swallowed
+    // by the rule above.
+    expect(isRetryableAuthFailure({ code: '28000', message: 'Vui lòng đăng nhập.' })).toBe(false);
+    expect(isRetryableAuthFailure({ code: '42501', message: 'Tài khoản không hoạt động.' })).toBe(false);
+  });
+
   it('bounds an authentication call that never settles', async () => {
     const pending = new Promise<never>(() => undefined);
     await expect(withAuthDeadline(pending, 1)).rejects.toMatchObject({
