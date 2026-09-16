@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from '@/core/supabase';
-import { LOGIN_EMAIL_DOMAINS, TMS_DEFAULTS } from '@/shared/constants';
+import { LOGIN_EMAIL_DOMAINS, TMS_DEFAULTS, TMS_LIMITS } from '@/shared/constants';
 import {
   AUTH_LOGIN_UNAVAILABLE_MESSAGE,
   isRetryableAuthFailure,
@@ -7,6 +7,7 @@ import {
 } from './authFailure';
 import { rememberEffectiveCapabilities } from '@/modules/tms/services/workforceCapabilities';
 import type { Employee } from '@/shared/types';
+import { clearWorkforceResourceCache, primeWorkforceCache } from '@/modules/tms/services/workforceApi';
 
 export async function fetchMyProfile(expectedAuthUserId?: string): Promise<Employee> {
   if (!isSupabaseConfigured) {
@@ -33,12 +34,18 @@ export async function fetchMyProfile(expectedAuthUserId?: string): Promise<Emplo
     throw new Error('Không tìm thấy hồ sơ nhân viên.');
   }
 
+  const subject = `${String(data.organization_id ?? '')}:${String(data.employee_id ?? '')}`;
   // The same response already carries the effective capabilities. Pass them on so
   // the Control Center does not re-request the identical RPC moments later.
-  rememberEffectiveCapabilities(
-    `${String(data.organization_id ?? '')}:${String(data.employee_id ?? '')}`,
-    response,
-  );
+  rememberEffectiveCapabilities(subject, response);
+  // And file the response itself, so the dashboard that loads next reads it from
+  // the cache instead of asking for the identical resource again.
+  // bootstrap carries no ttl of its own, so the window is stated here — the
+  // same one the dashboard asks for, which is what makes the entry a hit.
+  primeWorkforceCache('bootstrap', response as Record<string, unknown>, {
+    scope: subject,
+    ttlSeconds: Math.ceil(TMS_LIMITS.DASHBOARD_VISIBLE_STALE_MS / 1_000),
+  });
 
   const annualLeaveBalance = Number(data.annual_leave_balance ?? TMS_DEFAULTS.ANNUAL_LEAVE_DAYS);
 
@@ -60,6 +67,10 @@ export function buildLoginEmailCandidates(loginId: string): string[] {
 }
 
 async function bestEffortLocalSignOut() {
+  // Reference data is written through to IndexedDB to spare the database a
+  // round trip on every restart. It is this employee's data, so it leaves with
+  // them — phones get handed over, and stations are shared by definition.
+  clearWorkforceResourceCache();
   try {
     await withAuthDeadline(supabase.auth.signOut({ scope: 'local' }));
   } catch (error) {

@@ -74,7 +74,19 @@ function timesheet(offset: number, overrides: Record<string, unknown> = {}) {
 }
 
 function workforcePayload(resource: string) {
-  const page = (rows: object[] = []) => ({ rows, total: rows.length, has_more: false, next_cursor: null });
+  // Mirrors what wf_private.query_commercial attaches to every paged response:
+  // a short leash on the things that move, five minutes on reference data.
+  // Without it the mock understates how much the client can cache.
+  const page = (rows: object[] = []) => ({
+    rows,
+    total: rows.length,
+    has_more: false,
+    next_cursor: null,
+    cache: {
+      resource,
+      ttl_seconds: ['history', 'requests', 'admin.audit'].includes(resource) ? 30 : 300,
+    },
+  });
 
   if (resource === 'bootstrap') {
     return {

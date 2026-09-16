@@ -6,7 +6,7 @@ vi.mock('@/core/supabase', () => ({
   supabase: { rpc: supabaseMocks.rpc },
 }));
 
-import { clearWorkforceResourceCache, queryWorkforce } from './workforceApi';
+import { clearWorkforceResourceCache, isWorthPersisting, queryWorkforce } from './workforceApi';
 
 beforeEach(() => {
   clearWorkforceResourceCache();
@@ -35,5 +35,26 @@ describe('queryWorkforce request coalescing', () => {
     ]);
 
     expect(supabaseMocks.rpc).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('isWorthPersisting', () => {
+  it('carries reference data across a restart', () => {
+    // The server marks metadata, the directory and the schedule as good for
+    // five minutes; those are the ones worth not asking for twice.
+    expect(isWorthPersisting(300)).toBe(true);
+    expect(isWorthPersisting(60)).toBe(true);
+  });
+
+  it('leaves short-lived data in memory, where freshness is the point', () => {
+    // History and the request queue are on a 30-second leash from the server.
+    expect(isWorthPersisting(30)).toBe(false);
+    expect(isWorthPersisting(59)).toBe(false);
+  });
+
+  it('never persists a response the server gave no window for', () => {
+    expect(isWorthPersisting(0)).toBe(false);
+    expect(isWorthPersisting(-1)).toBe(false);
+    expect(isWorthPersisting(Number.NaN)).toBe(false);
   });
 });

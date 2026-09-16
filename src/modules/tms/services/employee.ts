@@ -524,19 +524,21 @@ export async function getDashboardData(
       : [];
     const canReviewTeamRequests = capabilities.includes('team.read')
       && capabilities.includes('attendance.review');
-    const [metadata, historyRows, myRows, teamRowsRaw, directoryRows] = await Promise.all([
+    // One request query, not two. The team scope already returns the reader's
+    // own rows alongside the team's — the server's filter is "mine OR (team and
+    // in scope)" — so asking for both was asking for the same rows twice.
+    const [metadata, historyRows, requestRows, directoryRows] = await Promise.all([
       queryWorkforce('metadata', {}, {
         scope,
         force: options.force,
         ttlSeconds: TMS_LIMITS.RESOURCE_CACHE_MAX_SECONDS,
       }),
       queryWorkforceRows('history', { from: historyFrom, to: localDate }, { scope, force: options.force }),
-      queryWorkforceRows('requests', { team: false }, { scope, force: options.force }),
-      canReviewTeamRequests
-        ? queryWorkforceRows('requests', { team: true }, { scope, force: options.force })
-        : Promise.resolve([] as DataRow[]),
+      queryWorkforceRows('requests', { team: canReviewTeamRequests }, { scope, force: options.force }),
       queryWorkforceRows('directory', {}, { scope, force: options.force }),
     ]);
+    const myRows = requestRows.filter((row) => textValue(row.employee_id) === profile.employee_id);
+    const teamRowsRaw = canReviewTeamRequests ? requestRows : [];
     const { workHours, approvalRoles } = clientConfigFrom(metadata);
     const timezone = textValue(bootstrap.timezone, TMS_TIME.ZONE);
     const policy = bootstrap.policy && typeof bootstrap.policy === 'object' ? bootstrap.policy as DataRow : {};

@@ -74,6 +74,36 @@ export async function writeClientState(key: string, value: unknown): Promise<voi
   });
 }
 
+/**
+ * Drops every record whose key starts with `prefix`.
+ *
+ * Needed because the workforce cache writes one record per resource and has to
+ * be able to discard a whole scope at once — when an admin changes the
+ * reference data, and when a session ends on a shared device.
+ */
+export async function removeClientStateByPrefix(prefix: string): Promise<void> {
+  const database = await openDatabase();
+  if (!database || !prefix) return;
+
+  await new Promise<void>((resolve) => {
+    try {
+      const transaction = database.transaction(STORE_NAME, 'readwrite');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.getAllKeys();
+      request.onsuccess = () => {
+        for (const key of request.result) {
+          if (typeof key === 'string' && key.startsWith(prefix)) store.delete(key);
+        }
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+      transaction.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
 export async function removeClientState(key: string): Promise<void> {
   const database = await openDatabase();
   if (!database) return;
