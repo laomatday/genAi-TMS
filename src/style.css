@@ -3617,6 +3617,24 @@ input.ui-control[type='month'],
 input.ui-control[type='week'] {
   display: block;
   line-height: normal;
+  /* Chromium on Android renders these as a native dropdown, arrow and all, and
+     that arrow is part of the control's appearance rather than the picker
+     pseudo-element the desktop uses — hiding the pseudo-element alone leaves it
+     on screen. Turning the appearance off is what removes it. */
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: none;
+}
+
+/* With the native appearance gone, some builds centre the value; keep it on the
+   same left edge as every other field. */
+input.ui-control[type='time']::-webkit-date-and-time-value,
+input.ui-control[type='date']::-webkit-date-and-time-value,
+input.ui-control[type='datetime-local']::-webkit-date-and-time-value,
+input.ui-control[type='month']::-webkit-date-and-time-value,
+input.ui-control[type='week']::-webkit-date-and-time-value {
+  text-align: start;
+  margin: 0;
 }
 
 /* Each platform draws the picker button its own way and puts it in its own
@@ -3644,7 +3662,9 @@ input.ui-control[type='week'] {
   pointer-events: none;
 }
 .ui-field-affix > .ui-control:focus ~ .ui-field-affix-icon { color: var(--color-primary); }
-.ui-field-affix input::-webkit-calendar-picker-indicator {
+.ui-field-affix input::-webkit-calendar-picker-indicator,
+.ui-field-affix input::-webkit-inner-spin-button,
+.ui-field-affix input::-webkit-clear-button {
   display: none;
   -webkit-appearance: none;
   appearance: none;
