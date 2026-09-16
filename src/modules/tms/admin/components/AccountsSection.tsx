@@ -15,6 +15,7 @@ import type { Employee, EmployeeRole } from '@/shared/types';
 import { defaultAccountPassword } from '@/core/utils/defaultPassword';
 import { DEFAULT_EMPLOYEE } from '../constants';
 import { deleteEmployeeAccount, resetEmployeeDevice, saveEmployee, type EmployeeInput } from '../adminService';
+import { sectionsForRole, validateAccount, type AccountEditorSection } from '../accountEditor';
 import {
   EmployeeImportError,
   executeEmployeeImport,
@@ -25,41 +26,6 @@ import type { AdminActionRunner, AdminData } from '../types';
 import { formatDateTime } from '../formatters';
 import { AdminSelect, EmptyState, Pagination, PanelTitle, SearchField, SpreadsheetActions } from './AdminCommon';
 
-
-function validateEmployee(
-  employee: EmployeeInput,
-  mode: 'create' | 'update',
-  hasAuthAccount: boolean,
-  data: AdminData,
-) {
-  if (!/^[A-Z0-9_-]{2,40}$/.test(employee.employee_id.trim().toUpperCase())) {
-    return 'Mã nhân viên cần từ 2–40 ký tự, chỉ gồm chữ, số, gạch ngang hoặc gạch dưới.';
-  }
-  if (!employee.name.trim()) return 'Vui lòng nhập họ tên nhân viên.';
-  if (!/^\S+@\S+\.\S+$/.test(employee.email.trim())) return 'Email đăng nhập không đúng định dạng.';
-  if (!EMPLOYEE_ROLES.includes(employee.role)) return 'Vai trò nhân viên không hợp lệ.';
-  if (!data.locations.some((location) => location.center_id === employee.center_id)) return 'Vui lòng chọn địa điểm chính hợp lệ.';
-  if (employee.role !== 'Kiosk' && !data.policies.some((policy) => policy.id === employee.attendance_policy_id && policy.active)) {
-    return 'Vui lòng chọn chính sách chấm công đang hoạt động.';
-  }
-  const locationIds = new Set(data.locations.map((location) => location.center_id));
-  if ([...(employee.allowed_locations || []), ...(employee.managed_locations || [])].some((id) => !locationIds.has(id))) {
-    return 'Danh sách địa điểm được gán có mục không còn tồn tại.';
-  }
-  if (employee.direct_manager_id === employee.employee_id) return 'Nhân viên không thể là quản lý trực tiếp của chính mình.';
-  const annualLeave = Number(employee.annual_leave_balance);
-  if (!Number.isFinite(annualLeave) || annualLeave < 0 || annualLeave > TMS_LIMITS.MAX_ANNUAL_LEAVE_DAYS) {
-    return 'Số ngày phép còn lại không hợp lệ.';
-  }
-  const passwordRequired = mode === 'create' || (!hasAuthAccount && employee.status === 'Active');
-  if (passwordRequired && (employee.password || '').length < TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH) {
-    return `Mật khẩu tạm phải có ít nhất ${TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} ký tự.`;
-  }
-  if (employee.password && employee.password.length < TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH) {
-    return `Mật khẩu mới phải có ít nhất ${TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} ký tự.`;
-  }
-  return null;
-}
 
 function LocationChecklist({
   title,
@@ -112,6 +78,10 @@ export default function AccountsSection({
   const [mode, setMode] = useState<'create' | 'update'>('create');
   const [employee, setEmployee] = useState<EmployeeInput>({ ...DEFAULT_EMPLOYEE });
   const [editorOpen, setEditorOpen] = useState(false);
+  const [section, setSection] = useState<AccountEditorSection>('profile');
+  // The permission matrix is seventeen rows long. Most accounts change none of
+  // them, so it opens showing only what differs from the role.
+  const [showEveryCapability, setShowEveryCapability] = useState(false);
   const [hasAuthAccount, setHasAuthAccount] = useState(false);
   const [resetReason, setResetReason] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ employee_id: string; name: string } | null>(null);
@@ -155,6 +125,12 @@ export default function AccountsSection({
   );
   const rolePolicyLabel = requiresDeviceLock(employee.role, lockedRoles) ? 'đang khóa' : 'không khóa';
   const activePolicies = data.policies.filter((policy) => policy.active);
+  // Seventeen rows of "theo vai trò" is noise on almost every account, so the
+  // list shows what was actually changed until asked for the rest.
+  const capabilityOverrides = employee.capability_overrides || {};
+  const visibleCapabilities = showEveryCapability
+    ? EMPLOYEE_CAPABILITIES
+    : EMPLOYEE_CAPABILITIES.filter((capability) => capability.id in capabilityOverrides);
 
   const startCreate = () => {
     const activeLocations = data.locations.filter((location) => location.active);
@@ -168,6 +144,8 @@ export default function AccountsSection({
       managed_locations: [],
       attendance_policy_id: activePolicies.length === 1 ? activePolicies[0]?.id || null : null,
     });
+    setSection('profile');
+    setShowEveryCapability(false);
     setEditorOpen(true);
   };
 
@@ -193,6 +171,8 @@ export default function AccountsSection({
       capability_overrides: normalizeCapabilityOverrides(item.capability_overrides),
       password: '',
     });
+    setSection('profile');
+    setShowEveryCapability(false);
     setEditorOpen(true);
   };
 
@@ -204,10 +184,13 @@ export default function AccountsSection({
       name: employee.name.trim(),
       email: employee.email.trim().toLowerCase(),
     };
+    // Checked before the request so a problem can open the section that holds
+    // the field, rather than reporting it over a form scrolled somewhere else.
+    const validationError = validateAccount(payload, mode, hasAuthAccount, data);
+    if (validationError) setSection(validationError.section);
     const saved = await onRun(
       async () => {
-        const validationError = validateEmployee(payload, mode, hasAuthAccount, data);
-        if (validationError) throw new Error(validationError);
+        if (validationError) throw new Error(validationError.message);
         return saveEmployee(payload, mode);
       },
       mode === 'create' ? 'Đã tạo tài khoản và hồ sơ nhân viên.' : 'Đã cập nhật tài khoản nhân viên.',
@@ -253,13 +236,13 @@ export default function AccountsSection({
         // prevents a deterministic error in a later row from leaving a partial import.
         for (const item of imported) {
           const existing = data.employees.find((candidate) => candidate.employee_id === item.employee.employee_id);
-          const validationError = validateEmployee(
+          const validationError = validateAccount(
             item.employee,
             item.mode,
             Boolean(existing?.auth_user_id || existing?.uid),
             data,
           );
-          if (validationError) throw new Error(`Dòng ${item.rowNumber} (${item.employee.employee_id}): ${validationError}`);
+          if (validationError) throw new Error(`Dòng ${item.rowNumber} (${item.employee.employee_id}): ${validationError.message}`);
         }
         const result = await executeEmployeeImport(imported, saveEmployee);
         setImportReport({
@@ -357,7 +340,29 @@ export default function AccountsSection({
             action={<div className="admin-editor-heading-actions">{mode === 'update' ? <button type="button" className="admin-text-button" onClick={startCreate}>Tạo mới</button> : null}<button type="button" className="admin-icon-button" onClick={() => setEditorOpen(false)} aria-label="Đóng trình chỉnh sửa"><span className="material-symbols-rounded">close</span></button></div>}
           />
 
-          <div className="admin-form-grid">
+          <nav className="admin-editor-tabs" aria-label="Phần thông tin tài khoản">
+            {sectionsForRole(employee.role).map((tab) => {
+              const changed = tab.id === 'capabilities'
+                ? Object.keys(employee.capability_overrides || {}).length
+                : 0;
+              return (
+                <button
+                  type="button"
+                  key={tab.id}
+                  className={`admin-editor-tab ${section === tab.id ? 'admin-editor-tab-active' : ''}`.trim()}
+                  aria-current={section === tab.id ? 'page' : undefined}
+                  onClick={() => setSection(tab.id)}
+                >
+                  <span className="material-symbols-rounded" aria-hidden="true">{tab.icon}</span>
+                  <span className="admin-editor-tab-text"><strong>{tab.label}</strong><small>{tab.hint}</small></span>
+                  {changed ? <b className="admin-editor-tab-count">{changed}</b> : null}
+                </button>
+              );
+            })}
+          </nav>
+
+          {section === 'profile' ? (
+            <div className="admin-form-grid">
             <label><span>Mã nhân viên</span><input required disabled={mode === 'update'} value={employee.employee_id} onChange={(event) => setEmployee((current) => ({ ...current, employee_id: event.target.value.toUpperCase() }))} /></label>
             <label><span>Họ tên</span><input required value={employee.name} onChange={(event) => setEmployee((current) => {
               const name = event.target.value;
@@ -372,10 +377,16 @@ export default function AccountsSection({
             })} /></label>
             <label><span>Email đăng nhập</span><input required type="email" value={employee.email} onChange={(event) => setEmployee((current) => ({ ...current, email: event.target.value }))} /></label>
             <label><span>Số điện thoại</span><input type="tel" value={employee.phone || ''} onChange={(event) => setEmployee((current) => ({ ...current, phone: event.target.value }))} /></label>
-            <div className="admin-field"><span>Vai trò</span><AdminSelect value={employee.role} onChange={(value) => setEmployee((current) => ({ ...current, role: value as EmployeeRole, attendance_policy_id: value === 'Kiosk' ? null : current.attendance_policy_id || (activePolicies.length === 1 ? activePolicies[0]?.id || null : null) }))} label="Vai trò" options={EMPLOYEE_ROLES.map((role) => ({ value: role, label: role }))} /></div>
-            <div className="admin-field"><span>Địa điểm chính</span><AdminSelect required value={employee.center_id} onChange={(value) => setEmployee((current) => ({ ...current, center_id: value }))} label="Địa điểm chính" placeholder="Chọn địa điểm" options={data.locations.map((location) => ({ value: location.center_id, label: location.center_name }))} /></div>
             <label><span>Chức danh</span><input value={employee.position || ''} onChange={(event) => setEmployee((current) => ({ ...current, position: event.target.value }))} /></label>
             <label><span>Phòng ban</span><input value={employee.department || ''} onChange={(event) => setEmployee((current) => ({ ...current, department: event.target.value }))} /></label>
+            </div>
+          ) : null}
+
+          {section === 'work' ? (
+            <>
+              <div className="admin-form-grid">
+            <div className="admin-field"><span>Vai trò</span><AdminSelect value={employee.role} onChange={(value) => setEmployee((current) => ({ ...current, role: value as EmployeeRole, attendance_policy_id: value === 'Kiosk' ? null : current.attendance_policy_id || (activePolicies.length === 1 ? activePolicies[0]?.id || null : null) }))} label="Vai trò" options={EMPLOYEE_ROLES.map((role) => ({ value: role, label: role }))} /></div>
+            <div className="admin-field"><span>Địa điểm chính</span><AdminSelect required value={employee.center_id} onChange={(value) => setEmployee((current) => ({ ...current, center_id: value }))} label="Địa điểm chính" placeholder="Chọn địa điểm" options={data.locations.map((location) => ({ value: location.center_id, label: location.center_name }))} /></div>
             {employee.role !== 'Kiosk' ? (
               <>
                 <div className="admin-field"><span>Quản lý trực tiếp</span><AdminSelect value={employee.direct_manager_id || ''} onChange={(value) => setEmployee((current) => ({ ...current, direct_manager_id: value || null }))} label="Quản lý trực tiếp" options={[{ value: '', label: 'Không gán' }, ...managers.map((manager) => ({ value: manager.employee_id, label: manager.name, description: manager.role }))]} /></div>
@@ -383,11 +394,14 @@ export default function AccountsSection({
                 <div className="admin-field admin-grid-span"><span>Chính sách chấm công</span><AdminSelect required value={employee.attendance_policy_id || ''} onChange={(value) => setEmployee((current) => ({ ...current, attendance_policy_id: value || null }))} label="Chính sách chấm công" placeholder="Chọn chính sách" options={activePolicies.map((policy) => ({ value: policy.id, label: policy.name }))} /></div>
               </>
             ) : null}
-          </div>
-
+              </div>
           <LocationChecklist title="Địa điểm được phép chấm công" locations={data.locations} selected={employee.allowed_locations || []} onChange={(allowedLocations) => setEmployee((current) => ({ ...current, allowed_locations: allowedLocations }))} />
           {MANAGEMENT_ROLES.includes(employee.role) ? <LocationChecklist title="Địa điểm được phép quản lý" locations={data.locations} selected={employee.managed_locations || []} onChange={(managedLocations) => setEmployee((current) => ({ ...current, managed_locations: managedLocations }))} /> : null}
+            </>
+          ) : null}
 
+          {section === 'access' ? (
+            <>
           {employee.role !== 'Kiosk' ? (
             <div className="admin-field admin-grid-span">
               <span>Khóa thiết bị</span>
@@ -406,13 +420,38 @@ export default function AccountsSection({
               />
             </div>
           ) : null}
+          <div className="admin-password-field">
+            <label><span>{mode === 'create' || !hasAuthAccount ? 'Mật khẩu tạm' : 'Mật khẩu mới (không bắt buộc)'}</span><input type="text" minLength={TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} required={mode === 'create' || (!hasAuthAccount && employee.status === 'Active')} autoComplete="new-password" value={employee.password || ''} onChange={(event) => setEmployee((current) => ({ ...current, password: event.target.value }))} /></label>
+            <button type="button" className="admin-secondary-button" onClick={() => setEmployee((current) => ({ ...current, password: defaultAccountPassword({ name: current.name, employeeId: current.employee_id }) }))}>Mật khẩu mặc định</button>
+          </div>
 
-          {employee.role !== 'Kiosk' ? (
+          {mode === 'update' && employee.role !== 'Admin' ? (
+            <section className="admin-device-card">
+              <div><span className="material-symbols-rounded">devices</span><span><strong>Thiết bị tin cậy</strong><small>{activeDevice ? `${activeDevice.device_label || 'Thiết bị'} · gần nhất ${formatDateTime(activeDevice.last_seen_at)}` : 'Chưa có thiết bị đang hoạt động'}</small></span></div>
+              {activeDevice ? <button type="button" onClick={() => setResetReason('')}>Thu hồi thiết bị</button> : null}
+            </section>
+          ) : null}
+
+          <label className="admin-switch"><input type="checkbox" checked={employee.status === 'Active'} onChange={(event) => setEmployee((current) => ({ ...current, status: event.target.checked ? 'Active' : 'Inactive' }))} /><span><strong>Tài khoản hoạt động</strong><small>Tắt để vô hiệu hóa đăng nhập nhưng vẫn giữ dữ liệu lịch sử.</small></span></label>
+            </>
+          ) : null}
+
+          {section === 'capabilities' && employee.role !== 'Kiosk' ? (
             <section className="admin-panel admin-grid-span admin-capability-editor">
               <PanelTitle
                 eyebrow="Kiêm nhiệm"
                 title="Quyền riêng của nhân viên này"
-                action={<span className="admin-capability-count">{Object.keys(employee.capability_overrides || {}).length} khác vai trò</span>}
+                action={(
+                  <button
+                    type="button"
+                    className="admin-text-button"
+                    onClick={() => setShowEveryCapability((open) => !open)}
+                  >
+                    {showEveryCapability
+                      ? 'Chỉ hiện quyền đã đặt riêng'
+                      : `Xem cả ${EMPLOYEE_CAPABILITIES.length} quyền`}
+                  </button>
+                )}
               />
               <p className="admin-help-text">
                 Mặc định mọi quyền chạy theo vai trò <strong>{employee.role}</strong>. Đặt riêng ở đây khi một người
@@ -421,7 +460,7 @@ export default function AccountsSection({
                 Quyền có dấu <span className="admin-capability-key">✦</span> là quyền mở được Control Center trên máy tính.
               </p>
               <div className="admin-capability-list">
-                {EMPLOYEE_CAPABILITIES.map((capability) => {
+                {visibleCapabilities.map((capability) => {
                   const current = (employee.capability_overrides || {})[capability.id];
                   const value = current === true ? 'true' : current === false ? 'false' : '';
                   return (
@@ -450,23 +489,16 @@ export default function AccountsSection({
                     </div>
                   );
                 })}
+                {visibleCapabilities.length === 0 ? (
+                  <p className="admin-capability-empty">
+                    Nhân viên này dùng đúng quyền của vai trò <strong>{employee.role}</strong>.
+                  </p>
+                ) : null}
               </div>
             </section>
+          
           ) : null}
 
-          <div className="admin-password-field">
-            <label><span>{mode === 'create' || !hasAuthAccount ? 'Mật khẩu tạm' : 'Mật khẩu mới (không bắt buộc)'}</span><input type="text" minLength={TMS_LIMITS.ACCOUNT_PASSWORD_MIN_LENGTH} required={mode === 'create' || (!hasAuthAccount && employee.status === 'Active')} autoComplete="new-password" value={employee.password || ''} onChange={(event) => setEmployee((current) => ({ ...current, password: event.target.value }))} /></label>
-            <button type="button" className="admin-secondary-button" onClick={() => setEmployee((current) => ({ ...current, password: defaultAccountPassword({ name: current.name, employeeId: current.employee_id }) }))}>Mật khẩu mặc định</button>
-          </div>
-
-          {mode === 'update' && employee.role !== 'Admin' ? (
-            <section className="admin-device-card">
-              <div><span className="material-symbols-rounded">devices</span><span><strong>Thiết bị tin cậy</strong><small>{activeDevice ? `${activeDevice.device_label || 'Thiết bị'} · gần nhất ${formatDateTime(activeDevice.last_seen_at)}` : 'Chưa có thiết bị đang hoạt động'}</small></span></div>
-              {activeDevice ? <button type="button" onClick={() => setResetReason('')}>Thu hồi thiết bị</button> : null}
-            </section>
-          ) : null}
-
-          <label className="admin-switch"><input type="checkbox" checked={employee.status === 'Active'} onChange={(event) => setEmployee((current) => ({ ...current, status: event.target.checked ? 'Active' : 'Inactive' }))} /><span><strong>Tài khoản hoạt động</strong><small>Tắt để vô hiệu hóa đăng nhập nhưng vẫn giữ dữ liệu lịch sử.</small></span></label>
           <footer className="admin-editor-actions admin-editor-actions-split">
             {mode === 'update' && hasAuthAccount && employee.employee_id !== currentEmployeeId ? <button type="button" className="admin-danger-button" disabled={busy} onClick={() => setDeleteTarget({ employee_id: employee.employee_id, name: employee.name })}><span className="material-symbols-rounded">person_remove</span>Xóa tài khoản</button> : null}
             <button type="submit" className="admin-primary-button" disabled={busy}><span className="material-symbols-rounded">save</span>{busy ? 'Đang lưu…' : hasAuthAccount || mode === 'create' ? 'Lưu tài khoản' : 'Tạo lại tài khoản'}</button>

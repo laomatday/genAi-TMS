@@ -252,6 +252,28 @@ test.describe('control center', () => {
     expect(missing, 'admin sections absent from the sidebar').toEqual([]);
 
     await shootElement(page, project, '10-thanh-dieu-huong', 'nav[aria-label="Điều hướng quản trị"]');
+
+    // The account editor, one shot per section. It carries more than thirty
+    // controls, so the sections are the point of the screen.
+    await page.getByRole('navigation', { name: 'Điều hướng quản trị' })
+      .getByRole('button', { name: /^Tài khoản(,|$)/ }).first().click();
+    // The rows are buttons carrying role="row", so they answer to neither the
+    // button role nor a plain class match — the table's header shares the class.
+    const firstAccount = page.locator('button.admin-account-row').first();
+    await expect(firstAccount).toBeVisible({ timeout: 20_000 });
+    await firstAccount.click();
+    const editorSections: Array<[RegExp, string]> = [
+      [/Hồ sơ/, '11-tai-khoan-ho-so'],
+      [/Công việc/, '12-tai-khoan-cong-viec'],
+      [/Truy cập/, '13-tai-khoan-truy-cap'],
+      [/Quyền riêng/, '14-tai-khoan-quyen-rieng'],
+    ];
+    for (const [label, file] of editorSections) {
+      const tab = page.locator('.admin-editor-tab').filter({ hasText: label }).first();
+      await expect(tab).toBeVisible({ timeout: 10_000 });
+      await tab.click();
+      await shoot(page, project, file);
+    }
   });
 });
 
