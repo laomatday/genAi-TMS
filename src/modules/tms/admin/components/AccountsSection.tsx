@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import Avatar from '@/shared/components/common/Avatar';
 import {
@@ -79,6 +79,7 @@ export default function AccountsSection({
   const [employee, setEmployee] = useState<EmployeeInput>({ ...DEFAULT_EMPLOYEE });
   const [editorOpen, setEditorOpen] = useState(false);
   const [section, setSection] = useState<AccountEditorSection>('profile');
+  const editorRef = useRef<HTMLFormElement>(null);
   // The permission matrix is seventeen rows long. Most accounts change none of
   // them, so it opens showing only what differs from the role.
   const [showEveryCapability, setShowEveryCapability] = useState(false);
@@ -90,6 +91,17 @@ export default function AccountsSection({
     title: string;
     detail: string;
   } | null>(null);
+
+  // The form lives under the list rather than over it, so opening one is only
+  // useful if the page goes there too — otherwise "Thêm tài khoản" appears to do
+  // nothing on a screen where the form is below the fold.
+  useEffect(() => {
+    if (!editorOpen) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    editor.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+  }, [editorOpen, employee.employee_id, mode]);
 
   const locationById = useMemo(
     () => new Map(data.locations.map((location) => [location.center_id, location])),
@@ -272,7 +284,7 @@ export default function AccountsSection({
 
   return (
     <>
-      <div className={`admin-split-layout accounts-layout ${editorOpen ? 'editor-open' : 'editor-closed'}`}>
+      <div className="admin-split-layout accounts-layout">
         <section className="admin-panel admin-list-panel">
           <PanelTitle
             eyebrow={`${data.employees.length} hồ sơ`}
@@ -333,7 +345,7 @@ export default function AccountsSection({
           <Pagination page={safePage} pageCount={pageCount} onChange={setPage} summary={`${filteredEmployees.length} tài khoản`} />
         </section>
 
-        {editorOpen ? <form className="admin-panel admin-editor" onSubmit={(event) => void submit(event)}>
+        {editorOpen ? <form ref={editorRef} className="admin-panel admin-editor" onSubmit={(event) => void submit(event)}>
           <PanelTitle
             eyebrow="Supabase Auth + hồ sơ"
             title={mode === 'create' ? 'Tạo tài khoản' : `Chỉnh sửa ${employee.employee_id}`}
