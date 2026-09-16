@@ -30,7 +30,9 @@ Optional environment:
                                 Ratio from 0 to 1; 0.01 means 1%
   TMS_LOAD_TEST_MAX_RPS         Global request-rate ceiling (default ${DEFAULTS.maxRequestsPerSecond})
   TMS_LOAD_TEST_ALLOW_REMOTE    Must be true for any non-localhost target
-  TMS_LOAD_TEST_ENVIRONMENT     Must be staging for a remote target
+  TMS_LOAD_TEST_ENVIRONMENT     staging or production for a remote target
+  TMS_LOAD_TEST_ACCEPT_PRODUCTION_DISRUPTION
+                                Must be yes when ENVIRONMENT is production
   TMS_LOAD_TEST_CONFIRM_HOST    Must exactly match the remote URL hostname
 
 The script never prints credentials and refuses remote targets unless explicitly enabled.`);
@@ -73,13 +75,24 @@ function jwtClaims(value, name) {
 
 const baseUrl = new URL(requireValue('TMS_LOAD_TEST_URL'));
 const isLocal = ['localhost', '127.0.0.1', '::1'].includes(baseUrl.hostname);
+const environment = process.env.TMS_LOAD_TEST_ENVIRONMENT;
+// Production is its own answer, not "staging" with a different hostname. Naming
+// it means a run against live data is something someone typed on purpose, and
+// leaves a truthful record of what was pointed at what.
+const isProduction = environment === 'production';
 if (!isLocal && (
   process.env.TMS_LOAD_TEST_ALLOW_REMOTE !== 'true'
-  || process.env.TMS_LOAD_TEST_ENVIRONMENT !== 'staging'
+  || (environment !== 'staging' && !isProduction)
   || process.env.TMS_LOAD_TEST_CONFIRM_HOST !== baseUrl.hostname
 )) {
   throw new Error(
-    'Remote load tests require ALLOW_REMOTE=true, ENVIRONMENT=staging and CONFIRM_HOST matching the target hostname.',
+    'Remote load tests require ALLOW_REMOTE=true, ENVIRONMENT=staging|production and CONFIRM_HOST matching the target hostname.',
+  );
+}
+if (isProduction && process.env.TMS_LOAD_TEST_ACCEPT_PRODUCTION_DISRUPTION !== 'yes') {
+  throw new Error(
+    'A production run also needs TMS_LOAD_TEST_ACCEPT_PRODUCTION_DISRUPTION=yes. '
+    + 'It puts real load on the instance people are using.',
   );
 }
 if (!isLocal && baseUrl.protocol !== 'https:') {
