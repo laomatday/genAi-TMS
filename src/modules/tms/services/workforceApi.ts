@@ -43,8 +43,23 @@ const requestsInFlight = new Map<string, Promise<unknown>>();
  */
 const PERSISTED_MIN_TTL_SECONDS = 60;
 
-/** Whether a response's own TTL says it is worth carrying across a restart. */
-export function isWorthPersisting(ttlSeconds: number): boolean {
+/**
+ * The only resources allowed onto the device.
+ *
+ * An allowlist rather than a denylist, because the cost of getting this wrong
+ * is colleague data left on a phone that gets handed over or a station anyone
+ * can walk up to. `metadata` is the tenant's reference data — shifts,
+ * locations, holidays, schedule templates — and names nobody.
+ *
+ * The directory, the request queues and everything under `admin.` carry other
+ * people's details and stay in memory, which is the same line the dashboard
+ * snapshot draws when it strips contacts and team queues before storing.
+ */
+const PERSISTABLE_RESOURCES: ReadonlySet<string> = new Set(['metadata']);
+
+/** Whether a response may be carried across a restart on this device. */
+export function isWorthPersisting(resource: string, ttlSeconds: number): boolean {
+  if (!PERSISTABLE_RESOURCES.has(resource)) return false;
   return Number.isFinite(ttlSeconds) && ttlSeconds >= PERSISTED_MIN_TTL_SECONDS;
 }
 
@@ -133,7 +148,7 @@ export async function queryWorkforce<T extends WorkforceResource = WorkforceReso
     // Nothing in memory: this may be a fresh start rather than a first-ever
     // read. The key carries the tenant and the employee, so a stored entry can
     // only ever be this user's own.
-    const stored = await readPersistedEntry<T>(key);
+    const stored = PERSISTABLE_RESOURCES.has(resource) ? await readPersistedEntry<T>(key) : null;
     if (stored) {
       responseCache.set(key, stored);
       return stored.value;
@@ -165,7 +180,7 @@ export async function queryWorkforce<T extends WorkforceResource = WorkforceReso
     if (key && ttl > 0) {
       const entry = { value, expiresAt: Date.now() + ttl * 1_000 };
       responseCache.set(key, entry);
-      if (isWorthPersisting(ttl)) void writeClientState(persistedKey(key), entry);
+      if (isWorthPersisting(resource, ttl)) void writeClientState(persistedKey(key), entry);
     }
     return value;
   })();

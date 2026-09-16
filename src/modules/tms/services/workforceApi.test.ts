@@ -39,22 +39,32 @@ describe('queryWorkforce request coalescing', () => {
 });
 
 describe('isWorthPersisting', () => {
-  it('carries reference data across a restart', () => {
-    // The server marks metadata, the directory and the schedule as good for
-    // five minutes; those are the ones worth not asking for twice.
-    expect(isWorthPersisting(300)).toBe(true);
-    expect(isWorthPersisting(60)).toBe(true);
+  it('carries the tenant reference data across a restart', () => {
+    // Shifts, locations, holidays and schedule templates: the server marks them
+    // good for five minutes and they name nobody.
+    expect(isWorthPersisting('metadata', 300)).toBe(true);
+    expect(isWorthPersisting('metadata', 60)).toBe(true);
+  });
+
+  it('never writes colleague data to the device, however long its window', () => {
+    // The dashboard snapshot strips contacts and team queues before storing,
+    // so a shared phone or a station keeps nobody else's details. A cache that
+    // wrote them anyway would undo that.
+    expect(isWorthPersisting('directory', 300)).toBe(false);
+    expect(isWorthPersisting('requests', 300)).toBe(false);
+    expect(isWorthPersisting('inbox', 300)).toBe(false);
+    expect(isWorthPersisting('admin.people', 300)).toBe(false);
+    expect(isWorthPersisting('history', 300)).toBe(false);
   });
 
   it('leaves short-lived data in memory, where freshness is the point', () => {
-    // History and the request queue are on a 30-second leash from the server.
-    expect(isWorthPersisting(30)).toBe(false);
-    expect(isWorthPersisting(59)).toBe(false);
+    expect(isWorthPersisting('metadata', 30)).toBe(false);
+    expect(isWorthPersisting('metadata', 59)).toBe(false);
   });
 
   it('never persists a response the server gave no window for', () => {
-    expect(isWorthPersisting(0)).toBe(false);
-    expect(isWorthPersisting(-1)).toBe(false);
-    expect(isWorthPersisting(Number.NaN)).toBe(false);
+    expect(isWorthPersisting('metadata', 0)).toBe(false);
+    expect(isWorthPersisting('metadata', -1)).toBe(false);
+    expect(isWorthPersisting('metadata', Number.NaN)).toBe(false);
   });
 });

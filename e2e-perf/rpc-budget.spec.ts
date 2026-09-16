@@ -55,11 +55,16 @@ test('opening the app stays inside its call budget', async ({ page }) => {
   await page.waitForTimeout(2500);
 
   const warm = [...calls];
+  // Reopening inside the staleness window paints the stored dashboard and does
+  // not go to the network for it at all — the screen is already right, and the
+  // database is the thing with nothing to spare at shift start.
   // Reference data the server marks as good for minutes is read from IndexedDB,
-  // so a restart does not pay for it again.
+  // so a restart does not pay for it again. What is left is the data the
+  // snapshot deliberately does not store — the directory and the team queue
+  // stay network-only so a shared device keeps no colleague details — plus the
+  // sign-in check.
   expect(warm, 'metadata should come from the persisted cache').not.toContain('query:metadata');
-  expect(warm, 'directory should come from the persisted cache').not.toContain('query:directory');
-  // What is left is the data whose freshness is the point.
-  expect(warm.filter((call) => call.startsWith('query:'))).toHaveLength(3);
+  expect(warm, 'directory rows are not in the snapshot, so they are fetched').toContain('query:directory');
+  expect(warm.filter((call) => call.startsWith('query:'))).toHaveLength(4);
   expect(warm.length).toBeLessThan(cold.length);
 });

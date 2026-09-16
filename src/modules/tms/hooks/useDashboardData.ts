@@ -189,6 +189,10 @@ export const useDashboardData = (
         setLastSyncedAt(restoredAt);
         setLoading(false);
       }
+      // The sync is not optional, however fresh the snapshot is: it deliberately
+      // stores none of the colleague data — no directory, no team queue, no
+      // approvals — so a shared device keeps nobody else's details. Painting it
+      // and stopping there would leave those screens permanently empty.
       await refreshAndSchedule(!snapshot);
     };
 
