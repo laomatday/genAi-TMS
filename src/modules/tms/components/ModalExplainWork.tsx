@@ -75,6 +75,24 @@ const ReasonDisplay = ({ reasons }: { reasons: string }) => (
     </>
 );
 
+/**
+ * Opens the platform time picker.
+ *
+ * The field hides the native picker button so the icon can be the app's own and
+ * sit where the app puts it, and on a desktop browser that button was also the
+ * thing that opened the picker. showPicker restores it. On a phone the tap
+ * already opens the picker, so this is a no-op there — and it throws when a
+ * browser has no picker to show, which is why it is guarded rather than
+ * feature-detected.
+ */
+function openTimePicker(input: HTMLInputElement) {
+  try {
+    input.showPicker?.();
+  } catch {
+    // Nothing to open; the field is still typable.
+  }
+}
+
 const ModalExplainWork: React.FC<Props> = ({ user, isOpen, isConfirmOpen, onConfirmOpenChange, onClose, onComplete, onSuccess, onAlert, initialData, explainableItems, sourceTab = 'history', onNavigate, data }) => {
     const [selectedDate, setSelectedDate] = useState(initialData?.date || '');
     const [reason, setReason] = useState(initialData?.reason || '');
@@ -466,32 +484,40 @@ const ModalExplainWork: React.FC<Props> = ({ user, isOpen, isConfirmOpen, onConf
                                         <div className="ui-form-grid">
                                             <div className="ui-field">
                                                 <label className="ui-field-label ui-field-label-required" htmlFor="explain-checkin-time">Giờ check-in</label>
-                                                <input
-                                                    ref={checkinRef}
-                                                    id="explain-checkin-time"
-                                                    type="time"
-                                                    required
-                                                    className={`ui-control ${formErrors.checkin ? 'ui-control-invalid' : ''}`.trim()}
-                                                    value={checkinTime}
-                                                    onChange={(event) => { setCheckinTime(event.target.value); setFormErrors((current) => ({ ...current, checkin: undefined })); }}
-                                                    aria-invalid={!!formErrors.checkin}
-                                                    aria-describedby={formErrors.checkin ? 'explain-checkin-error' : undefined}
-                                                />
+                                                <span className="ui-field-affix">
+                                                    <input
+                                                        ref={checkinRef}
+                                                        id="explain-checkin-time"
+                                                        type="time"
+                                                        required
+                                                        className={`ui-control ${formErrors.checkin ? 'ui-control-invalid' : ''}`.trim()}
+                                                        value={checkinTime}
+                                                        onChange={(event) => { setCheckinTime(event.target.value); setFormErrors((current) => ({ ...current, checkin: undefined })); }}
+                                                        onClick={(event) => openTimePicker(event.currentTarget)}
+                                                        aria-invalid={!!formErrors.checkin}
+                                                        aria-describedby={formErrors.checkin ? 'explain-checkin-error' : undefined}
+                                                    />
+                                                    <span className="material-symbols-rounded ui-field-affix-icon" aria-hidden="true">schedule</span>
+                                                </span>
                                                 {formErrors.checkin ? <p id="explain-checkin-error" className="ui-field-error">{formErrors.checkin}</p> : null}
                                             </div>
                                             <div className="ui-field">
                                                 <label className="ui-field-label ui-field-label-required" htmlFor="explain-checkout-time">Giờ check-out</label>
-                                                <input
-                                                    ref={checkoutRef}
-                                                    id="explain-checkout-time"
-                                                    type="time"
-                                                    required
-                                                    className={`ui-control ${formErrors.checkout ? 'ui-control-invalid' : ''}`.trim()}
-                                                    value={checkoutTime}
-                                                    onChange={(event) => { setCheckoutTime(event.target.value); setFormErrors((current) => ({ ...current, checkout: undefined })); }}
-                                                    aria-invalid={!!formErrors.checkout}
-                                                    aria-describedby={formErrors.checkout ? 'explain-checkout-error' : undefined}
-                                                />
+                                                <span className="ui-field-affix">
+                                                    <input
+                                                        ref={checkoutRef}
+                                                        id="explain-checkout-time"
+                                                        type="time"
+                                                        required
+                                                        className={`ui-control ${formErrors.checkout ? 'ui-control-invalid' : ''}`.trim()}
+                                                        value={checkoutTime}
+                                                        onChange={(event) => { setCheckoutTime(event.target.value); setFormErrors((current) => ({ ...current, checkout: undefined })); }}
+                                                        onClick={(event) => openTimePicker(event.currentTarget)}
+                                                        aria-invalid={!!formErrors.checkout}
+                                                        aria-describedby={formErrors.checkout ? 'explain-checkout-error' : undefined}
+                                                    />
+                                                    <span className="material-symbols-rounded ui-field-affix-icon" aria-hidden="true">schedule</span>
+                                                </span>
                                                 {formErrors.checkout ? <p id="explain-checkout-error" className="ui-field-error">{formErrors.checkout}</p> : null}
                                             </div>
                                         </div>

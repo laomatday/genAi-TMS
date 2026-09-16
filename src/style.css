@@ -3619,19 +3619,35 @@ input.ui-control[type='week'] {
   line-height: normal;
 }
 
-/* Android draws the picker as a chevron hard against the field's trailing edge,
-   where every other control in the app insets it. Measured on the date button
-   beside these fields, its chevron sits 23px in; this pulls the native one far
-   enough to read as the same alignment on a phone. Chromium on the desktop
-   already insets its clock icon, so it ends up slightly further in there —
-   the phone is where this form is used. */
-input.ui-control[type='time']::-webkit-calendar-picker-indicator,
-input.ui-control[type='date']::-webkit-calendar-picker-indicator,
-input.ui-control[type='datetime-local']::-webkit-calendar-picker-indicator,
-input.ui-control[type='month']::-webkit-calendar-picker-indicator,
-input.ui-control[type='week']::-webkit-calendar-picker-indicator {
-  margin-inline-end: var(--space-2);
-  opacity: 0.6;
+/* Each platform draws the picker button its own way and puts it in its own
+   place — a chevron hard against the edge on Android, something different again
+   on iOS and on the desktop. Rather than chase a value that is right on one and
+   wrong on the others, the native button is hidden and the field carries the
+   app's own icon, inset like every other trailing affix in the app. */
+.ui-field-affix { position: relative; display: block; }
+.ui-field-affix > .ui-control { padding-inline-end: calc(var(--space-4) + 1.75rem); }
+.ui-field-affix > .ui-field-affix-icon {
+  position: absolute;
+  /* The glyph carries its own side bearing, so the box sits further out than
+     the ink does. Measured against the date button beside these fields, whose
+     chevron reads 23px in from the border: this lands the clock on the same
+     line rather than tight to the edge. */
+  inset-inline-end: calc(var(--space-4) + 0.375rem);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-muted);
+  /* The base rule fills icons; a trailing affix reads as an outline, which is
+     what the chevrons and the field icons elsewhere in the app use. */
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-size: 1.25rem;
+  line-height: 1;
+  pointer-events: none;
+}
+.ui-field-affix > .ui-control:focus ~ .ui-field-affix-icon { color: var(--color-primary); }
+.ui-field-affix input::-webkit-calendar-picker-indicator {
+  display: none;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .ui-control::placeholder { color: var(--color-text-muted); font-weight: 500; }
