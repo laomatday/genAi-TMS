@@ -1,9 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import QRCode from 'react-qr-code';
 import { createAttendanceQr, getQrTimingConfig } from '@/modules/tms/services/attendance';
 import { getActiveLocations } from '@/modules/tms/services/locations';
 import { APP_INFO, TMS_LIMITS } from '@/shared/constants';
 import type { Employee, Location } from '@/shared/types';
+import {
+  countdownRatio,
+  isCountdownUrgent,
+  stationClock,
+  stationDate,
+  stationGreeting,
+  stationHour,
+} from './stationDisplay';
 
 interface ScreenWakeLock {
   release: () => Promise<void>;
@@ -172,46 +180,23 @@ export default function QrStation({
     onExit();
   };
 
+  const greeting = stationGreeting(stationHour(now));
+  const remaining = countdownRatio(seconds, timing.validitySeconds);
+  const urgent = isCountdownUrgent(seconds, timing.validitySeconds);
+  const live = !error && Boolean(payload) && seconds > 0;
+
   return (
     <main className="station-page">
       <header className="station-topbar">
         <div className="brand-lockup brand-lockup-compact">
           <img className="brand-logo brand-logo-compact" src={APP_INFO.LOGO_URL} alt={APP_INFO.BRAND} />
           <div>
-            <p className="eyebrow">Workspace</p>
-            <strong>Trạm QR động</strong>
+            <p className="eyebrow">{APP_INFO.PRODUCT_NAME}</p>
+            <strong>{branchName || user.center_id}</strong>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
-          <div className="hidden text-right sm:block" aria-label="Thời gian hiện tại">
-            <strong className="block font-mono text-base tabular-nums">{now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</strong>
-            <span className="block text-[11px] opacity-60">{isWakeLockActive ? 'Màn hình luôn bật' : 'Trạm chấm công'}</span>
-          </div>
-          {document.fullscreenEnabled ? (
-            <button type="button" className="button button-secondary" onClick={() => void toggleFullscreen()} aria-label={isFullscreen ? 'Thoát toàn màn hình' : 'Mở toàn màn hình'}>
-              <span className="material-symbols-rounded" aria-hidden="true">{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</span>
-              <span className="hidden md:inline">{isFullscreen ? 'Thu nhỏ' : 'Toàn màn hình'}</span>
-            </button>
-          ) : null}
-          <button type="button" className="button button-secondary" onClick={() => void handleExit()}>
-            <span className="material-symbols-rounded" aria-hidden="true">logout</span>
-            Thoát
-          </button>
-        </div>
-      </header>
-
-      <section className="station-content" aria-live="polite">
-        <div className="station-heading">
-          <p className="eyebrow">Trạm chấm công</p>
-          <h1>{branchName || user.center_id || 'Chưa gán chi nhánh'}</h1>
-          {!isOnline ? (
-            <div className="ui-pill ui-pill-warning station-offline-pill" role="status">
-              <span className="material-symbols-rounded text-base" aria-hidden="true">wifi_off</span>
-              Ngoại tuyến · QR đã tạm khóa
-            </div>
-          ) : !error && Boolean(payload) ? <div className="ga-station-status"><i /><span>Đang hoạt động</span></div> : null}
-          <p className="muted">Mở {APP_INFO.NAME}, quét mã và bật định vị để xác thực.</p>
-          {locations.length > 1 && (
+        <div className="station-topbar-actions">
+          {locations.length > 1 ? (
             <select
               className="station-location-select"
               value={selectedCenter}
@@ -227,33 +212,78 @@ export default function QrStation({
                 <option value={location.center_id} key={location.center_id}>{location.center_name}</option>
               ))}
             </select>
-          )}
+          ) : null}
+          {document.fullscreenEnabled ? (
+            <button type="button" className="button button-secondary" onClick={() => void toggleFullscreen()} aria-label={isFullscreen ? 'Thoát toàn màn hình' : 'Mở toàn màn hình'}>
+              <span className="material-symbols-rounded" aria-hidden="true">{isFullscreen ? 'fullscreen_exit' : 'fullscreen'}</span>
+            </button>
+          ) : null}
+          <button type="button" className="button button-secondary" onClick={() => void handleExit()} aria-label="Thoát trạm">
+            <span className="material-symbols-rounded" aria-hidden="true">logout</span>
+          </button>
+        </div>
+      </header>
+
+      <section className="station-stage" aria-live="polite">
+        <div className="station-now">
+          <p className="station-greeting">{greeting}</p>
+          <p className="station-clock">{stationClock(now)}</p>
+          <p className="station-date">{stationDate(now)}</p>
+          <div className="station-flags">
+            {!isOnline ? (
+              <span className="station-flag station-flag-warning" role="status">
+                <span className="material-symbols-rounded" aria-hidden="true">wifi_off</span>
+                Ngoại tuyến · QR đã tạm khóa
+              </span>
+            ) : live ? (
+              <span className="station-flag station-flag-live" role="status"><i aria-hidden="true" />Đang hoạt động</span>
+            ) : null}
+            {isWakeLockActive ? (
+              <span className="station-flag">
+                <span className="material-symbols-rounded" aria-hidden="true">brightness_high</span>
+                Màn hình luôn bật
+              </span>
+            ) : null}
+          </div>
         </div>
 
-        <div className="qr-panel">
+        <div className="station-qr-stack">
           {error ? (
-            <div className="station-error">
+            <div className="qr-panel station-error">
               <span className="material-symbols-rounded" aria-hidden="true">error</span>
               <p>{error}</p>
               <button type="button" className="button button-primary" onClick={() => void refresh()} disabled={!isOnline || isRefreshing}>
                 {!isOnline ? 'Đang chờ kết nối' : isRefreshing ? 'Đang làm mới…' : 'Thử lại'}
               </button>
             </div>
-          ) : payload && seconds > 0 ? (
+          ) : live ? (
             <>
-              <div className="qr-code">
-                <QRCode value={payload} size={TMS_LIMITS.KIOSK_QR_SIZE_PX} level="M" />
+              {/* The bar is the countdown: one glance says how long the code on
+                  the wall is still good for, without reading a number. */}
+              <div
+                className={`qr-panel ${urgent ? 'station-countdown-urgent' : ''}`.trim()}
+                style={{ '--station-remaining': String(remaining) } as CSSProperties}
+              >
+                <div className="qr-code">
+                  <QRCode value={payload} size={TMS_LIMITS.KIOSK_QR_SIZE_PX} level="M" />
+                </div>
+                <div className="station-countdown-bar" aria-hidden="true"><i /></div>
+                <p className={`station-countdown ${urgent ? 'station-countdown-urgent' : ''}`.trim()}>
+                  {seconds}<small>giây</small>
+                </p>
               </div>
-              <div className="qr-countdown">
-                <span className={seconds <= Math.ceil(timing.validitySeconds * 0.2) ? 'countdown-warning' : ''}>{seconds}s</span>
-                <p>Mã tự làm mới mỗi {Math.round(timing.refreshMs / TMS_LIMITS.CLOCK_REFRESH_MS)} giây · hiệu lực tối đa {timing.validitySeconds} giây</p>
-                {lastRefreshedAt ? <p className="mt-1 text-xs opacity-60">Cập nhật gần nhất lúc {lastRefreshedAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</p> : null}
-              </div>
+              <p className="station-instruction">
+                Mở <strong>{APP_INFO.NAME}</strong>, quét mã và bật định vị để xác thực.
+              </p>
+              <p className="station-fineprint">
+                Mã tự làm mới mỗi {Math.round(timing.refreshMs / TMS_LIMITS.CLOCK_REFRESH_MS)} giây
+                {lastRefreshedAt ? ` · cập nhật lúc ${stationClock(lastRefreshedAt)}` : ''}
+              </p>
             </>
           ) : (
-            <div className="station-loading">
+            <div className="qr-panel station-loading">
               <span className="spinner" aria-hidden="true" />
-              <p>Đang tạo mã bảo mật...</p>
+              <p>Đang tạo mã bảo mật…</p>
             </div>
           )}
         </div>

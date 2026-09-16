@@ -143,9 +143,10 @@ test.describe('employee app', () => {
     await page.getByRole('button', { name: 'Trang chủ', exact: true }).last().click();
     await shootElement(page, project, '09-thanh-dieu-huong', 'nav[aria-label="Điều hướng chính"]');
 
-    // The scanner. Opened through the home button rather than by URL so the
-    // checks that guard it (attendance lock, connectivity) run for real.
-    await page.getByRole('button', { name: /Chấm công/ }).first().click();
+    // The scanner, by its own URL. Reaching it through the home button means
+    // depending on which action that button is offering, and with an open shift
+    // in the mock it offers check-out rather than the scanner.
+    await page.goto('/?tab=home&modal=qr');
     const scanner = page.locator('[role="dialog"][aria-labelledby="qr-scanner-title"]');
     await expect(scanner).toBeVisible({ timeout: 15_000 });
     // Wait for the fake camera to deliver frames; a shot taken before the first
@@ -274,6 +275,12 @@ test.describe('control center', () => {
       await tab.click();
       await shoot(page, project, file);
     }
+
+    // The station again, this time on a screen hung the usual way up — the
+    // stage lays out differently in landscape.
+    await page.goto('/kiosk');
+    await expect(page.locator('.qr-code svg').first()).toBeVisible({ timeout: 20_000 });
+    await shoot(page, project, '15-tram-qr-ngang');
   });
 });
 

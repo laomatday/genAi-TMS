@@ -235,7 +235,23 @@ export const UI_MOTION = {
 export const TMS_TIME = {
   ZONE: 'Asia/Ho_Chi_Minh',
   UTC_OFFSET: '+07:00',
+  /** Locale every date and time in the product is formatted with. */
+  LOCALE: 'vi-VN',
 } as const;
+
+/**
+ * What the station says when someone walks up to it, by local hour.
+ *
+ * A table rather than a chain of comparisons in the view, so the wording and
+ * the boundaries are one thing to change and can be read at a glance. Each
+ * entry applies up to `untilHour` exclusive; the last one closes the day.
+ */
+export const STATION_GREETINGS: ReadonlyArray<{ untilHour: number; label: string }> = [
+  { untilHour: 11, label: 'Chào buổi sáng' },
+  { untilHour: 13, label: 'Chào buổi trưa' },
+  { untilHour: 18, label: 'Chào buổi chiều' },
+  { untilHour: 24, label: 'Chào buổi tối' },
+];
 
 export const TMS_LIMITS = {
   DEFAULT_GEOFENCE_METERS: 200 as number,

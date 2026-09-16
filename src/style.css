@@ -1830,8 +1830,12 @@
 
 /* QR station */
 .station-page {
+  /* A column so the stage can take the space the header leaves, whichever way
+     the screen is hung. */
   min-height: 100dvh;
-  padding: 24px clamp(24px, 5vw, 72px) 48px;
+  padding: clamp(var(--space-4), 3vh, var(--space-6)) clamp(var(--space-4), 5vw, var(--space-10)) clamp(var(--space-4), 3vh, var(--space-8));
+  display: flex;
+  flex-direction: column;
   background: var(--color-bg);
   color: var(--color-text-primary);
   font-family: var(--font-family-main);
@@ -1861,33 +1865,187 @@
 
 .button-primary { border: 1px solid var(--color-primary); background: var(--color-primary); color: var(--color-on-dark); }
 .button-secondary { border: 1px solid var(--color-border); background: var(--color-card); color: var(--color-text-primary); }
-.station-content { width: min(1040px, 100%); margin: clamp(52px, 9vh, 110px) auto 0; display: grid; grid-template-columns: minmax(260px, 0.8fr) minmax(360px, 1.2fr); align-items: center; gap: clamp(36px, 7vw, 88px); }
-.station-heading h1 { margin: 8px 0 14px; font-size: clamp(34px, 4vw, 54px); line-height: 1.02; letter-spacing: -0.045em; }
-.station-heading > .muted { max-width: 410px; margin: 16px 0 22px; font-size: 14px; line-height: 1.65; }
-.ga-station-status { display: inline-flex; align-items: center; gap: 8px; padding: 7px 11px; border-radius: 999px; background: var(--color-success-light); color: var(--color-success-dark); font-size: 11px; font-weight: 700; }
-.ga-station-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success) 15%, transparent); }
-.station-location-select { width: min(360px, 100%); min-height: 48px; padding: 0 42px 0 15px; border: 1px solid var(--control-border); border-radius: 14px; outline: none; background: var(--control-bg); color: var(--color-text-primary); font-size: 13px; font-weight: 600; transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease; }
-.station-location-select:focus { border-color: var(--control-focus-border); background: var(--control-focus-bg); box-shadow: 0 0 0 3px var(--control-focus-ring); }
-.qr-panel { min-height: 490px; padding: clamp(24px, 4vw, 44px); border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent); border-radius: 34px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: color-mix(in srgb, var(--color-card) 94%, transparent); box-shadow: var(--shadow-floating); backdrop-filter: blur(18px); }
-.qr-code { padding: 22px; border-radius: 24px; background: var(--color-on-dark); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-navy) 6%, transparent), var(--shadow-card); }
-.qr-code svg { display: block; width: min(320px, 62vw); height: auto; }
-.qr-countdown { margin-top: 20px; text-align: center; }
-.qr-countdown span { color: var(--color-primary); font: 700 24px/1 var(--font-family-mono); }
-.qr-countdown span.countdown-warning { color: var(--color-warning-dark); }
-.qr-countdown p { margin: 8px 0 0; color: var(--color-text-muted); font-size: 11px; }
-.station-error, .station-loading { min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
-.station-error > .material-symbols-rounded { color: var(--color-error); font-size: 44px; }
-.station-error p, .station-loading p { max-width: 330px; margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
-.spinner { width: 34px; height: 34px; border: 3px solid color-mix(in srgb, var(--color-primary) 14%, transparent); border-top-color: var(--color-primary); border-radius: 50%; animation: tms-spin 0.8s linear infinite; }
+/* The station runs unattended on a wall screen that may be hung either way up,
+   so the stage fills the viewport and reflows on orientation rather than
+   assuming a landscape box. Earlier the content sat in the top third of a
+   portrait screen with the rest empty. */
+.station-stage {
+  flex: 1;
+  width: min(1180px, 100%);
+  margin-inline: auto;
+  padding: clamp(var(--space-4), 4vh, var(--space-8)) 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(var(--space-6), 6vw, var(--space-10));
+}
+@media (orientation: portrait), (max-width: 860px) {
+  .station-stage {
+    grid-template-columns: minmax(0, 1fr);
+    /* Centre the pair as a group; spreading two rows down a tall screen leaves
+       a hole between the clock and the code. */
+    align-content: center;
+    justify-items: center;
+    gap: clamp(var(--space-6), 5vh, var(--space-10));
+    text-align: center;
+  }
+}
 
-@media (max-width: 760px) {
-  .station-page { padding: 16px 16px 32px; }
-  .brand-logo { width: 44px; height: 44px; border-radius: 14px; }
-  .brand-lockup strong { font-size: 13px; }
-  .station-content { margin-top: 40px; grid-template-columns: 1fr; gap: 28px; text-align: center; }
-  .station-heading > .muted { margin-inline: auto; }
-  .station-location-select { width: 100%; }
-  .qr-panel { min-height: 420px; border-radius: 26px; }
+.station-now { min-width: 0; display: grid; gap: var(--space-2); }
+.station-greeting {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: clamp(0.9rem, 1.6vw, 1.125rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.station-clock {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  font-size: clamp(3.25rem, 11vw, 7rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+.station-date {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: clamp(1rem, 2.2vw, 1.5rem);
+  font-weight: 600;
+}
+.station-flags { margin-top: var(--space-2); display: flex; flex-wrap: wrap; gap: var(--space-2); }
+@media (orientation: portrait), (max-width: 860px) {
+  .station-flags { justify-content: center; }
+  .station-now { justify-items: center; }
+}
+.station-flag {
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-surface-muted, var(--color-primary-light));
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.station-flag .material-symbols-rounded { font-size: 1rem; }
+.station-flag-live { background: var(--color-success-light); color: var(--color-success-dark); }
+.station-flag-live i {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--color-success) 18%, transparent);
+}
+.station-flag-warning { background: var(--color-warning-light); color: var(--color-warning-dark); }
+
+.station-qr-stack { display: grid; justify-items: center; gap: var(--space-3); }
+
+.qr-panel {
+  padding: clamp(var(--space-4), 3vw, var(--space-6));
+  border: 1px solid color-mix(in srgb, var(--color-border) 75%, transparent);
+  border-radius: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  background: color-mix(in srgb, var(--color-card) 94%, transparent);
+  box-shadow: var(--shadow-floating);
+}
+
+/* The countdown is a bar under the code rather than a ring around it: the panel
+   is a rounded rectangle, and masking a conic gradient into a ring around one
+   gives an ellipse that reads as a coloured slab from across the room.
+   --station-remaining is written by the view from seconds left over the
+   validity window the server reports, so the sweep matches whatever that
+   window is configured to be. */
+.station-countdown-bar {
+  width: 100%;
+  height: 0.5rem;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-border) 55%, transparent);
+}
+.station-countdown-bar > i {
+  display: block;
+  width: calc(var(--station-remaining, 0) * 100%);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transition: width 400ms linear, background-color 200ms ease;
+}
+.station-countdown-urgent .station-countdown-bar > i { background: var(--color-warning); }
+
+.qr-code {
+  padding: clamp(var(--space-3), 2vw, var(--space-5));
+  border-radius: 24px;
+  background: var(--color-on-dark);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-navy) 6%, transparent), var(--shadow-card);
+}
+.qr-code svg { display: block; width: clamp(12rem, 34vmin, 22rem); height: auto; }
+
+.station-countdown {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  color: var(--color-primary);
+  font-family: var(--font-family-mono);
+  font-size: clamp(1.5rem, 3.4vw, 2.25rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.station-countdown small { color: var(--color-text-muted); font-family: var(--font-family-sans); font-size: 0.75rem; font-weight: 700; }
+.station-countdown-urgent { color: var(--color-warning-dark); }
+
+.station-instruction {
+  margin: 0;
+  max-width: 28ch;
+  color: var(--color-text-secondary);
+  font-size: clamp(0.875rem, 1.7vw, 1.0625rem);
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+}
+.station-instruction strong { color: var(--color-text-primary); }
+.station-fineprint { margin: 0; color: var(--color-text-muted); font-size: 0.75rem; text-align: center; }
+
+.station-error, .station-loading {
+  min-height: clamp(16rem, 34vmin, 22rem);
+  gap: var(--space-3);
+  text-align: center;
+}
+.station-error > .material-symbols-rounded { color: var(--color-error); font-size: 2.75rem; }
+.station-error p, .station-loading p {
+  max-width: 30ch;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.station-topbar-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.station-location-select {
+  min-height: var(--touch-target);
+  padding: 0 2.25rem 0 0.9rem;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  outline: none;
+  background: var(--control-bg);
+  color: var(--color-text-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.station-location-select:focus { border-color: var(--control-focus-border); box-shadow: 0 0 0 3px var(--control-focus-ring); }
+
+@media (prefers-reduced-motion: reduce) {
+  .station-ring::before { transition: none; }
 }
 
 /* Trusted-device and admin surfaces */
@@ -4266,7 +4424,6 @@ input.ui-control[type='week']::-webkit-date-and-time-value {
   animation: tms-spin 900ms linear infinite;
 }
 
-.station-offline-pill { min-height: 2.25rem; padding-inline: var(--space-3); font-size: 0.75rem; }
 
 /* --- Home prompt -------------------------------------------------------- */
 .home-prompt { min-height: 5rem; padding: var(--space-3); border: 1px solid color-mix(in srgb, var(--color-warning) 34%, var(--color-border)); border-radius: var(--radius-control); display: flex; align-items: center; gap: var(--space-3); background: color-mix(in srgb, var(--color-warning-light) 44%, var(--color-card)); box-shadow: none; }

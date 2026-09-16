@@ -397,7 +397,9 @@ export async function mockBackend(
         json: {
           // Shaped like the real token so the rendered QR has realistic density.
           payload: `genai-tms:v4:DN01:${'8f2a41c7d9e3b605'.repeat(2)}:${Date.now()}`,
-          expiresAt: Date.now() + 110_000,
+          // Inside the validity window the station reads from metadata, so the
+          // countdown bar shows a real fraction instead of pinning at full.
+          expiresAt: Date.now() + 38_000,
           branchName: 'Đà Nẵng 1',
         },
       });
