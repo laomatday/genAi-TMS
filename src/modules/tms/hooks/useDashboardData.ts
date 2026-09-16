@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DashboardData, Employee } from '@/shared/types';
 import { getDashboardData } from '@/modules/tms/services/employee';
-import { getCurrentTimeStr, timeToMinutes, toISODateString, triggerHaptic } from '@/core/utils/helpers';
-import { scopedStorageKey, TMS_LIMITS } from '@/shared/constants';
+import { TMS_LIMITS } from '@/shared/constants';
 import { nextDashboardRefreshDelay } from './dashboardRefresh';
 import { loadDashboardSnapshot, saveDashboardSnapshot } from '@/modules/tms/services/dashboardSnapshot';
 
 export const useDashboardData = (
   user: Employee,
   onLogout: () => void,
-  onNotification?: (title: string, body: string) => void,
 ) => {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -27,27 +25,6 @@ export const useDashboardData = (
     currentUserRef.current = user;
     setCurrentUser(user);
   }, [user]);
-
-  const checkShiftEndReminder = useCallback((nextData: DashboardData) => {
-    const today = toISODateString(new Date());
-    const activeSession = nextData.history.history.find((row) => row.date === today && !row.time_out);
-    if (!activeSession?.shift_end) return;
-
-    const shiftEndMinutes = timeToMinutes(activeSession.shift_end);
-    const currentMinutes = timeToMinutes(getCurrentTimeStr());
-    if (currentMinutes <= shiftEndMinutes + TMS_LIMITS.CHECKOUT_REMINDER_DELAY_MINUTES) return;
-
-    const reminderKey = scopedStorageKey(`remind_checkout_${today}`, currentUserRef.current);
-    if (localStorage.getItem(reminderKey)) return;
-
-    const title = 'Nhắc nhở Check-out';
-    const body = `Ca làm việc của bạn đã kết thúc lúc ${activeSession.shift_end}. Vui lòng Check-out!`;
-    if (onNotification) {
-      triggerHaptic('warning');
-      onNotification(title, body);
-    }
-    localStorage.setItem(reminderKey, 'true');
-  }, [onNotification]);
 
   const performFetch = useCallback(async (isInitial = false, requireFresh = false): Promise<boolean> => {
     lastAttemptAtRef.current = Date.now();
@@ -89,7 +66,6 @@ export const useDashboardData = (
       if (serialized !== previousDataRef.current) {
         previousDataRef.current = serialized;
         setData(result.data);
-        checkShiftEndReminder(result.data);
       }
       void saveDashboardSnapshot(result.data.userProfile, result.data, syncedAt);
       return true;
@@ -100,7 +76,7 @@ export const useDashboardData = (
     } finally {
       if (isInitial) setLoading(false);
     }
-  }, [checkShiftEndReminder, onLogout]);
+  }, [onLogout]);
 
   const fetchData = useCallback(async (isInitial = false, requireFresh = false): Promise<boolean> => {
     const activeRequest = requestInFlightRef.current;

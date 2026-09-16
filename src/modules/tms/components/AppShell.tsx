@@ -99,8 +99,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
     else if (type === 'error' || type === 'warning') playAudioChime('error');
     showToast({ title, body: msg, type });
   }, [showToast]);
-  const notifyShiftEnd = useCallback((title: string, body: string) => handleShowAlert(title, body, 'warning'), [handleShowAlert]);
-  const { data, loading, error, currentUser, isOnline, lastSyncedAt, refresh } = useDashboardData(user, onLogout, notifyShiftEnd);
+  const { data, loading, error, currentUser, isOnline, lastSyncedAt, refresh } = useDashboardData(user, onLogout);
   const {
     items: inboxItems,
     unreadCount: inboxUnreadCount,

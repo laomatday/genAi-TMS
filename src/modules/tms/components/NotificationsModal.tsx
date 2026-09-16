@@ -29,9 +29,6 @@ function notificationPresentation(kind: string): { icon: string; tone: string; t
             return { icon: 'description', tone: 'primary', target: 'requests' };
         case 'SCHEDULE_CHANGED':
             return { icon: 'calendar_month', tone: 'info', target: 'calendar' };
-        case 'CHECKIN_REMINDER':
-        case 'CHECKOUT_REMINDER':
-            return { icon: 'schedule', tone: 'success', target: 'home' };
         default:
             return { icon: 'notifications', tone: 'muted', target: 'home' };
     }
@@ -89,7 +86,7 @@ const NotificationsModal: React.FC<Props> = ({
                                 {loading ? 'progress_activity' : 'notifications_off'}
                             </span>
                             <span className="ui-empty-title">{loading ? 'Đang tải thông báo…' : 'Chưa có thông báo'}</span>
-                            <span className="ui-empty-text">Lịch làm việc, nhắc chấm công và kết quả duyệt sẽ hiển thị tại đây.</span>
+                            <span className="ui-empty-text">Lịch làm việc và kết quả duyệt sẽ hiển thị tại đây.</span>
                         </div>
                     ) : groups.map((group) => (
                         <div key={group.date}>
