@@ -40,10 +40,39 @@ const CAMERA_MESSAGES = {
   denied: 'Quyền camera đang bị chặn. Hãy cho phép Camera trong cài đặt trang rồi thử lại.',
   missing: 'Không tìm thấy camera trên thiết bị.',
   busy: 'Camera đang được ứng dụng khác sử dụng. Hãy đóng ứng dụng đó rồi thử lại.',
-  generic: 'Không thể mở camera. Vui lòng kiểm tra quyền truy cập rồi thử lại.',
+  generic: 'Không mở được camera.',
+  unsupportedMode: 'Camera không nhận cấu hình yêu cầu. Hãy thử lại hoặc dùng thiết bị khác.',
   decoder: 'Không tải được bộ giải mã QR. Hãy kiểm tra kết nối mạng rồi thử lại.',
   undecodable: 'Camera đang chạy nhưng không đọc được mã. Hãy thử lại hoặc nhập mã thủ công.',
+  noFrames: 'Camera đã được cấp quyền nhưng không gửi được hình. Hãy đóng các ứng dụng đang dùng camera rồi thử lại.',
 } as const;
+
+/** Long enough for a cold camera on an older phone, short enough to not hang. */
+const FIRST_FRAME_TIMEOUT_MS = 10_000;
+
+/**
+ * Resolves once the video is actually showing something, or throws.
+ *
+ * `readyState` is the only honest signal that a camera is live: a stream can be
+ * handed over, and play() can even resolve, while no frame ever arrives.
+ */
+const waitForFrames = (video: HTMLVideoElement) => new Promise<void>((resolve, reject) => {
+  if (video.readyState >= video.HAVE_CURRENT_DATA) {
+    resolve();
+    return;
+  }
+  const settle = (outcome: () => void) => {
+    window.clearTimeout(timer);
+    video.removeEventListener('loadeddata', onData);
+    outcome();
+  };
+  const onData = () => settle(resolve);
+  const timer = window.setTimeout(
+    () => settle(() => reject(new Error(CAMERA_MESSAGES.noFrames))),
+    FIRST_FRAME_TIMEOUT_MS,
+  );
+  video.addEventListener('loadeddata', onData, { once: true });
+});
 
 const shouldSkipDeviceFallback = (error: unknown) => {
   const detail = error instanceof Error
@@ -59,12 +88,24 @@ const getCameraErrorMessage = (error: unknown) => {
     : String(error);
   const normalized = detail.toLowerCase();
 
-  if (Object.values(CAMERA_MESSAGES).includes(detail as typeof CAMERA_MESSAGES[keyof typeof CAMERA_MESSAGES])) return detail;
+  // Already one of ours — including the generic one with its error name
+  // appended — so it is passed through rather than re-classified.
+  if (Object.values(CAMERA_MESSAGES).some((message) => detail.startsWith(message))) return detail;
   if (/notallowed|permission|denied|dismissed/.test(normalized)) return CAMERA_MESSAGES.denied;
   if (/notfound|devicesnotfound|no camera|no cameras/.test(normalized)) return CAMERA_MESSAGES.missing;
   if (/notreadable|trackstarterror|could not start|in use/.test(normalized)) return CAMERA_MESSAGES.busy;
+  if (/overconstrained|constraint/.test(normalized)) return CAMERA_MESSAGES.unsupportedMode;
   if (/secure|https/.test(normalized)) return CAMERA_MESSAGES.insecure;
-  return CAMERA_MESSAGES.generic;
+
+  // Nothing recognised it, so say what the browser said.
+  //
+  // The catch-all used to read "check camera permission", which is a confident
+  // wrong answer: it was shown on an iPhone that had just granted permission,
+  // and it sent everyone looking at Settings while the real fault was
+  // elsewhere. An unrecognised error is worth naming — the person reporting it
+  // is the only instrument anyone has on their phone.
+  const name = error instanceof Error && error.name ? error.name : 'Unknown';
+  return `${CAMERA_MESSAGES.generic} (${name})`;
 };
 
 const assertCameraAvailable = () => {
@@ -188,7 +229,27 @@ const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
           return;
         }
         video.srcObject = stream;
-        await video.play();
+
+        // A rejected play() is not a dead camera.
+        //
+        // The element already carries autoplay, muted and playsinline, so iOS
+        // starts it on its own; the explicit call is belt and braces. But
+        // Safari rejects that call whenever something interrupts it — the modal
+        // is still animating in, React re-renders the element, the tab is
+        // mid-transition — with "The operation was interrupted", which matches
+        // none of the patterns below and so surfaced as the catch-all "check
+        // camera permission" on a phone whose permission had just been granted.
+        //
+        // What decides whether there is a camera is whether frames arrive, so
+        // that is what is waited for.
+        await video.play().catch((playError) => {
+          console.warn('Video play warning:', playError);
+        });
+        if (disposed) {
+          stopStream();
+          return;
+        }
+        await waitForFrames(video);
         if (disposed) {
           stopStream();
           return;
