@@ -759,6 +759,33 @@ if (!approvalPage.includes('isMyTurn') || !approvalPage.includes('item.assigned_
   fail('the approval screen must offer a decision only to the assigned reviewer');
 }
 
+// The QR scanner is the only thing in the app that compiles WebAssembly, and it
+// only does so on iOS: Android has a native BarcodeDetector and never loads the
+// polyfill. So a CSP that forbids wasm breaks attendance on iPhones and nowhere
+// else, which is how it went unnoticed — the camera opened, nothing decoded, and
+// the only evidence was a console warning on somebody's phone.
+//
+// Both directives matter, and each one hid the other. connect-src has to reach
+// the module: it used to come from jsDelivr, which this policy does not allow,
+// so the fetch never completed. Serving it from our own origin fixed that and
+// revealed the second half — script-src has to permit compiling it at all.
+const deployConfig = await readFile(join(root, 'vercel.json'), 'utf8');
+const csp = /"Content-Security-Policy",\s*"value":\s*"([^"]+)"/.exec(deployConfig)?.[1]
+  ?? /"value":\s*"(default-src[^"]+)"/.exec(deployConfig)?.[1]
+  ?? '';
+if (!csp) {
+  fail('the deployment Content-Security-Policy could not be read from vercel.json');
+} else {
+  const scriptSrc = csp.split(';').map((part) => part.trim()).find((part) => part.startsWith('script-src'));
+  if (!scriptSrc || !/'wasm-unsafe-eval'|'unsafe-eval'/.test(scriptSrc)) {
+    fail("script-src must allow 'wasm-unsafe-eval' or the QR decoder cannot run on iOS");
+  }
+  const connectSrc = csp.split(';').map((part) => part.trim()).find((part) => part.startsWith('connect-src'));
+  if (!connectSrc || !/'self'/.test(connectSrc)) {
+    fail("connect-src must allow 'self' or the QR decoder cannot be fetched");
+  }
+}
+
 if (failures.length) {
   console.error('\nProduction readiness guard failed:\n');
   for (const failure of failures) console.error(`- ${failure}`);
