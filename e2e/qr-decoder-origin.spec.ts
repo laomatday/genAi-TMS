@@ -24,6 +24,17 @@ test.use({
   },
 });
 
+// Those flags are Chromium's. WebKit ignores them, getUserMedia then fails for
+// want of a camera, and the decoder is never reached — so on the ios-webkit
+// project this would fail for a reason that has nothing to do with what it
+// checks. The ordering it guards is not browser-specific; a real iPhone is a
+// separate exercise, and no headless project stands in for one.
+test.skip(({ browserName }) => browserName !== 'chromium', 'needs a fake camera');
+
+// And a phone. The scanner only exists inside the employee app, which the
+// desktop entry does not open — the admin portal holds the root there.
+test.skip(({ isMobile }) => !isMobile, 'the scanner is a phone screen');
+
 test('the QR decoder loads from this origin, after the camera opens', async ({ page }) => {
   await mockBackend(page);
   await page.addInitScript(() => {
