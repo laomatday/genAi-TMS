@@ -21,6 +21,7 @@
     "perf": "VITE_SUPABASE_URL=https://e2e.supabase.invalid VITE_SUPABASE_PUBLISHABLE_KEY=e2e-perf-key vite build && playwright test --config playwright.perf.config.ts",
     "screens": "playwright test --config playwright.screens.config.ts --project=kiosk && bun scripts/build-fake-camera.mjs && playwright test --config playwright.screens.config.ts --project=mobile --project=desktop",
     "video": "playwright test --config playwright.video.config.ts && bun scripts/build-demo-video.mjs",
+    "video:app": "playwright test --config playwright.video.config.ts --project=login --project=app && bun scripts/build-demo-video.mjs",
     "check": "bun run audit:repo && bun run deadcode && bun run test && bun run build",
     "check:release": "bun run check && bun run audit:dependencies",
     "preview": "vite preview --host 0.0.0.0 --port 3000"

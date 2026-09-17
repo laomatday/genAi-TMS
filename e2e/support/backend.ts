@@ -418,6 +418,33 @@ export async function mockBackend(
       return;
     }
     if (url.pathname.endsWith('/rest/v1/rpc/workforce_command')) {
+      const body = request.postDataJSON() as { p_action?: string; p_args?: { action?: string } };
+      // An attendance command is only accepted by the app if it comes back with
+      // a receipt; without one it reports "Hệ thống chưa trả về biên nhận
+      // chấm công" and the scan looks broken. The real command returns one, so
+      // the mock does too.
+      if (body?.p_action === 'attendance') {
+        const action = body.p_args?.action === 'checkout' ? 'checkout' : body.p_args?.action || 'checkin';
+        await route.fulfill({
+          status: 200,
+          headers,
+          json: {
+            ok: true,
+            receipt: {
+              id: 'e2e-receipt-0001',
+              event_id: 'e2e-event-0001',
+              action,
+              occurred_at: new Date().toISOString(),
+              work_date: today,
+              location_name: 'Đà Nẵng 1',
+              gps_accuracy_m: 12,
+              device_verified: true,
+              status: 'OPEN',
+            },
+          },
+        });
+        return;
+      }
       await route.fulfill({ status: 200, headers, json: { ok: true, count: 1 } });
       return;
     }

@@ -47,7 +47,7 @@ const OUT = 'demo-video';
  * Playwright names each test's output directory after the test, so the numbered
  * test titles arrive here as the delivered filenames and the running order.
  */
-const CLIP = /(\d{2}-[a-z0-9-]+?)-(mobile|kiosk)$/;
+const CLIP = /(\d{2}-[a-z0-9-]+?)-(login|app|kiosk)$/;
 
 /**
  * The phone records at its CSS viewport — 432x936, all Playwright will give —

@@ -1,6 +1,16 @@
 import { defineConfig } from '@playwright/test';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { AUTH_STATE } from './e2e-video/support/paths';
+
+/** One phone, shared by the sign-in run and every clip that follows it. */
+const PHONE = {
+  viewport: { width: 432, height: 936 },
+  screen: { width: 432, height: 936 },
+  isMobile: true,
+  hasTouch: true,
+  video: { mode: 'on' as const, size: { width: 432, height: 936 } },
+};
 
 // Same fake camera the screenshot run builds, for the same reason: the scanner
 // opens a real getUserMedia stream and would otherwise be filmed in its
@@ -43,7 +53,11 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   timeout: 300_000,
-  outputDir: '.cache/video-raw',
+  // Each surface writes to its own directory, because Playwright clears
+  // outputDir at the start of every run: with one shared directory, recording
+  // the phone deleted the kiosk take and the transcode then had nothing to
+  // build it from.
+  outputDir: '.cache/video-raw/all',
   use: {
     baseURL: 'http://127.0.0.1:3107',
     browserName: 'chromium',
@@ -65,17 +79,30 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'mobile',
-      use: {
-        viewport: { width: 432, height: 936 },
-        screen: { width: 432, height: 936 },
-        isMobile: true,
-        hasTouch: true,
-        video: { mode: 'on', size: { width: 432, height: 936 } },
-      },
+      // Records nothing; it exists so the app clips can start already signed in.
+      name: 'setup',
+      testMatch: 'auth.setup.ts',
+      use: { ...PHONE, video: { mode: 'off' } },
+    },
+    {
+      // The only clip without a session, which is why it is the only one that
+      // does not load the saved state.
+      name: 'login',
+      testMatch: 'login.spec.ts',
+      outputDir: '.cache/video-raw/phone',
+      use: PHONE,
+    },
+    {
+      name: 'app',
+      testMatch: 'walkthrough.spec.ts',
+      dependencies: ['setup'],
+      outputDir: '.cache/video-raw/phone',
+      use: { ...PHONE, storageState: AUTH_STATE },
     },
     {
       name: 'kiosk',
+      testMatch: 'kiosk.spec.ts',
+      outputDir: '.cache/video-raw/kiosk',
       use: {
         viewport: { width: 1080, height: 1920 },
         screen: { width: 1080, height: 1920 },
