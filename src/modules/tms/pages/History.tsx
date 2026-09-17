@@ -147,6 +147,16 @@ const TabHistory: React.FC<Props> = ({ isActive = true, data, onRefresh, onAlert
                 : `${sD}/${sM} - ${eD}/${eM}`;
         }
 
+        // Leave and holiday days may have no session rows at all, so the
+        // credit for a date is looked up from any row the server returned for
+        // it, falling back to a full day when the server sent nothing — which
+        // is what the placeholder row would have said.
+        const creditByDate = new Map<string, number>();
+        for (const row of data.history.history) {
+            if (!creditByDate.has(row.date)) creditByDate.set(row.date, Number(row.day_work_credit ?? 0));
+        }
+        const creditFor = (date: string) => creditByDate.get(date) ?? 1;
+
         const dateInfoMap: Record<string, HistoryDayItem> = {};
 
         const loopEnd = new Date(endDate);
@@ -197,7 +207,7 @@ const TabHistory: React.FC<Props> = ({ isActive = true, data, onRefresh, onAlert
                 dayItem.shiftInfo = leave.type;
                 dayItem.leaveType = leave.type;
                 dayItem.workHours = minFull;
-                stats.workDays += 1;
+                stats.workDays += creditFor(dateStr);
             } else {
                 const holiday = data.holidays?.find(h => h.active !== false && h.from_date <= dateStr && h.to_date >= dateStr);
                 if (holiday) {
@@ -205,7 +215,7 @@ const TabHistory: React.FC<Props> = ({ isActive = true, data, onRefresh, onAlert
                     dayItem.shiftInfo = holiday.name || "Ngày Lễ";
                     dayItem.isHoliday = true;
                     dayItem.workHours = minFull;
-                    stats.workDays += 1;
+                    stats.workDays += creditFor(dateStr);
                 } else {
                     const dailyRecords = data.history.history.filter(h => h.date === dateStr && Boolean(h.time_in));
 
@@ -233,15 +243,24 @@ const TabHistory: React.FC<Props> = ({ isActive = true, data, onRefresh, onAlert
                             dayItem.shiftInfo = `Đã chấm công`;
                         }
 
-                        if (totalHours >= minFull) {
-                            stats.workDays += 1;
-                            dayItem.status = 'Full';
-                        } else if (totalHours >= minHalf) {
-                            stats.workDays += 0.5;
-                            dayItem.status = 'Half';
-                        } else {
-                            dayItem.status = 'Working';
-                        }
+                        // The credit is the server's, taken once for the day.
+                        //
+                        // This screen used to decide for itself — hours against
+                        // two thresholds, plus a day each for leave and
+                        // holidays — while the home screen counted check-ins
+                        // and the payroll export counted sessions. Three
+                        // answers to one question, and the one that reached
+                        // payroll was the least considered. The rule now lives
+                        // in wf_private.workday_credit and arrives on the row.
+                        const dayCredit = Number(dailyRecords[0]?.day_work_credit ?? 0);
+                        stats.workDays += dayCredit;
+                        // The badge still reads off hours: it describes the day
+                        // to the person looking at it, and a day credited in
+                        // full through an approved explanation did not have
+                        // eight hours on the clock.
+                        dayItem.status = totalHours >= minFull
+                            ? 'Full'
+                            : totalHours >= minHalf ? 'Half' : 'Working';
 
                         const hasMissingOut = dailyRecords.some(r => !r.time_out);
                         if (hasMissingOut && dateStr !== toISODateString(today)) {

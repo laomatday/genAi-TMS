@@ -73,6 +73,14 @@ export interface Attendance {
   late_minutes: number;
   early_minutes: number;
   work_hours: number;
+  /**
+   * Ngày công for the whole day, decided by the server.
+   *
+   * The same value on every session of a date, so read it once per day and
+   * never sum it across rows. It replaces three separate client calculations
+   * that each had their own idea of what earns a day.
+   */
+  day_work_credit: number;
   status: 'Valid' | 'Late' | 'Invalid';
   is_valid: 'Yes' | 'No';
   note: string;

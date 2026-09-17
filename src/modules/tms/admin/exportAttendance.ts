@@ -99,6 +99,7 @@ export function exportPayrollExcel(input: {
   const employees = new Map(input.employees.map((employee) => [employee.employee_id, employee]));
   const policies = new Map(input.policies.map((policy) => [policy.id, policy]));
   const totals = new Map<string, Omit<PayrollExportRow, 'period' | 'periodStatus' | 'employeeId' | 'employee'>>();
+  const countedDays = new Set<string>();
 
   for (const timesheet of input.timesheets) {
     const current = totals.get(timesheet.employee_id) || {
@@ -112,7 +113,18 @@ export function exportPayrollExcel(input: {
     };
     const policy = timesheet.policy_id ? policies.get(timesheet.policy_id) : undefined;
     const targetMinutes = scheduledMinutes(timesheet, policy?.unpaid_break_minutes ?? 0);
-    if (timesheet.actual_checkin && timesheet.work_minutes > 0) current.workDays += 1;
+    // Counted once per date, from the server's stored figure.
+    //
+    // This used to add one per row, and these rows are sessions: a day worked
+    // as a morning and an afternoon shift — which the system records correctly
+    // and people are told to do — was worth two ngày công here, in the file
+    // that goes to payroll. It also had its own idea of what earns a day,
+    // disagreeing with both screens; that rule now lives on the server.
+    const dayKey = `${timesheet.employee_id}:${timesheet.work_date}`;
+    if (!countedDays.has(dayKey)) {
+      countedDays.add(dayKey);
+      current.workDays += Number(timesheet.day_work_credit ?? 0);
+    }
     current.workMinutes += timesheet.work_minutes || 0;
     current.lateMinutes += timesheet.late_minutes || 0;
     current.earlyMinutes += timesheet.early_minutes || 0;

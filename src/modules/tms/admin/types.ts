@@ -65,6 +65,14 @@ export interface Timesheet {
   late_minutes: number;
   early_minutes: number;
   work_minutes: number;
+  /**
+   * Ngày công for the whole day, from the server.
+   *
+   * These rows are sessions, not days, so this is the day's figure repeated on
+   * each session of that day. Take it once per date; adding it up per row is
+   * what made a split shift worth two work days in the payroll export.
+   */
+  day_work_credit?: number;
   paid_leave_minutes?: number;
   break_started_at?: string | null;
   break_minutes?: number;

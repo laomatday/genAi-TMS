@@ -298,6 +298,7 @@ function mapTimesheet(row: DataRow, profile: Employee, shifts: ShiftConfig[], po
     late_minutes: lateMinutes,
     early_minutes: numberValue(row.early_minutes),
     work_hours: Math.round((numberValue(row.work_minutes) / 60) * 100) / 100,
+    day_work_credit: numberValue(row.day_work_credit),
     status: invalid ? 'Invalid' : lateMinutes > 0 ? 'Late' : 'Valid',
     is_valid: invalid ? 'No' : 'Yes',
     note: exceptionCodes.join(', '),
