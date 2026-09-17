@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
@@ -117,8 +117,14 @@ if (!recordings.length) {
   process.exit(1);
 }
 
-await rm(OUT, { recursive: true, force: true });
+// Never cleared. This used to start with `rm -rf` on the output directory,
+// which meant every run destroyed whatever was there — earlier clips, anything
+// renamed or trimmed by hand, a cut someone was part way through. Files this
+// run produces are overwritten; everything else is left where it is, and the
+// summary says which is which so a stale clip is visible rather than assumed
+// gone.
 await mkdir(OUT, { recursive: true });
+const before = new Set(await readdir(OUT).catch(() => []));
 
 let codec = FALLBACK;
 for (const candidate of H264_CANDIDATES) {
@@ -131,6 +137,8 @@ if (codec === FALLBACK) {
 console.log(`encoder: ${codec.encoder}\n`);
 
 const megabytes = async (path) => `${((await stat(path)).size / 1_048_576).toFixed(1)} MB`;
+
+const written = new Set();
 
 const clips = recordings
   .map((source) => ({ source, name: CLIP.exec(dirname(source).split('/').pop() ?? '')?.[1] }))
@@ -159,9 +167,23 @@ for (const { source, name } of clips) {
     '-an', mp4,
   ]);
 
+  // The WebM Playwright recorded is the original: no transcode, no upscale, a
+  // third of the size. It is kept next to the MP4 because .cache/video-raw is
+  // cleared by Playwright on the next run, so this is the only copy that lasts.
+  const webm = join(OUT, `${name}.webm`);
+  await copyFile(source, webm);
+  written.add(`${name}.mp4`);
+  written.add(`${name}.webm`);
+
   const final = await probeSize(mp4);
   const grew = probed.width < DELIVERY_WIDTH ? ` (phóng từ ${probed.width}px)` : '';
   console.log(`${name.padEnd(18)} ${final.width}x${final.height}${grew.padEnd(20)} ${await megabytes(mp4)}`);
 }
 
-console.log(`\n${clips.length} đoạn trong ./${OUT}, đánh số theo thứ tự ghép.`);
+const kept = [...before].filter((file) => !written.has(file)).sort();
+console.log(`\n${clips.length} đoạn vừa dựng, trong ./${OUT}, đánh số theo thứ tự ghép.`);
+console.log('Kèm bản .webm gốc — nét hơn, nhẹ hơn, không qua chuyển mã.');
+if (kept.length) {
+  console.log(`\nGiữ nguyên ${kept.length} file có sẵn (lần chạy này không đụng tới):`);
+  for (const file of kept) console.log(`  ${file}`);
+}
