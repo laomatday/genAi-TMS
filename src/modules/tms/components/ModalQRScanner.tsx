@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+// Emitted into the build as an asset and served from this origin. The polyfill
+// below fetches it from jsDelivr otherwise; see resolveBarcodeDetectorCtor.
+// The file is taken from the zxing-wasm installed alongside barcode-detector,
+// which pins the same version it bundles, so the two cannot drift apart.
+import zxingWasmUrl from 'zxing-wasm/reader/zxing_reader.wasm?url';
 import IconButton from '@/shared/components/common/IconButton';
 import { useModalAccessibility } from '@/shared/components/modals/useModalAccessibility';
 import { TMS_LIMITS } from '@/shared/constants';
@@ -25,6 +30,8 @@ type BarcodeDetectorCtor = new (options?: { formats?: string[] }) => BarcodeDete
 const SCANNER_ELEMENT_ID = 'qr-reader';
 const REAR_CAMERA_PATTERN = /back|rear|environment|world|camera sau/i;
 const DETECT_INTERVAL_MS = Math.max(50, Math.round(1000 / TMS_LIMITS.QR_SCAN_FPS));
+/** Roughly two seconds of nothing but errors, at the configured scan rate. */
+const DETECT_FAILURE_LIMIT = Math.max(8, TMS_LIMITS.QR_SCAN_FPS * 2);
 
 const CAMERA_MESSAGES = {
   insecure: 'Camera chỉ hoạt động khi mở ứng dụng bằng HTTPS hoặc localhost.',
@@ -34,6 +41,8 @@ const CAMERA_MESSAGES = {
   missing: 'Không tìm thấy camera trên thiết bị.',
   busy: 'Camera đang được ứng dụng khác sử dụng. Hãy đóng ứng dụng đó rồi thử lại.',
   generic: 'Không thể mở camera. Vui lòng kiểm tra quyền truy cập rồi thử lại.',
+  decoder: 'Không tải được bộ giải mã QR. Hãy kiểm tra kết nối mạng rồi thử lại.',
+  undecodable: 'Camera đang chạy nhưng không đọc được mã. Hãy thử lại hoặc nhập mã thủ công.',
 } as const;
 
 const shouldSkipDeviceFallback = (error: unknown) => {
@@ -73,11 +82,40 @@ const assertCameraAvailable = () => {
 // Prefer the browser's native, hardware-accelerated BarcodeDetector (ships in the JS
 // engine, zero bundle cost). Only browsers lacking it (older Safari, Firefox) pay the
 // cost of a dynamically-imported, actively-maintained WASM polyfill.
+//
+// That split is also why this only ever failed on iPhones. Android Chrome has the
+// native detector and never reaches the polyfill; iOS Safari does not, so every
+// iOS scan goes through a WebAssembly build of ZXing — and zxing-wasm loads that
+// module from jsDelivr by default. A phone on branch wifi that cannot reach a
+// public CDN got a camera that ran and a scanner that never decoded anything.
+//
+// The module is now served from this origin, as an asset the build emits, so a
+// scan depends on nothing outside the app. fireImmediately makes a failure to
+// load surface here, as a startup error the person can read, instead of turning
+// into a detect() that rejects on every frame behind a console warning.
 export async function resolveBarcodeDetectorCtor(): Promise<BarcodeDetectorCtor> {
   if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
     return (window as unknown as { BarcodeDetector: BarcodeDetectorCtor }).BarcodeDetector;
   }
-  const { BarcodeDetector } = await import('barcode-detector/pure');
+  // prepareZXingModule comes from barcode-detector itself, not from zxing-wasm.
+  // It bundles its own copy of that library, so configuring the one installed
+  // beside it sets an override on a second, unused instance and the decoder goes
+  // on fetching from the CDN — which is what the first attempt at this fix did,
+  // and what the regression test caught.
+  const { BarcodeDetector, prepareZXingModule } = await import('barcode-detector/pure');
+  try {
+    await prepareZXingModule({
+      overrides: {
+        locateFile: (path: string, prefix: string) => (
+          path.endsWith('.wasm') ? zxingWasmUrl : `${prefix}${path}`
+        ),
+      },
+      fireImmediately: true,
+    });
+  } catch (moduleError) {
+    console.warn('QR decoder load failed:', moduleError);
+    throw new Error(CAMERA_MESSAGES.decoder);
+  }
   return BarcodeDetector as unknown as BarcodeDetectorCtor;
 }
 
@@ -158,11 +196,21 @@ const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
 
         setStatus('scanning');
 
+        // A decoder that throws on every frame is indistinguishable, on screen,
+        // from one that simply has not seen a code yet: the camera runs and
+        // nothing happens. That is exactly how the iOS failure presented, and it
+        // survived because the only response to a rejected detect() was a
+        // console warning nobody on a phone can see. Frames are allowed to fail
+        // — a half-lit code fails too — but a run of nothing but failures is a
+        // broken decoder, and it now says so.
+        let consecutiveFailures = 0;
+
         const tick = async () => {
           if (disposed || scanHandledRef.current) return;
           if (video.readyState >= video.HAVE_CURRENT_DATA) {
             try {
               const results = await detector.detect(video);
+              consecutiveFailures = 0;
               const value = results[0]?.rawValue;
               if (value && !scanHandledRef.current) {
                 scanHandledRef.current = true;
@@ -172,7 +220,16 @@ const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
                 return;
               }
             } catch (detectError) {
+              consecutiveFailures += 1;
               console.warn('QR detect warning:', detectError);
+              if (consecutiveFailures >= DETECT_FAILURE_LIMIT) {
+                stopStream();
+                if (disposed) return;
+                setCameraError(CAMERA_MESSAGES.undecodable);
+                setStatus('error');
+                handlersRef.current.onError(CAMERA_MESSAGES.undecodable);
+                return;
+              }
             }
           }
           if (!disposed && !scanHandledRef.current) {
