@@ -202,8 +202,18 @@
 
 /* Core application styles */
 :root {
-  --font-family-main: "Open Sans", Arial, sans-serif;
+  /* Plus Jakarta Sans carries the vietnamese subset, which is not optional
+     here: every label in this app is Vietnamese, and a face without the
+     diacritics falls back mid-sentence and reflows the layout. */
+  --font-family-main: "Plus Jakarta Sans", "Segoe UI", Roboto, Arial, sans-serif;
+  /* Not a monospace face and never has been — the name marks "this is a
+     number". Measured on Plus Jakarta Sans, "111" and "888" differ by 27px at
+     40px/700 without tabular figures, so anything using this token and showing
+     a value that changes asks for tabular-nums too. */
   --font-family-mono: var(--font-family-main);
+  /* Referenced by .station-countdown and never declared, so that rule resolved
+     to nothing and the kiosk countdown inherited whatever was above it. */
+  --font-family-sans: var(--font-family-main);
   --text-page-title: 24px;
   --text-section-title: 18px;
   --text-card-title: 15px;
@@ -935,7 +945,7 @@
 
 .home-worked-pill { position: relative; z-index: 1; margin: 0; min-height: 1.75rem; padding-inline: var(--space-3); border: 1px solid color-mix(in srgb, var(--color-primary) 14%, var(--color-border)); border-radius: var(--radius-pill); display: inline-flex; align-items: center; gap: var(--space-2); background: color-mix(in srgb, var(--color-primary-light) 42%, var(--color-card)); color: var(--color-primary); font-size: 0.75rem; font-weight: 600; }
 .home-worked-pill .material-symbols-rounded { font-size: 0.875rem; }
-.home-worked-pill strong { font-family: var(--font-family-mono); font-weight: 700; }
+.home-worked-pill strong { font-family: var(--font-family-mono); font-variant-numeric: tabular-nums; font-weight: 700; }
 
 .home-status {
   position: relative;
@@ -1149,7 +1159,7 @@
 .home-metrics .ui-metric { min-height: 7.5rem; padding: var(--space-3); border-radius: var(--radius-control); justify-content: space-between; box-shadow: none; }
 .home-metrics .ui-metric-attention { border-color: var(--color-border); }
 .home-metrics .ui-metric-head { font-size: 0.75rem; font-weight: 600; }
-.home-metrics .ui-metric-value { margin-block: var(--space-1); font-family: var(--font-family-mono); font-size: 1.625rem; font-weight: 700; }
+.home-metrics .ui-metric-value { margin-block: var(--space-1); font-family: var(--font-family-mono); font-size: 1.625rem; font-variant-numeric: tabular-nums; font-weight: 700; }
 .home-metric-icon { width: 1.75rem; height: 1.75rem; border-radius: 0.625rem; display: grid; place-items: center; background: var(--surface-subtle); color: var(--color-text-secondary); }
 .home-metric-worked .home-metric-icon,
 .home-metric-leave .home-metric-icon { background: var(--surface-subtle); color: var(--color-text-secondary); }
@@ -1157,7 +1167,7 @@
 .home-metric-standard .ui-progress::-webkit-progress-value { background: var(--color-text-primary); }
 .home-metric-standard .ui-progress::-moz-progress-bar { background: var(--color-text-primary); }
 .home-metrics .ui-metric-foot { padding-top: var(--space-2); border-top: 1px solid var(--color-divider); display: flex; justify-content: space-between; gap: var(--space-2); }
-.home-metrics .ui-metric-foot strong { color: var(--color-text-secondary); font-family: var(--font-family-mono); font-weight: 700; }
+.home-metrics .ui-metric-foot strong { color: var(--color-text-secondary); font-family: var(--font-family-mono); font-variant-numeric: tabular-nums; font-weight: 700; }
 .home-metric-late .ui-metric-foot strong { color: var(--color-error-dark); }
 
 .home-shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
