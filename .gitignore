@@ -28,3 +28,6 @@ playwright-report/
 # High-resolution screen captures (bun run screens)
 screenshots/
 .cache/
+
+# Screen recordings (bun run video)
+demo-video/
