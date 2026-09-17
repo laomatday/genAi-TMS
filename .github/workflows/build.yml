@@ -54,6 +54,8 @@ jobs:
         run: docker exec -i supabase_db_genai-tms psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/tests/attendance_session_rollover.sql
       - name: Verify final database and Storage security state
         run: docker exec -i supabase_db_genai-tms psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/tests/final_security_state.sql
+      - name: Verify the work-day credit rule
+        run: docker exec -i supabase_db_genai-tms psql -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/tests/workday_credit.sql
       - name: Run database lint and advisors
         run: |
           bunx supabase@2.117.0 db lint --local --schema public --level warning --fail-on error
