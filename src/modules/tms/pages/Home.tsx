@@ -13,6 +13,7 @@ import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import Spinner from '@/shared/components/common/Spinner';
 import ConfirmDialog from '@/shared/components/modals/ConfirmDialog';
 import { LEAVE_REQUEST_TYPES, TMS_LIMITS } from '@/shared/constants';
+import { resolveAttendanceAction } from '@/modules/tms/utils/attendanceAction';
 
 const MINUTES_PER_HOUR = 60;
 const MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR;
@@ -244,13 +245,16 @@ const TabHome: React.FC<Props> = ({
     }
   };
 
-  const action = paused
-    ? { label: 'Tiếp tục làm việc', hint: 'Chạm để tiếp tục', icon: 'play_arrow', run: handlePause, disabled: isPausing }
-    : working
-      ? { label: 'Check-out', hint: 'Chạm để xác nhận', icon: 'logout', run: handleCheckOut, disabled: false }
-      : checkedOut
-        ? { label: 'Đã hoàn tất', hint: 'Đã ghi nhận hôm nay', icon: 'task_alt', run: () => undefined, disabled: true }
-        : { label: 'Chấm công', hint: 'Chạm để quét QR', icon: 'qr_code_scanner', run: handleCheckIn, disabled: false };
+  const resolved = resolveAttendanceAction({ paused, working, checkedOut });
+  const action = {
+    ...resolved,
+    run: resolved.kind === 'resume'
+      ? handlePause
+      : resolved.kind === 'checkout'
+        ? handleCheckOut
+        : handleCheckIn,
+    disabled: resolved.kind === 'resume' ? isPausing : false,
+  };
 
   if (loading && !data) {
     return (
