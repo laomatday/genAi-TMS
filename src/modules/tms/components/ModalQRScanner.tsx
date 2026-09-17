@@ -154,10 +154,15 @@ const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
     const startScanner = async () => {
       try {
         assertCameraAvailable();
-        const DetectorCtor = await resolveBarcodeDetectorCtor();
-        if (disposed) return;
-        const detector = new DetectorCtor({ formats: ['qr_code'] });
 
+        // The camera is opened before the decoder is fetched, and the order is
+        // load-bearing on iOS. Safari only honours getUserMedia inside a short
+        // window after the tap that led here; putting a megabyte of WebAssembly
+        // in front of it spent that window, and Safari then refused the camera
+        // without even showing its permission sheet — a working camera turned
+        // into no camera and no prompt. The decoder has no such constraint, so
+        // it loads once the preview is already running, which also puts a
+        // picture on screen sooner than waiting for both.
         try {
           stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
         } catch (directError) {
@@ -193,6 +198,26 @@ const ModalQRScanner = ({ onClose, onScan, onError }: Props) => {
         trackRef.current = track ?? null;
         const capabilities = track?.getCapabilities?.() as (MediaTrackCapabilities & { torch?: boolean }) | undefined;
         setTorchSupported(Boolean(capabilities?.torch));
+
+        // Only now, with the preview live and the gesture window no longer at
+        // stake. A failure here is a decoder failure, not a camera one.
+        let detector: BarcodeDetectorLike;
+        try {
+          const DetectorCtor = await resolveBarcodeDetectorCtor();
+          if (disposed) {
+            stopStream();
+            return;
+          }
+          detector = new DetectorCtor({ formats: ['qr_code'] });
+        } catch (decoderError) {
+          stopStream();
+          if (disposed) return;
+          console.warn('QR decoder start warning:', decoderError);
+          setCameraError(CAMERA_MESSAGES.decoder);
+          setStatus('error');
+          handlersRef.current.onError(CAMERA_MESSAGES.decoder);
+          return;
+        }
 
         setStatus('scanning');
 
