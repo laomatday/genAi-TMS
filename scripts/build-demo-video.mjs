@@ -1,6 +1,6 @@
-import { copyFile, mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import process from 'node:process';
 
 /**
@@ -43,10 +43,32 @@ const FALLBACK = { encoder: 'mpeg4', args: ['-q:v', '3'] };
 const RAW = '.cache/video-raw';
 const OUT = 'demo-video';
 
-const NAMES = [
-  { match: /mobile/i, file: 'ung-dung-nhan-vien', label: 'phone walkthrough' },
-  { match: /kiosk/i, file: 'man-hinh-kiosk', label: 'kiosk station' },
-];
+/**
+ * Playwright names each test's output directory after the test, so the numbered
+ * test titles arrive here as the delivered filenames and the running order.
+ */
+const CLIP = /(\d{2}-[a-z0-9-]+?)-(mobile|kiosk)$/;
+
+/**
+ * The phone records at its CSS viewport — 432x936, all Playwright will give —
+ * so it is enlarged here, where the enlargement is visible as one. Lanczos
+ * rather than the default bicubic: it holds an edge, and this footage is almost
+ * entirely text and flat colour against hard boundaries.
+ *
+ * The kiosk already records at 1080x1920 and is left alone. Upscaling a clip
+ * that does not need it only softens it.
+ */
+const DELIVERY_WIDTH = 1080;
+
+/** Width and height of a file, read from the stream rather than assumed. */
+async function probeSize(path) {
+  const output = await capture('ffprobe', [
+    '-v', 'error', '-select_streams', 'v:0',
+    '-show_entries', 'stream=width,height', '-of', 'csv=p=0', path,
+  ]);
+  const [width, height] = output.trim().split(',').map(Number);
+  return { width, height };
+}
 
 /** Can this encoder actually open? Cheapest possible answer: one frame. */
 async function canEncode(encoder) {
@@ -62,13 +84,19 @@ async function canEncode(encoder) {
 }
 
 function run(command, args) {
+  return capture(command, args).then(() => undefined);
+}
+
+function capture(command, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
     let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
     child.on('error', reject);
     child.on('close', (code) => (code === 0
-      ? resolve()
+      ? resolve(stdout)
       : reject(new Error(`${command} exited ${code}\n${stderr.slice(-1200)}`))));
   });
 }
@@ -104,26 +132,36 @@ console.log(`encoder: ${codec.encoder}\n`);
 
 const megabytes = async (path) => `${((await stat(path)).size / 1_048_576).toFixed(1)} MB`;
 
-for (const source of recordings) {
-  const naming = NAMES.find((candidate) => candidate.match.test(source));
-  if (!naming) {
-    console.log(`skipping ${source} — no name rule matches it`);
-    continue;
-  }
+const clips = recordings
+  .map((source) => ({ source, name: CLIP.exec(dirname(source).split('/').pop() ?? '')?.[1] }))
+  .filter((clip) => clip.name)
+  .sort((left, right) => left.name.localeCompare(right.name));
 
-  const mp4 = join(OUT, `${naming.file}.mp4`);
+if (!clips.length) {
+  console.error('Recordings found, but none are named like a clip. Check the test titles.');
+  process.exit(1);
+}
+
+for (const { source, name } of clips) {
+  const probed = await probeSize(source);
+  // An odd dimension is rejected by yuv420p, so the scale target is rounded to
+  // an even number rather than assumed to be one.
+  const scale = probed.width < DELIVERY_WIDTH
+    ? `scale=${DELIVERY_WIDTH}:-2:flags=lanczos`
+    : 'scale=trunc(iw/2)*2:trunc(ih/2)*2';
+
+  const mp4 = join(OUT, `${name}.mp4`);
   await run('ffmpeg', [
     '-y', '-v', 'error', '-i', source,
-    '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+    '-vf', scale,
     '-c:v', codec.encoder, ...codec.args,
     '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
     '-an', mp4,
   ]);
 
-  const webm = join(OUT, `${naming.file}.webm`);
-  await copyFile(source, webm);
-
-  console.log(`${naming.label}`);
-  console.log(`  ${mp4}   ${await megabytes(mp4)}   (gửi qua tin nhắn, chèn slide)`);
-  console.log(`  ${webm}  ${await megabytes(webm)}  (bản gốc, nét hơn, dùng cho web)\n`);
+  const final = await probeSize(mp4);
+  const grew = probed.width < DELIVERY_WIDTH ? ` (phóng từ ${probed.width}px)` : '';
+  console.log(`${name.padEnd(18)} ${final.width}x${final.height}${grew.padEnd(20)} ${await megabytes(mp4)}`);
 }
+
+console.log(`\n${clips.length} đoạn trong ./${OUT}, đánh số theo thứ tự ghép.`);

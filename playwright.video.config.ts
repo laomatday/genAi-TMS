@@ -15,13 +15,23 @@ const cameraArgs = [
 /**
  * Screen recording, separate from both the test gate and the screenshot run.
  *
- * Playwright records at device pixels, not CSS pixels — measured, not assumed:
- * a 432x936 viewport at deviceScaleFactor 3 produces a 1296x2808 file. So the
- * same trick the screenshots use works here, and the phone keeps a phone's
- * layout while the recording comes out at a phone's real resolution.
+ * `size` must equal the viewport, and deviceScaleFactor does nothing here.
  *
- *   mobile   432 x 936  @2.5  ->  1080 x 2340   (a current phone, exactly)
- *   kiosk   1080 x 1920 @1    ->  1080 x 1920   (the wall screen, on its side)
+ * The screenshots get their resolution from deviceScaleFactor, and the first
+ * version of this config assumed video worked the same way: viewport 432x936 at
+ * scale 2.5, size 1080x2340. The file came out 1080x2340 and that was taken as
+ * proof. It was not. Playwright only ever scales a recording *down* to fit the
+ * size asked for, so the page was drawn at its 432x936 CSS size into the corner
+ * of a 1080x2340 canvas and the remaining two thirds were filled with grey.
+ *
+ * So video caps out at the CSS viewport, and the frame is only full when size
+ * matches it. Enlarging the viewport instead is not a way out: the phone layout
+ * ends at 768px, and the recordings have to keep the same geometry as the
+ * screenshots so the two can be cut together. The upscale to a deliverable size
+ * happens in ffmpeg afterwards, where it is visible as an upscale.
+ *
+ *   mobile   432 x 936   (upscaled to 1080 x 2340 on the way out)
+ *   kiosk   1080 x 1920  (already full size; the wall screen on its side)
  *
  * Unlike the screenshots, motion is left on. A still is better without a
  * half-played transition; a recording is mostly transitions, and reducedMotion
@@ -59,10 +69,9 @@ export default defineConfig({
       use: {
         viewport: { width: 432, height: 936 },
         screen: { width: 432, height: 936 },
-        deviceScaleFactor: 2.5,
         isMobile: true,
         hasTouch: true,
-        video: { mode: 'on', size: { width: 1080, height: 2340 } },
+        video: { mode: 'on', size: { width: 432, height: 936 } },
       },
     },
     {
