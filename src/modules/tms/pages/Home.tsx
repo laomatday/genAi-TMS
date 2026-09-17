@@ -245,7 +245,7 @@ const TabHome: React.FC<Props> = ({
     }
   };
 
-  const resolved = resolveAttendanceAction({ paused, working, checkedOut });
+  const resolved = resolveAttendanceAction({ paused, working });
   const action = {
     ...resolved,
     run: resolved.kind === 'resume'

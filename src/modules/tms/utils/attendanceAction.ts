@@ -1,6 +1,6 @@
 /** What the home screen's main button offers, given today's attendance state. */
 export interface AttendanceAction {
-  kind: 'resume' | 'checkout' | 'checkin' | 'recheckin';
+  kind: 'resume' | 'checkout' | 'checkin';
   label: string;
   hint: string;
   icon: string;
@@ -20,26 +20,22 @@ export interface AttendanceAction {
  * thirty-two a day. Split shifts are recorded correctly and always were — the
  * button was the only thing in the way.
  *
- * Re-entry is offered unconditionally rather than only inside the shift window,
- * because checking in means scanning a QR code at the branch. That is a
- * deliberate act, not a mis-tap, and the cost of guessing the window wrong is
- * exactly the situation this replaces.
+ * So there is no separate "start another shift" state, and deliberately so:
+ * check-in reads the same whether it is the first of the day or the third. The
+ * one that distinguished them had to explain itself in the label, which wrapped
+ * to four lines inside a circular button and made an ordinary action look like
+ * an exception. Which session this opens is the server's business, and the
+ * history below says how many there have been.
  */
 export function resolveAttendanceAction(state: {
   paused: boolean;
   working: boolean;
-  checkedOut: boolean;
 }): AttendanceAction {
   if (state.paused) {
     return { kind: 'resume', label: 'Tiếp tục làm việc', hint: 'Chạm để tiếp tục', icon: 'play_arrow' };
   }
   if (state.working) {
     return { kind: 'checkout', label: 'Check-out', hint: 'Chạm để xác nhận', icon: 'logout' };
-  }
-  if (state.checkedOut) {
-    // Named for what it does rather than repeated as plain "Chấm công", so the
-    // screen still says a session was completed while offering the next one.
-    return { kind: 'recheckin', label: 'Vào ca mới', hint: 'Đã xong ca trước · chạm để quét QR', icon: 'qr_code_scanner' };
   }
   return { kind: 'checkin', label: 'Chấm công', hint: 'Chạm để quét QR', icon: 'qr_code_scanner' };
 }

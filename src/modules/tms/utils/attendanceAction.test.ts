@@ -3,28 +3,27 @@ import { resolveAttendanceAction } from './attendanceAction';
 
 describe('resolveAttendanceAction', () => {
   it('offers check-in before the first session of the day', () => {
-    expect(resolveAttendanceAction({ paused: false, working: false, checkedOut: false }))
+    expect(resolveAttendanceAction({ paused: false, working: false }))
       .toMatchObject({ kind: 'checkin', label: 'Chấm công' });
   });
 
   it('offers check-out while a session is open', () => {
-    expect(resolveAttendanceAction({ paused: false, working: true, checkedOut: false }))
+    expect(resolveAttendanceAction({ paused: false, working: true }))
       .toMatchObject({ kind: 'checkout' });
   });
 
-  it('offers a new session after checking out, instead of locking the day', () => {
-    // The whole point: someone who checked out in the morning and came back
-    // after lunch must be able to record the afternoon. The server opens the
-    // next session in sequence; the screen used to disable the button.
-    const action = resolveAttendanceAction({ paused: false, working: false, checkedOut: true });
-    expect(action.kind).toBe('recheckin');
-    expect(action.label).toBe('Vào ca mới');
+  it('offers the same check-in after a session has been closed', () => {
+    // The point of the whole module: someone who checked out in the morning and
+    // came back after lunch must be able to record the afternoon. The screen
+    // used to disable the button here and lock the rest of the day.
+    expect(resolveAttendanceAction({ paused: false, working: false }))
+      .toMatchObject({ kind: 'checkin', label: 'Chấm công' });
   });
 
   it('resumes a paused session rather than starting anything new', () => {
-    expect(resolveAttendanceAction({ paused: true, working: true, checkedOut: false }))
+    expect(resolveAttendanceAction({ paused: true, working: true }))
       .toMatchObject({ kind: 'resume' });
-    expect(resolveAttendanceAction({ paused: true, working: false, checkedOut: true }))
+    expect(resolveAttendanceAction({ paused: true, working: false }))
       .toMatchObject({ kind: 'resume' });
   });
 });
