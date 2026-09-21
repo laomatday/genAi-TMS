@@ -390,8 +390,11 @@ export const TMS_DEFAULT_POLICY = {
 
 export const TMS_DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   LATE_TOLERANCE: 15,
-  MIN_HOURS_FULL: 7,
-  MIN_HOURS_HALF: 3.5,
+  // Matching the agreed rule, and the values seeded into config_system. These
+  // only apply when the server sends nothing, but a fallback that disagrees
+  // with the real rule is a fallback that quietly reports different numbers.
+  MIN_HOURS_FULL: 8,
+  MIN_HOURS_HALF: 4,
   LUNCH_START: '12:00',
   LUNCH_END: '13:30',
   OFF_DAYS: [0],
@@ -400,6 +403,10 @@ export const TMS_DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   MAX_EXPLANATIONS_PER_MONTH: 5,
   QR_REFRESH_SECONDS: TMS_LIMITS.QR_REFRESH_MS / 1_000,
   QR_VALIDITY_SECONDS: TMS_LIMITS.QR_VALIDITY_SECONDS,
+  WORKDAY_LEAVE_CREDIT: 1,
+  WORKDAY_HOLIDAY_CREDIT: 1,
+  WORKDAY_EXPLAINED_CREDIT: 1,
+  WORKDAY_MISSING_CHECKOUT_CREDIT: 0.5,
 };
 
 export const TMS_DEFAULT_SHIFTS = [

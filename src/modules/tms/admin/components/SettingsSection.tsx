@@ -58,6 +58,10 @@ function getSystemConfig(settings: SystemSetting[]): SystemConfig {
     MAX_EXPLANATIONS_PER_MONTH: numberSetting('MAX_EXPLANATIONS_PER_MONTH', DEFAULT_SYSTEM_SETTINGS.MAX_EXPLANATIONS_PER_MONTH || 5),
     QR_REFRESH_SECONDS: numberSetting('QR_REFRESH_SECONDS', DEFAULT_SYSTEM_SETTINGS.QR_REFRESH_SECONDS || TMS_LIMITS.QR_REFRESH_MS / 1_000),
     QR_VALIDITY_SECONDS: numberSetting('QR_VALIDITY_SECONDS', DEFAULT_SYSTEM_SETTINGS.QR_VALIDITY_SECONDS || TMS_LIMITS.QR_VALIDITY_SECONDS),
+    WORKDAY_LEAVE_CREDIT: numberSetting('WORKDAY_LEAVE_CREDIT', 1),
+    WORKDAY_HOLIDAY_CREDIT: numberSetting('WORKDAY_HOLIDAY_CREDIT', 1),
+    WORKDAY_EXPLAINED_CREDIT: numberSetting('WORKDAY_EXPLAINED_CREDIT', 1),
+    WORKDAY_MISSING_CHECKOUT_CREDIT: numberSetting('WORKDAY_MISSING_CHECKOUT_CREDIT', 0.5),
   };
 }
 
@@ -68,12 +72,16 @@ function systemSettingsPayload(config: SystemConfig): SystemSetting[] {
     { key: 'MIN_HOURS_HALF', value: String(config.MIN_HOURS_HALF) },
     { key: 'LUNCH_START', value: config.LUNCH_START },
     { key: 'LUNCH_END', value: config.LUNCH_END },
-    { key: 'OFF_DAYS', value: config.OFF_DAYS.join(',') },
+
     { key: 'MAX_DISTANCE_METERS', value: String(config.MAX_DISTANCE_METERS) },
     { key: 'LOCK_DATE', value: String(config.LOCK_DATE || 0) },
     { key: 'MAX_EXPLANATIONS_PER_MONTH', value: String(config.MAX_EXPLANATIONS_PER_MONTH || 5) },
     { key: 'QR_REFRESH_SECONDS', value: String(config.QR_REFRESH_SECONDS || 0) },
     { key: 'QR_VALIDITY_SECONDS', value: String(config.QR_VALIDITY_SECONDS || 0) },
+    { key: 'WORKDAY_LEAVE_CREDIT', value: String(config.WORKDAY_LEAVE_CREDIT ?? 1) },
+    { key: 'WORKDAY_HOLIDAY_CREDIT', value: String(config.WORKDAY_HOLIDAY_CREDIT ?? 1) },
+    { key: 'WORKDAY_EXPLAINED_CREDIT', value: String(config.WORKDAY_EXPLAINED_CREDIT ?? 1) },
+    { key: 'WORKDAY_MISSING_CHECKOUT_CREDIT', value: String(config.WORKDAY_MISSING_CHECKOUT_CREDIT ?? 0.5) },
   ];
 }
 
@@ -156,7 +164,7 @@ function SystemSettings({ data, busy, onRun }: { data: AdminData; busy: boolean;
       await saveSystemSettings(systemSettingsPayload(config));
     }, 'Đã lưu tham số hệ thống.');
   };
-  const toggleOffDay = (day: number, checked: boolean) => setConfig((current) => ({ ...current, OFF_DAYS: checked ? [...new Set([...current.OFF_DAYS, day])].sort() : current.OFF_DAYS.filter((item) => item !== day) }));
+
   return (
     <form className="admin-panel admin-system-form" onSubmit={(event) => void submit(event)}>
       <PanelTitle eyebrow="Cấu hình dùng chung" title="Tham số hệ thống" />
@@ -202,7 +210,28 @@ function SystemSettings({ data, busy, onRun }: { data: AdminData; busy: boolean;
           </div>
         </fieldset>
 
-        <fieldset><legend>Nghỉ trưa và ngày nghỉ</legend><div className="admin-form-grid"><label><span>Bắt đầu nghỉ trưa</span><input type="time" value={config.LUNCH_START} onChange={(event) => setConfig((current) => ({ ...current, LUNCH_START: event.target.value }))} /></label><label><span>Kết thúc nghỉ trưa</span><input type="time" value={config.LUNCH_END} onChange={(event) => setConfig((current) => ({ ...current, LUNCH_END: event.target.value }))} /></label></div><div className="admin-day-picker compact"><span>Ngày nghỉ mặc định</span><div>{[{ value: 0, label: 'CN' }, { value: 1, label: 'T2' }, { value: 2, label: 'T3' }, { value: 3, label: 'T4' }, { value: 4, label: 'T5' }, { value: 5, label: 'T6' }, { value: 6, label: 'T7' }].map((day) => <label className={config.OFF_DAYS.includes(day.value) ? 'checked' : ''} key={day.value}><input type="checkbox" checked={config.OFF_DAYS.includes(day.value)} onChange={(event) => toggleOffDay(day.value, event.target.checked)} /><span>{day.label}</span></label>)}</div></div></fieldset>
+        {/*
+          The day picker that used to sit here wrote OFF_DAYS and nothing read
+          it: working days come from the shift policy's work_days, which the
+          Chính sách tab already edits. Two controls for one setting, and the
+          one people found first did nothing at all.
+        */}
+        <fieldset><legend>Nghỉ trưa</legend><div className="admin-form-grid"><label><span>Bắt đầu nghỉ trưa</span><input type="time" value={config.LUNCH_START} onChange={(event) => setConfig((current) => ({ ...current, LUNCH_START: event.target.value }))} /></label><label><span>Kết thúc nghỉ trưa</span><input type="time" value={config.LUNCH_END} onChange={(event) => setConfig((current) => ({ ...current, LUNCH_END: event.target.value }))} /></label></div><p className="admin-help-text">Ngày làm việc trong tuần đặt ở tab <strong>Chính sách</strong>, theo từng ca.</p></fieldset>
+
+        <fieldset>
+          <legend>Quy tắc ngày công</legend>
+          <div className="admin-form-grid">
+            <label><span>Nghỉ phép đã duyệt</span><input type="number" min="0" max="1" step="0.5" value={config.WORKDAY_LEAVE_CREDIT ?? 1} onChange={(event) => setConfig((current) => ({ ...current, WORKDAY_LEAVE_CREDIT: Number(event.target.value) }))} /></label>
+            <label><span>Ngày lễ</span><input type="number" min="0" max="1" step="0.5" value={config.WORKDAY_HOLIDAY_CREDIT ?? 1} onChange={(event) => setConfig((current) => ({ ...current, WORKDAY_HOLIDAY_CREDIT: Number(event.target.value) }))} /></label>
+            <label><span>Thiếu check-out, có giải trình</span><input type="number" min="0" max="1" step="0.5" value={config.WORKDAY_EXPLAINED_CREDIT ?? 1} onChange={(event) => setConfig((current) => ({ ...current, WORKDAY_EXPLAINED_CREDIT: Number(event.target.value) }))} /></label>
+            <label><span>Thiếu check-out, không giải trình</span><input type="number" min="0" max="1" step="0.5" value={config.WORKDAY_MISSING_CHECKOUT_CREDIT ?? 0.5} onChange={(event) => setConfig((current) => ({ ...current, WORKDAY_MISSING_CHECKOUT_CREDIT: Number(event.target.value) }))} /></label>
+          </div>
+          <p className="admin-help-text">
+            Xét theo thứ tự: nghỉ phép → ngày lễ → thiếu check-out → số giờ làm.
+            Gặp điều kiện nào trước thì dừng ở đó. Đủ {config.MIN_HOURS_FULL} giờ
+            được 1 công, đủ {config.MIN_HOURS_HALF} giờ được 0,5 công.
+          </p>
+        </fieldset>
         <fieldset><legend>GPS và QR</legend><div className="admin-form-grid"><label><span>Bán kính mặc định (m)</span><input type="number" min="20" max="1000" value={config.MAX_DISTANCE_METERS} onChange={(event) => setConfig((current) => ({ ...current, MAX_DISTANCE_METERS: Number(event.target.value) }))} /></label><label><span>QR làm mới sau (giây)</span><input type="number" min={TMS_LIMITS.QR_REFRESH_MIN_SECONDS} max={TMS_LIMITS.QR_REFRESH_MAX_SECONDS} value={config.QR_REFRESH_SECONDS} onChange={(event) => setConfig((current) => ({ ...current, QR_REFRESH_SECONDS: Number(event.target.value) }))} /></label><label><span>QR hiệu lực (giây)</span><input type="number" min={TMS_LIMITS.QR_VALIDITY_MIN_SECONDS} max={TMS_LIMITS.QR_VALIDITY_MAX_SECONDS} value={config.QR_VALIDITY_SECONDS} onChange={(event) => setConfig((current) => ({ ...current, QR_VALIDITY_SECONDS: Number(event.target.value) }))} /></label></div><p className="admin-help-text">Hiệu lực QR phải dài hơn chu kỳ làm mới để nhân viên không quét trúng khoảng trống.</p></fieldset>
       </div>
       <footer className="admin-editor-actions"><button className="admin-primary-button" disabled={busy}><span className="material-symbols-rounded">save</span>Lưu tham số</button></footer>

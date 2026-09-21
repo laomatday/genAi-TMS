@@ -184,6 +184,14 @@ export interface SystemConfig {
   MAX_EXPLANATIONS_PER_MONTH?: number;
   QR_REFRESH_SECONDS?: number;
   QR_VALIDITY_SECONDS?: number;
+  /**
+   * What a day is worth, by case. Read by wf_private.workday_credit on the
+   * server; the browser only displays and edits them.
+   */
+  WORKDAY_LEAVE_CREDIT?: number;
+  WORKDAY_HOLIDAY_CREDIT?: number;
+  WORKDAY_EXPLAINED_CREDIT?: number;
+  WORKDAY_MISSING_CHECKOUT_CREDIT?: number;
 }
 
 export interface DashboardData {
