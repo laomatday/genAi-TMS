@@ -321,13 +321,6 @@ const TabHome: React.FC<Props> = ({
               {geofenceRadius ? <><span className="home-location-separator" aria-hidden="true">•</span><strong>Bán kính {Math.round(geofenceRadius)}m</strong></> : null}
             </div>
 
-            <div className="home-secondary-actions">
-              <span />
-              <button type="button" className="home-history-button" onClick={() => onNavigate?.('history')}>
-                <span className="material-symbols-rounded" aria-hidden="true">history</span>
-                Lịch sử hôm nay
-              </button>
-            </div>
           </section>
 
           {pendingExplanation && onExplain ? (
