@@ -513,7 +513,7 @@ const AppShell: React.FC<Props> = ({ user, onLogout, onOpenWorkspace }) => {
   const renderEmployeePage = (tab: EmployeeNavTab, isActive: boolean) => {
     switch (tab) {
       case 'home':
-        return <TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onAlert={handleShowAlert} onExplain={openExplanationModal} explainableItems={explainableItems} onNavigate={handleTabChange} onCreateRequest={openRequestModal} />;
+        return <TabHome data={data} loading={loading} onCheckOut={openCheckoutConfirm} onScanKiosk={openQrScanner} onRefresh={refresh} onExplain={openExplanationModal} explainableItems={explainableItems} onNavigate={handleTabChange} onCreateRequest={openRequestModal} />;
       case 'history':
         return <TabHistory isActive={isActive} data={data} onRefresh={refresh} onAlert={handleShowAlert} onExplain={openExplanationModal} />;
       case 'requests':

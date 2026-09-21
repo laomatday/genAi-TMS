@@ -760,51 +760,11 @@ export async function processExplanation(id: string, status: DecisionStatus, not
   }
 }
 
-function requestCurrentPosition() {
-  return new Promise<GeolocationPosition>((resolve, reject) => {
-    if (!('geolocation' in navigator)) return reject(new Error('Thiết bị không hỗ trợ định vị.'));
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      timeout: TMS_LIMITS.GPS_TIMEOUT_MS,
-      maximumAge: 0,
-    });
-  });
-}
-
 export async function doCheckOut(position: { lat: number; lng: number; accuracy: number }) {
   try {
     assertValidAttendancePosition(position);
     const result = await runAttendanceAction('checkout', position);
     return { ...ok(result.message || 'Check-out thành công!'), receipt: result.receipt };
-  } catch (error) {
-    return err(error);
-  }
-}
-
-export async function togglePause() {
-  try {
-    const [{ data: bootstrap, error: bootstrapError }, position] = await Promise.all([
-      supabase.rpc('workforce_query', { p_resource: 'bootstrap', p_args: {} }),
-      requestCurrentPosition(),
-    ]);
-    if (bootstrapError) throw bootstrapError;
-    if (!bootstrap || typeof bootstrap !== 'object') throw new Error('Không đọc được trạng thái ca làm việc.');
-    const today = (bootstrap as DataRow).today;
-    if (!today || typeof today !== 'object') throw new Error('Không có ca đang mở.');
-    const timesheet = today as DataRow;
-    if (!optionalText(timesheet.actual_checkin) || optionalText(timesheet.actual_checkout)) throw new Error('Không có ca đang làm việc.');
-    const action = optionalText(timesheet.break_started_at) ? 'resume' : 'pause';
-    const result = await runAttendanceAction(action, {
-      lat: position.coords.latitude,
-      lng: position.coords.longitude,
-      accuracy: position.coords.accuracy,
-    });
-    return {
-      success: true as const,
-      message: action === 'pause' ? 'Đã bắt đầu tạm dừng.' : 'Đã tiếp tục làm việc.',
-      action,
-      receipt: result.receipt,
-    };
   } catch (error) {
     return err(error);
   }

@@ -219,7 +219,7 @@ export async function recordQrAttendance(input: {
 }
 
 export async function runAttendanceAction(
-  action: 'checkout' | 'pause' | 'resume',
+  action: 'checkout',
   input: { lat: number; lng: number; accuracy: number },
 ): Promise<{ receipt: WorkforceReceipt; message: string }> {
   if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase.');
@@ -228,7 +228,7 @@ export async function runAttendanceAction(
     lat: input.lat,
     lng: input.lng,
     accuracy: input.accuracy,
-  }, action === 'checkout' ? 'Check-out' : 'Cập nhật trạng thái ca', 'Hệ thống chưa trả về biên nhận thao tác.');
+  }, 'Check-out', 'Hệ thống chưa trả về biên nhận thao tác.');
   return { receipt: result.receipt, message: result.message || 'Hệ thống đã ghi nhận.' };
 }
 

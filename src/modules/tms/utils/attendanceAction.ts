@@ -1,6 +1,6 @@
 /** What the home screen's main button offers, given today's attendance state. */
 export interface AttendanceAction {
-  kind: 'resume' | 'checkout' | 'checkin';
+  kind: 'checkout' | 'checkin';
   label: string;
   hint: string;
   icon: string;
@@ -20,6 +20,11 @@ export interface AttendanceAction {
  * thirty-two a day. Split shifts are recorded correctly and always were — the
  * button was the only thing in the way.
  *
+ * There is no paused state either. Mid-shift pause was removed: see the
+ * migration that took it off the server for why, in short that it was used
+ * eight times and resumed once, and the seven that were not resumed had the
+ * rest of the day deducted as unpaid break.
+ *
  * So there is no separate "start another shift" state, and deliberately so:
  * check-in reads the same whether it is the first of the day or the third. The
  * one that distinguished them had to explain itself in the label, which wrapped
@@ -28,12 +33,8 @@ export interface AttendanceAction {
  * history below says how many there have been.
  */
 export function resolveAttendanceAction(state: {
-  paused: boolean;
   working: boolean;
 }): AttendanceAction {
-  if (state.paused) {
-    return { kind: 'resume', label: 'Tiếp tục làm việc', hint: 'Chạm để tiếp tục', icon: 'play_arrow' };
-  }
   if (state.working) {
     return { kind: 'checkout', label: 'Check-out', hint: 'Chạm để xác nhận', icon: 'logout' };
   }

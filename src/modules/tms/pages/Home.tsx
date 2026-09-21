@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { DashboardData, ExplainableAttendanceItem } from '@/shared/types';
 import {
   formatDateString,
@@ -7,7 +7,7 @@ import {
   toISODateString,
   triggerHaptic,
 } from '@/core/utils/helpers';
-import { determineShift, togglePause } from '@/modules/tms/services/employee';
+import { determineShift } from '@/modules/tms/services/employee';
 import { buildLocationNameMap } from '@/modules/tms/services/locations';
 import PullToRefresh from '@/shared/components/layout/PullToRefresh';
 import Spinner from '@/shared/components/common/Spinner';
@@ -49,7 +49,6 @@ interface Props {
   onCheckOut: () => void;
   onScanKiosk: () => void;
   onRefresh: () => Promise<boolean | void>;
-  onAlert: (title: string, msg: string, type: 'success' | 'error' | 'warning') => void;
   onExplain?: (date: string, reason: string) => void;
   explainableItems?: ExplainableAttendanceItem[];
   onNavigate?: (tab: 'history' | 'requests' | 'calendar') => void;
@@ -62,7 +61,6 @@ const TabHome: React.FC<Props> = ({
   onCheckOut,
   onScanKiosk,
   onRefresh,
-  onAlert,
   onExplain,
   explainableItems,
   onNavigate,
@@ -71,8 +69,6 @@ const TabHome: React.FC<Props> = ({
   const [timeStr, setTimeStr] = useState(() => getCurrentTimeStr());
   const [secondsStr, setSecondsStr] = useState(() => String(new Date().getSeconds()).padStart(2, '0'));
   const [dateStr, setDateStr] = useState(() => formatHomeDate(new Date()));
-  const [isPausing, setIsPausing] = useState(false);
-  const pauseInFlightRef = useRef(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [holidayConfirm, setHolidayConfirm] = useState<{ isOpen: boolean; name: string }>({ isOpen: false, name: '' });
   const [earlyCheckoutConfirm, setEarlyCheckoutConfirm] = useState<{ isOpen: boolean; minutes: number }>({ isOpen: false, minutes: 0 });
@@ -98,7 +94,6 @@ const TabHome: React.FC<Props> = ({
 
   const working = Boolean(todaysAtt?.time_in && !todaysAtt.time_out);
   const checkedOut = Boolean(todaysAtt?.time_out);
-  const paused = Boolean(todaysAtt?.break_start);
 
   const currentShift = useMemo(() => {
     // Once today's canonical timesheet exists, it is always the source of truth.
@@ -114,8 +109,8 @@ const TabHome: React.FC<Props> = ({
     return { name: '--', start: '00:00', end: '00:00' };
   }, [data?.shifts, timeStr, todaysAtt?.shift_end, todaysAtt?.shift_name, todaysAtt?.shift_start]);
 
-  const attendanceState = paused ? 'paused' : working ? 'working' : checkedOut ? 'complete' : 'ready';
-  const attendanceLabel = paused ? 'Đang tạm dừng' : working ? 'Đang làm việc' : checkedOut ? 'Đã hoàn tất hôm nay' : 'Chưa vào ca';
+  const attendanceState = working ? 'working' : checkedOut ? 'complete' : 'ready';
+  const attendanceLabel = working ? 'Đang làm việc' : checkedOut ? 'Đã hoàn tất hôm nay' : 'Chưa vào ca';
 
   const statusText = useMemo(() => {
     if (checkedOut && todaysAtt) {
@@ -187,9 +182,7 @@ const TabHome: React.FC<Props> = ({
     || activeCenterId
     || 'Chưa xác định';
   const geofenceRadius = activeLocation?.radius_meters || data?.systemConfig.MAX_DISTANCE_METERS;
-  const shiftHeadline = paused
-    ? 'Đang tạm dừng'
-    : todaysAtt?.time_out
+  const shiftHeadline = todaysAtt?.time_out
       ? `Đã check-out lúc ${todaysAtt.time_out}`
       : todaysAtt?.time_in
         ? `Đã check-in lúc ${todaysAtt.time_in}`
@@ -224,36 +217,11 @@ const TabHome: React.FC<Props> = ({
     onCheckOut();
   };
 
-  const handlePause = async () => {
-    if (pauseInFlightRef.current) return;
-    pauseInFlightRef.current = true;
-    triggerHaptic('medium');
-    setIsPausing(true);
-    try {
-      const result = await togglePause();
-      if (!result.success) {
-        onAlert('Không thể cập nhật', result.message, 'error');
-        return;
-      }
-      await onRefresh();
-      onAlert('Đã cập nhật trạng thái ca', result.message, 'success');
-    } catch (error) {
-      onAlert('Không thể cập nhật', error instanceof Error ? error.message : 'Vui lòng thử lại.', 'error');
-    } finally {
-      pauseInFlightRef.current = false;
-      setIsPausing(false);
-    }
-  };
-
-  const resolved = resolveAttendanceAction({ paused, working });
+  const resolved = resolveAttendanceAction({ working });
   const action = {
     ...resolved,
-    run: resolved.kind === 'resume'
-      ? handlePause
-      : resolved.kind === 'checkout'
-        ? handleCheckOut
-        : handleCheckIn,
-    disabled: resolved.kind === 'resume' ? isPausing : false,
+    run: resolved.kind === 'checkout' ? handleCheckOut : handleCheckIn,
+    disabled: false,
   };
 
   if (loading && !data) {
@@ -303,7 +271,7 @@ const TabHome: React.FC<Props> = ({
                 }}
               >
                 <span className="home-status-icon" aria-hidden="true">
-                  <span className="material-symbols-rounded">{paused ? 'pause_circle' : checkedOut ? 'task_alt' : working ? 'verified_user' : 'schedule'}</span>
+                  <span className="material-symbols-rounded">{checkedOut ? 'task_alt' : working ? 'verified_user' : 'schedule'}</span>
                 </span>
                 <span className="home-status-copy">
                   <strong>{shiftHeadline}</strong>
@@ -339,10 +307,9 @@ const TabHome: React.FC<Props> = ({
                 type="button"
                 className={`home-action-button home-action-button-${attendanceState}`}
                 disabled={action.disabled}
-                aria-busy={isPausing}
                 onClick={() => void action.run()}
               >
-                {isPausing ? <Spinner size="sm" /> : <span className="material-symbols-rounded" aria-hidden="true">{action.icon}</span>}
+                <span className="material-symbols-rounded" aria-hidden="true">{action.icon}</span>
                 <span>{action.label}</span>
                 <small>{action.hint}</small>
               </button>
@@ -355,12 +322,7 @@ const TabHome: React.FC<Props> = ({
             </div>
 
             <div className="home-secondary-actions">
-              {working ? (
-                <button type="button" className={`home-pause-button ${paused ? 'home-pause-button-active' : ''}`} disabled={isPausing} onClick={() => void handlePause()}>
-                  <span className="material-symbols-rounded" aria-hidden="true">{paused ? 'play_arrow' : 'pause_circle'}</span>
-                  {paused ? 'Tiếp tục làm việc' : 'Nghỉ giữa ca (Break)'}
-                </button>
-              ) : <span />}
+              <span />
               <button type="button" className="home-history-button" onClick={() => onNavigate?.('history')}>
                 <span className="material-symbols-rounded" aria-hidden="true">history</span>
                 Lịch sử hôm nay
