@@ -211,14 +211,18 @@ export default function AdminApp({ user, effectiveCapabilities, onLogout }: { us
       setRefreshing(false);
     } else if (silent) setRefreshing(true);
     else setLoading(true);
-    setDevicesLoaded(false);
-    setAuditLoaded(false);
     try {
       const nextData = await getAdminDataCore(monthRange(targetMonth), { user, capabilities: effectiveCapabilities });
       if (loadRevision !== loadRevisionRef.current) return;
       loadedMonthRef.current = targetMonth;
       setData(nextData);
       setLoadError(null);
+      // Only reset once the fresh core data is installed: resetting earlier let
+      // the lazy-load effects below race getAdminDataCore itself — a devices/audit
+      // fetch that resolved first got overwritten the moment nextData landed,
+      // and the loaded flag being already true meant nothing fetched again.
+      setDevicesLoaded(false);
+      setAuditLoaded(false);
     } catch (error) {
       if (loadRevision !== loadRevisionRef.current) return;
       const errorMessage = error instanceof Error ? error.message : 'Không tải được dữ liệu quản trị.';
