@@ -20,7 +20,7 @@ function auditActionLabel(action: string) {
   return labels[action] || action.split('_').join(' ').toLocaleLowerCase('vi');
 }
 
-export default function AuditSection({ data }: { data: AdminData }) {
+export default function AuditSection({ data, loading }: { data: AdminData; loading: boolean }) {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const employeeNames = useMemo(() => new Map(data.employees.map((employee) => [employee.employee_id, employee.name])), [data.employees]);
@@ -39,7 +39,11 @@ export default function AuditSection({ data }: { data: AdminData }) {
       <div className="admin-audit-table" role="table" aria-label="Nhật ký quản trị">
         <div className="admin-audit-row admin-table-head" role="row"><span role="columnheader">Thời gian</span><span role="columnheader">Người thao tác</span><span role="columnheader">Hành động</span><span role="columnheader">Đối tượng</span><span role="columnheader">Chi tiết</span></div>
         {visibleLogs.map((log) => <article className="admin-audit-row" role="row" key={log.id}><span data-label="Thời gian" role="cell">{formatDateTime(log.created_at)}</span><span data-label="Người thao tác" role="cell"><strong>{employeeNames.get(log.actor_employee_id || '') || log.actor_employee_id || 'Hệ thống'}</strong></span><span data-label="Hành động" role="cell"><b>{auditActionLabel(log.action)}</b><small>{log.entity_type || '—'}</small></span><span data-label="Đối tượng" role="cell">{employeeNames.get(log.target_employee_id || '') || log.target_employee_id || log.entity_id || '—'}</span><span data-label="Chi tiết" role="cell" title={log.reason || ''}>{log.reason || '—'}</span></article>)}
-        {!visibleLogs.length ? <EmptyState icon="history" title="Chưa có nhật ký phù hợp" /> : null}
+        {!visibleLogs.length ? (
+          loading
+            ? <EmptyState icon="history" title="Đang tải nhật ký…" />
+            : <EmptyState icon="history" title="Chưa có nhật ký phù hợp" />
+        ) : null}
       </div>
       <Pagination page={safePage} pageCount={pageCount} onChange={setPage} summary={`${logs.length} hoạt động`} />
     </section>

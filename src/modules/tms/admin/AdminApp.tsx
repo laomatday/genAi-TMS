@@ -7,7 +7,7 @@ import type { Employee } from '@/shared/types';
 import { toLocalMonthString } from '@/core/utils/helpers';
 import { ADMIN_NAV, getAdminCapabilities, type AdminSection } from './constants';
 import { monthRange } from './formatters';
-import { getAdminData } from './adminService';
+import { getAdminAuditRows, getAdminDataCore, getAdminDeviceRows } from './adminService';
 import type { AdminActionRunner, AdminData } from './types';
 import { AdminSelect } from './components/AdminCommon';
 
@@ -190,6 +190,12 @@ export default function AdminApp({ user, effectiveCapabilities, onLogout }: { us
   const [month, setMonth] = useState(() => toLocalMonthString());
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // admin.devices/admin.audit only feed the Tài khoản/Nhật ký tabs — see the
+  // two effects below. Reset alongside every fresh load so a reload (manual or
+  // after a mutation) re-fetches whichever of the two the operator is on,
+  // instead of quietly serving a snapshot from before the mutation.
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
+  const [auditLoaded, setAuditLoaded] = useState(false);
   const loadRevisionRef = useRef(0);
   const monthRef = useRef(month);
   const loadedMonthRef = useRef<string | null>(null);
@@ -205,8 +211,10 @@ export default function AdminApp({ user, effectiveCapabilities, onLogout }: { us
       setRefreshing(false);
     } else if (silent) setRefreshing(true);
     else setLoading(true);
+    setDevicesLoaded(false);
+    setAuditLoaded(false);
     try {
-      const nextData = await getAdminData(monthRange(targetMonth), { user, capabilities: effectiveCapabilities });
+      const nextData = await getAdminDataCore(monthRange(targetMonth), { user, capabilities: effectiveCapabilities });
       if (loadRevision !== loadRevisionRef.current) return;
       loadedMonthRef.current = targetMonth;
       setData(nextData);
@@ -227,6 +235,40 @@ export default function AdminApp({ user, effectiveCapabilities, onLogout }: { us
   useEffect(() => {
     void load(false, month);
   }, [load, month]);
+
+  useEffect(() => {
+    if (!data || devicesLoaded || section !== 'accounts') return undefined;
+    let active = true;
+    const revisionAtStart = loadRevisionRef.current;
+    void getAdminDeviceRows({ user, capabilities: effectiveCapabilities })
+      .then((devices) => {
+        if (!active || revisionAtStart !== loadRevisionRef.current) return;
+        setDevicesLoaded(true);
+        setData((current) => (current ? { ...current, devices } : current));
+      })
+      .catch((error: unknown) => {
+        if (!active || revisionAtStart !== loadRevisionRef.current) return;
+        setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Không tải được danh sách thiết bị.' });
+      });
+    return () => { active = false; };
+  }, [data, devicesLoaded, section]);
+
+  useEffect(() => {
+    if (!data || auditLoaded || section !== 'audit') return undefined;
+    let active = true;
+    const revisionAtStart = loadRevisionRef.current;
+    void getAdminAuditRows({ user, capabilities: effectiveCapabilities })
+      .then((auditLogs) => {
+        if (!active || revisionAtStart !== loadRevisionRef.current) return;
+        setAuditLoaded(true);
+        setData((current) => (current ? { ...current, auditLogs } : current));
+      })
+      .catch((error: unknown) => {
+        if (!active || revisionAtStart !== loadRevisionRef.current) return;
+        setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Không tải được nhật ký kiểm toán.' });
+      });
+    return () => { active = false; };
+  }, [data, auditLoaded, section]);
 
   useEffect(() => {
     if (!navigation.some((item) => item.id === section)) setSection(navigation[0]?.id || 'overview');
@@ -412,12 +454,12 @@ export default function AdminApp({ user, effectiveCapabilities, onLogout }: { us
             ) : null}
             <Suspense fallback={<AdminSectionFallback />}>
               {section === 'overview' ? <OverviewSection data={scopedData} today={todayInVietnam()} allowedSections={allowedSections} onNavigate={setSection} /> : null}
-              {section === 'accounts' && capabilities.manageAccounts ? <AccountsSection data={scopedData} currentEmployeeId={user.employee_id} busy={busy} onRun={run} /> : null}
+              {section === 'accounts' && capabilities.manageAccounts ? <AccountsSection data={scopedData} currentEmployeeId={user.employee_id} busy={busy} devicesLoading={!devicesLoaded} onRun={run} /> : null}
               {section === 'scheduling' && capabilities.manageSchedules ? <SchedulingSection data={scopedData} month={month} onMonthChange={handleMonthChange} busy={busy} onRun={run} /> : null}
               {section === 'attendance' ? <AttendanceSection data={scopedData} month={month} onMonthChange={handleMonthChange} busy={busy} canReview={capabilities.reviewAttendance} canExport={capabilities.exportAttendance} canLock={capabilities.lockAttendance} onRun={run} /> : null}
               {section === 'settings' && capabilities.manageSettings ? <SettingsSection data={scopedData} busy={busy} onRun={run} /> : null}
               {section === 'kiosks' ? <KiosksSection data={scopedData} busy={busy} canManage={capabilities.manageKiosks} onRun={run} onOpenStation={() => navigate(APP_ROUTES.KIOSK)} /> : null}
-              {section === 'audit' && capabilities.viewAudit ? <AuditSection data={scopedData} /> : null}
+              {section === 'audit' && capabilities.viewAudit ? <AuditSection data={scopedData} loading={!auditLoaded} /> : null}
             </Suspense>
           </div>
         ) : null}

@@ -142,26 +142,36 @@ function attachWorkDates(requests: AttendanceRequest[], timesheets: Timesheet[])
   }));
 }
 
+type AdminViewer = { user: Pick<Employee, 'employee_id' | 'organization_id'>; capabilities: readonly string[] };
+
+function adminScope(viewer: AdminViewer) {
+  return `${viewer.user.organization_id || 'unassigned'}:${viewer.user.employee_id || 'admin'}`;
+}
+
 /**
  * Identity and capabilities are taken from the caller rather than re-fetched.
  * Both come from `bootstrap`, which sign-in has already called and the Control
  * Center route has already resolved; fetching it a third time here cost a full
  * serial round trip before any of the parallel loads below could even start.
+ *
+ * `admin.devices` and `admin.audit` are deliberately not part of this call.
+ * They only feed the Tài khoản and Nhật ký tabs, so `AdminApp` fetches each
+ * with `getAdminDeviceRows`/`getAdminAuditRows` the first time its tab opens,
+ * instead of paying for both on every Control Center load regardless of which
+ * tab an operator actually visits.
  */
-export async function getAdminData(
+export async function getAdminDataCore(
   range: AttendanceRange,
-  viewer: { user: Pick<Employee, 'employee_id' | 'organization_id'>; capabilities: readonly string[] },
+  viewer: AdminViewer,
 ): Promise<AdminData> {
   if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
-  const scope = `${viewer.user.organization_id || 'unassigned'}:${viewer.user.employee_id || 'admin'}`;
-  const [config, employeeRows, sessionRows, pendingRows, monthlyRows, deviceRows, auditRows, assignmentRows] = await Promise.all([
+  const scope = adminScope(viewer);
+  const [config, employeeRows, sessionRows, pendingRows, monthlyRows, assignmentRows] = await Promise.all([
     queryWorkforce('admin.config', {}, { scope, ttlSeconds: TMS_LIMITS.RESOURCE_CACHE_MAX_SECONDS }),
     queryWorkforceRows('admin.people', {}, { scope }),
     queryWorkforceRows('admin.sessions', { from: range.from, to: range.to }, { scope }),
     queryWorkforceRows('admin.requests', { state: 'pending' }, { scope }),
     queryWorkforceRows('admin.requests', { from: range.from, to: range.to }, { scope }),
-    queryWorkforceRows('admin.devices', {}, { scope }),
-    queryWorkforceRows('admin.audit', {}, { scope, maxPages: Math.ceil(TMS_LIMITS.ADMIN_AUDIT_QUERY_LIMIT / TMS_LIMITS.RESOURCE_PAGE_SIZE) }),
     queryWorkforceRows('admin.schedule', { from: range.from, to: range.to }, { scope }),
   ]);
   const capabilities = [...viewer.capabilities];
@@ -188,15 +198,30 @@ export async function getAdminData(
     requests,
     monthlyRequests,
     stations: (Array.isArray(config.stations) ? config.stations : []) as QrStationInfo[],
-    devices: deviceRows as unknown as TrustedDeviceInfo[],
+    devices: [],
     shifts: (Array.isArray(config.shifts) ? config.shifts : []) as ShiftRecord[],
     shiftAssignments: assignmentRows as unknown as ShiftAssignment[],
     attendancePeriods: (Array.isArray(config.attendancePeriods) ? config.attendancePeriods : []) as AttendancePeriod[],
     systemSettings: (Array.isArray(config.systemSettings) ? config.systemSettings : []) as SystemSetting[],
     holidays: (Array.isArray(config.holidays) ? config.holidays : []) as HolidayRecord[],
-    auditLogs: auditRows.slice(0, TMS_LIMITS.ADMIN_AUDIT_QUERY_LIMIT) as unknown as AuditLogInfo[],
+    auditLogs: [],
     features: { workforceOperations: true },
   };
+}
+
+export async function getAdminDeviceRows(viewer: AdminViewer): Promise<TrustedDeviceInfo[]> {
+  if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
+  const rows = await queryWorkforceRows('admin.devices', {}, { scope: adminScope(viewer) });
+  return rows as unknown as TrustedDeviceInfo[];
+}
+
+export async function getAdminAuditRows(viewer: AdminViewer): Promise<AuditLogInfo[]> {
+  if (!isSupabaseConfigured) throw new Error('Chưa cấu hình Supabase. Vui lòng kiểm tra biến môi trường.');
+  const rows = await queryWorkforceRows('admin.audit', {}, {
+    scope: adminScope(viewer),
+    maxPages: Math.ceil(TMS_LIMITS.ADMIN_AUDIT_QUERY_LIMIT / TMS_LIMITS.RESOURCE_PAGE_SIZE),
+  });
+  return rows.slice(0, TMS_LIMITS.ADMIN_AUDIT_QUERY_LIMIT) as unknown as AuditLogInfo[];
 }
 
 export async function reviewAttendanceRequest(request: AttendanceRequest, status: 'APPROVED' | 'REJECTED', note = '') {
