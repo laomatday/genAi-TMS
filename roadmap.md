@@ -1,19 +1,48 @@
 # Roadmap
 
-Hai phần. **Nợ kỹ thuật** là những việc đã biết phải làm nhưng cố ý hoãn để không
-chặn pilot, mỗi mục ghi rõ hiện trạng đang tạm chấp nhận điều gì. **Đề xuất nâng
-cấp** là những thứ chưa quyết, xếp theo thời điểm pilot sẽ chạm tới chúng.
+Ba phần. **Đã xử lý** là những việc không còn phải lo. **Nợ kỹ thuật** là những
+việc đã biết phải làm nhưng cố ý hoãn để không chặn pilot, mỗi mục ghi rõ hiện
+trạng đang tạm chấp nhận điều gì. **Đề xuất nâng cấp** là những thứ chưa quyết,
+xếp theo thời điểm pilot sẽ chạm tới chúng.
 
-Mọi con số trong tài liệu này đo trên hệ thống đang chạy ngày 15/09/2026, không
+Mọi con số trong tài liệu này đo trên hệ thống đang chạy ngày 04/11/2026, không
 phải ước lượng.
+
+Pilot đã chạy thật: **454 lượt chấm công của 26 người trong 30 ngày qua**, trên
+tổng 59 nhân sự và 6 chi nhánh. Lần đo trước (15/09) hệ thống gần như chưa có dữ
+liệu, nên phần lớn con số dưới đây đã đổi.
+
+# Đã xử lý từ lần đo trước
+
+Giữa 15/09 và 04/11, những mục sau đã xong và không còn nằm trong danh sách:
+
+- **Tạm dừng ca** — gỡ bỏ. Nó đòi đứng trong bán kính 200m để bấm, mà ra khỏi bán
+  kính chính là lý do người ta nghỉ giữa ca; quên resume thì mất cả buổi chiều.
+  Dùng 8 lần, resume đúng 1 lần.
+- **Không vào lại được ca chiều** — màn hình chính khoá nút sau khi check-out.
+  Máy chủ chưa bao giờ cấm; chỉ giao diện chặn.
+- **Ngày công tính ba kiểu khác nhau** — Trang chủ, Lịch sử công và file Excel
+  mỗi nơi một quy tắc. Bản dùng cho bảng lương còn cộng theo *phiên*, nên một
+  ngày ca gãy thành hai công. Giờ là một hàm trên máy chủ, lưu vào
+  `timesheets.work_credit`, có trigger nên không ghi sai được, và sáu tham số
+  chỉnh được trong trang quản trị.
+- **iPhone không quét được QR** — CSP thiếu `wasm-unsafe-eval` nên Safari từ chối
+  biên dịch WebAssembly, và file wasm lại tải từ CDN mà `connect-src` chặn. Hai
+  nửa của cùng một chính sách che lấp nhau. Android không dính vì có
+  `BarcodeDetector` sẵn trong trình duyệt.
+- **Database chậm đẩy người dùng ra ngoài** — một timeout bị phân loại nhầm thành
+  "phiên đã chết", nên mỗi lần quá tải là 43 người phải đăng nhập lại, mà đăng
+  nhập là thao tác tốn CPU nhất. Vòng lặp tự khuếch đại.
+- **Dọn dẹp** — 74 → 46 bảng, gỡ 7 hàm không ai gọi tới được, cron từ 95% lãng
+  phí xuống **672 lần chạy / 0 lỗi** trong 7 ngày.
 
 # Nợ kỹ thuật đã biết
 
 ## Ngày phép tính theo thâm niên
 
-**Hiện trạng tạm thời.** Toàn bộ 37 nhân sự đang được đặt cứng **12 ngày phép**
-cho năm nay. Con số này đặt tay vào ngày 15/09/2026 để mở đường cho pilot, không
-phải kết quả tính toán.
+**Hiện trạng tạm thời.** Toàn bộ **59 nhân sự** đang được đặt cứng **12 ngày
+phép** cho năm nay. Con số này đặt tay để mở đường cho pilot, không phải kết quả
+tính toán — và nhân sự đã tăng từ 37 lên 59 mà vẫn dùng chung một con số.
 
 **Cần làm.** Số ngày phép phải được tính từ **ngày bắt đầu làm việc chính thức**
 theo quy định của Bộ luật Lao động:
@@ -23,9 +52,10 @@ theo quy định của Bộ luật Lao động:
 - Người làm **chưa đủ 12 tháng**: số ngày phép tỉ lệ theo số tháng đã làm.
 - Cứ đủ **5 năm** làm việc cho cùng người sử dụng lao động thì cộng thêm **1 ngày**.
 
-**Phụ thuộc.** Cột `employees.employment_start_date` hiện đang trống với hầu hết
-hồ sơ, nên chưa tính được gì. Thu thập ngày vào làm thật là bước đầu tiên, trước
-cả việc viết công thức.
+**Phụ thuộc.** Cột `employees.employment_start_date` trống ở **58 trên 59** hồ
+sơ, nên chưa tính được gì. Thu thập ngày vào làm thật là bước đầu tiên, trước cả
+việc viết công thức. Sau hai tháng pilot con số này không nhúc nhích, nên nó sẽ
+không tự được điền: phải có người đi thu.
 
 **Ràng buộc khi làm.** Thay đổi này đụng vào số dư phép đang dùng thật, nên phải
 tính rồi đối chiếu trước khi ghi đè, không chạy thẳng một lệnh `update`. Cần giữ
@@ -36,9 +66,37 @@ tính rồi đối chiếu trước khi ghi đè, không chạy thẳng một l�
 Chấm công **đã** ghi nhận đúng ca gãy: sáng vào/ra rồi tối vào lại sinh hai phiên
 riêng và cộng đúng vào một bản ghi ngày (đã kiểm chứng trên production).
 
+Màn hình chính từng khoá đường này — check-out xong là nút tắt, không vào lại
+được ca chiều — và đã sửa ngày 21/09.
+
 Nhưng `shift_assignments` vẫn một dòng mỗi nhân viên mỗi ngày, nên **lịch công bố
 trước** không diễn tả được một ngày hai ca. Người xếp ca hiện phải mô tả ca gãy
-bằng cách khác hoặc bỏ qua.
+bằng cách khác hoặc bỏ qua. Bảng này đang **0 dòng**: chưa ai dùng tính năng xếp
+ca, nên việc này chưa cản trở gì trên thực tế.
+
+## Quên check-out
+
+**Bằng chứng.** Trong 30 ngày qua: **454 lượt chấm công, 67 lượt không có
+check-out — 15,4%**. Tính cả lịch sử là **84 ngày** đang treo. Đây là nguồn phát
+sinh đơn giải trình lớn nhất của pilot.
+
+Con số này **đã từng tệ hơn nhiều**. Ngày chạy thật đầu tiên (18/09) có 9 trên 15
+lượt thiếu check-out — **60%** — do tính năng tạm dừng ca: người bấm "Nghỉ giữa
+ca" rồi ra khỏi bán kính 200m thì không resume được, và lúc check-out toàn bộ
+thời gian từ lúc tạm dừng bị trừ làm giờ không lương. Tính năng đó đã gỡ ngày
+21/09 và tỉ lệ rơi xuống còn một phần tư.
+
+**Vì sao vẫn còn 15,4%.** Phần còn lại không phải lỗi phần mềm: người ta về mà
+quên bấm. Hệ thống không có cách nào biết họ đã rời chi nhánh.
+
+**Các hướng, chưa chọn.** Tự động đóng ca theo giờ kết thúc theo lịch và đánh dấu
+cần xác nhận; nhắc đẩy khi quá giờ tan ca (phụ thuộc mục 1); hoặc chấp nhận và
+làm cho việc gửi giải trình nhanh tới mức không ai ngại. Hướng thứ ba rẻ nhất và
+không đụng vào dữ liệu công.
+
+**Ràng buộc.** Tự động đóng ca là ghi giờ thay người lao động. Phải ghi rõ là
+giờ suy đoán, phải cho sửa, và phải có vết — nếu không thì nó là một cách làm sai
+số liệu lương có hệ thống.
 
 ## Mật khẩu mặc định đoán được
 
@@ -46,8 +104,10 @@ Mật khẩu khởi tạo sinh theo họ tên (`Cao Văn Trọng Nghĩa` → `cv
 ai biết quy tắc là đoán được tài khoản người khác. Ứng dụng có nhắc đổi sau khi
 đăng nhập nhưng **cho phép bỏ qua**, nên con số này không tự giảm về 0.
 
-Cột `employees.password_change_required` cho biết chính xác ai còn chưa đổi. Cần
-theo dõi và nhắc thủ công; cân nhắc chuyển sang bắt buộc đổi nếu tỉ lệ không giảm.
+Cột `employees.password_change_required` cho biết chính xác ai còn chưa đổi:
+**28 trên 59 người**, sau hai tháng pilot. Tỉ lệ không tự giảm, đúng như dự đoán
+khi mục này được viết — nên phương án nhắc thủ công coi như đã thử và trượt.
+Chuyển sang **bắt buộc đổi** là việc còn lại.
 
 Nên bật **Leaked password protection** trong Supabase Auth (Authentication →
 Policies) để ít nhất chặn người dùng đổi sang một mật khẩu đã lộ.
@@ -75,16 +135,17 @@ Xếp theo thứ tự pilot sẽ va phải, không theo độ khó.
 
 ## 1. Thông báo đẩy về điện thoại
 
-**Bằng chứng.** Hệ thống đang có **15 thông báo trong app, 6 cái chưa đọc**, và
-**4 đơn đang chờ duyệt**. Nhưng `wf_private.push_subscriptions` có **0 dòng** và
-`push_deliveries` cũng **0** — chưa có lượt đẩy nào từng được gửi.
+**Bằng chứng.** Hệ thống đang có **14 thông báo trong app, 7 cái chưa đọc**, và
+**8 đơn đang chờ duyệt** — có đơn treo trên một tháng. Nhưng
+`wf_private.push_subscriptions` vẫn **0 dòng** và `push_deliveries` cũng **0**:
+sau hai tháng pilot, chưa một lượt đẩy nào từng được gửi.
 
 Hạ tầng phía máy chủ **đã dựng xong**: bảng đăng ký, hàng đợi gửi, worker
 `workforce_push_worker_v1`, hàm `dispatch_push`, kể cả kiểm tra endpoint hợp lệ.
 Thiếu đúng một mảnh: trình duyệt chưa bao giờ gọi `pushManager.subscribe`.
 
 **Hệ quả trong tuần đầu.** Người gửi đơn không biết đã được duyệt hay chưa; người
-duyệt không biết có đơn đang chờ. Cả hai phải tự mở app kiểm tra. Với 4 đơn đang
+duyệt không biết có đơn đang chờ. Cả hai phải tự mở app kiểm tra. Với 8 đơn đang
 treo sẵn từ trước pilot, đây là thứ sẽ gây khó chịu sớm nhất.
 
 **Việc cần làm.** Đăng ký service worker cho Web Push, lưu subscription qua một
@@ -124,8 +185,13 @@ của người đang đăng nhập, và phải chặn việc gỡ quyền quản
 
 ## 4. Control Center tải nhanh hơn
 
-**Bằng chứng.** Mở trang quản trị bắn **8 lời gọi song song**, mỗi lời gọi mất
-**1.8–2.7 giây** dù máy chủ chỉ chạy 5–90 ms. Chúng xếp hàng ở connection pool.
+**Bằng chứng.** Mở trang quản trị bắn **8 lời gọi song song**, xếp hàng ở
+connection pool.
+
+Con số thời gian từng đo được (1.8–2.7 giây mỗi lời gọi) là **đo trước đợt tối ưu
+giữa tháng 9** — lúc đó máy chủ đang quá tải vì một vòng lặp đăng nhập đã được
+sửa từ đó. Phần cấu trúc dưới đây vẫn đúng, nhưng **cần đo lại** trước khi lấy nó
+làm căn cứ ưu tiên.
 
 Trong 8 lời gọi đó, `admin.audit`, `admin.devices` và `admin.schedule` chỉ phục vụ
 tab Nhật ký, Tài khoản và Xếp ca — **không cần cho tab Tổng quan** là tab mở mặc
@@ -137,7 +203,7 @@ lời gọi cộng phần phân trang của chúng. Đây là thay đổi lớn 
 
 ## 5. Xuất nhật ký kiểm toán
 
-**Bằng chứng.** `audit_logs` đã có **238 dòng** sau chưa đầy một tháng, và không
+**Bằng chứng.** `audit_logs` đã có **443 dòng** sau hơn hai tháng, và không
 có đường xuất ra file. Bảng chỉ cho ghi nối tiếp, không sửa không xóa — nên dữ
 liệu đáng tin, nhưng hiện chỉ xem được trên màn hình.
 

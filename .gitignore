@@ -31,3 +31,8 @@ screenshots/
 
 # Screen recordings (bun run video)
 demo-video/
+
+# Not this project's — 4.1 GB of VEX GO PDFs that live in this folder. Ignored
+# so a `git add -A` cannot sweep them into a commit, which is how they once got
+# into one and made the push time out.
+vex-go-build-pdfs/
