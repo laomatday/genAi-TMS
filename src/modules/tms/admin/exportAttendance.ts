@@ -6,6 +6,7 @@ import {
   summarizeAttendanceMonth,
   type AttendanceExportRow,
   type MonthlyAttendanceSummary,
+  type MonthlyDayCredit,
 } from './attendanceCalendar';
 import type { AttendancePolicy, Timesheet } from './types';
 
@@ -14,6 +15,7 @@ interface AttendanceExportInput {
   timesheets: Timesheet[];
   employees: Employee[];
   policies: AttendancePolicy[];
+  dayCredits?: MonthlyDayCredit[];
 }
 
 const ATTENDANCE_COLUMNS: ExcelColumn<AttendanceExportRow>[] = [
