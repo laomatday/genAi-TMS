@@ -47,6 +47,7 @@ type TestSheet = {
 beforeEach(() => {
   writer.sheets = undefined;
   writer.toFile.mockClear();
+  vi.stubGlobal('document', { documentElement: {} });
   vi.stubGlobal('getComputedStyle', () => ({
     getPropertyValue: (token: string) => token === '--brand-navy' ? '#002744'
       : token === '--color-on-dark' ? '#FFFFFF' : '#DDEEFF',
