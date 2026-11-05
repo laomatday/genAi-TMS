@@ -4,7 +4,7 @@ import { ADMIN_BULK_NOTE_PRESETS, TMS_LIMITS } from '@/shared/constants';
 import { ATTENDANCE_STATUS_LABELS, type AttendanceFilter } from '../constants';
 import { exportAttendanceExcel, exportPayrollExcel } from '../exportAttendance';
 import { formatClock, formatDate, formatExceptions, formatHours, formatStatus, monthRange } from '../formatters';
-import { closeAttendancePeriod, reviewAttendanceRequest, reviewAttendanceRequestsBulk } from '../adminService';
+import { closeAttendancePeriod, getMonthlyDayCredits, reviewAttendanceRequest, reviewAttendanceRequestsBulk } from '../adminService';
 import type { AdminActionRunner, AdminData, AttendanceRequest } from '../types';
 import { EmptyState, Pagination, SearchField } from './AdminCommon';
 
@@ -326,8 +326,8 @@ export default function AttendanceSection({
           <SearchField value={query} onChange={(value) => { setQuery(value); setPage(1); }} placeholder="Tên, mã nhân viên, địa điểm…" />
           <label className="admin-compact-field"><span>Tháng công</span><input type="month" value={month} onChange={(event) => { setPage(1); onMonthChange(event.target.value); }} /></label>
           {canExport ? <div className="admin-export-actions">
-            <button type="button" className="admin-secondary-button" disabled={busy || (!data.employees.some((employee) => employee.role !== 'Kiosk') && !data.timesheets.length)} onClick={() => void onRun(() => exportAttendanceExcel({ month, timesheets: data.timesheets, employees: data.employees, policies: data.policies }), 'Đã xuất báo cáo tổng hợp công và chi tiết đầy đủ tháng.', { refresh: false })}><span className="material-symbols-rounded">download</span>Báo cáo công tháng</button>
-            <button type="button" className="admin-secondary-button" disabled={busy || (!data.employees.some((employee) => employee.role !== 'Kiosk') && !data.timesheets.length)} onClick={() => void onRun(() => exportPayrollExcel({ month, timesheets: data.timesheets, employees: data.employees, policies: data.policies, closed: periodClosed }), 'Đã xuất payroll kèm số công từng nhân viên trong tháng.', { refresh: false })}><span className="material-symbols-rounded">request_quote</span>Payroll Excel</button>
+            <button type="button" className="admin-secondary-button" disabled={busy || (!data.employees.some((employee) => employee.role !== 'Kiosk') && !data.timesheets.length)} onClick={() => void onRun(async () => exportAttendanceExcel({ month, timesheets: data.timesheets, employees: data.employees, policies: data.policies, dayCredits: await getMonthlyDayCredits(month) }), 'Đã xuất báo cáo tổng hợp công và chi tiết đầy đủ tháng.', { refresh: false })}><span className="material-symbols-rounded">download</span>Báo cáo công tháng</button>
+            <button type="button" className="admin-secondary-button" disabled={busy || (!data.employees.some((employee) => employee.role !== 'Kiosk') && !data.timesheets.length)} onClick={() => void onRun(async () => exportPayrollExcel({ month, timesheets: data.timesheets, employees: data.employees, policies: data.policies, closed: periodClosed, dayCredits: await getMonthlyDayCredits(month) }), 'Đã xuất payroll kèm số công từng nhân viên trong tháng.', { refresh: false })}><span className="material-symbols-rounded">request_quote</span>Payroll Excel</button>
           </div> : null}
           <div className="admin-period-control">
             <span className={`admin-period-state ${periodClosed ? 'closed' : 'draft'}`}><span className="material-symbols-rounded">{periodClosed ? 'verified' : 'edit_calendar'}</span>{periodClosed ? 'Đã đóng kỳ' : 'Bản nháp'}</span>
