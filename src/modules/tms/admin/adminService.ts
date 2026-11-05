@@ -3,6 +3,7 @@ import { FunctionsHttpError } from '@supabase/supabase-js';
 import { resetTrustedDeviceAsAdmin } from '@/core/deviceBinding';
 import { TMS_DEFAULT_POLICY, TMS_DEFAULTS, TMS_LIMITS } from '@/shared/constants';
 import type { Employee } from '@/shared/types';
+import type { MonthlyDayCredit } from './attendanceCalendar';
 import type {
   AdminData,
   AttendancePolicy,
@@ -141,6 +142,66 @@ function attachWorkDates(requests: AttendanceRequest[], timesheets: Timesheet[])
     work_date: request.work_date || (request.timesheet_id ? dates.get(request.timesheet_id) : undefined) || request.from_date,
     origin: 'timesheet' as const,
   }));
+}
+
+/**
+ * Canonical daily work credits for Excel export. Unlike work_sessions,
+ * timesheets includes no-check-in approved leave and paid holiday placeholders.
+ * The RPC independently checks attendance.export + team.read_all and tenant.
+ * Never silently fall back to sessions when the RPC is missing or fails.
+ */
+export async function getMonthlyDayCredits(month: string): Promise<MonthlyDayCredit[]> {
+  const rows: MonthlyDayCredit[] = [];
+  let employeeCursor: string | null = null;
+  let dateCursor: string | null = null;
+  const seen = new Set<string>();
+  for (let page = 0; page < 1000; page += 1) {
+    const { data, error } = await supabase.rpc('workforce_export_day_credits', {
+      p_month: month,
+      p_cursor_employee_id: employeeCursor,
+      p_cursor_date: dateCursor,
+    });
+    if (error) throw new Error(`Không tải được số công chính thức của tháng ${month}: ${error.message}`);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('Backend trả dữ liệu công ngày không hợp lệ.');
+    }
+    const result = data as {
+      rows?: unknown;
+      has_more?: boolean;
+      next_cursor?: { employee_id?: string; work_date?: string } | null;
+    };
+    if (!Array.isArray(result.rows)) throw new Error('Báo cáo thiếu danh sách công ngày.');
+    for (const record of result.rows) {
+      if (!record || typeof record !== 'object') throw new Error('Bản ghi công ngày không hợp lệ.');
+      const item = record as Record<string, unknown>;
+      if (typeof item.employee_id !== 'string' || typeof item.work_date !== 'string'
+        || !/^\d{4}-\d{2}-\d{2}$/.test(item.work_date)) {
+        throw new Error('Dữ liệu định danh hoặc ngày công không hợp lệ.');
+      }
+      const raw = item.work_credit;
+      const credit = raw == null ? null : Number(raw);
+      if (credit !== null && (!Number.isFinite(credit) || credit < 0)) {
+        throw new Error('Giá trị ngày công trả về không hợp lệ.');
+      }
+      rows.push({
+        employee_id: item.employee_id,
+        work_date: item.work_date,
+        work_credit: credit,
+        status: typeof item.status === 'string' ? item.status : undefined,
+      });
+    }
+    if (!result.has_more) return rows;
+    const next = result.next_cursor;
+    if (!next?.employee_id || !next.work_date) {
+      throw new Error('Còn công ngày nhưng thiếu phân trang, không thể xuất báo cáo đầy đủ.');
+    }
+    const key = `${next.employee_id}:${next.work_date}`;
+    if (seen.has(key)) throw new Error('Cursor công ngày bị lặp, báo cáo có nguy cơ thiếu dữ liệu.');
+    seen.add(key);
+    employeeCursor = next.employee_id;
+    dateCursor = next.work_date;
+  }
+  throw new Error('Số trang công ngày vượt ngưỡng an toàn, chưa thể xuất báo cáo đầy đủ.');
 }
 
 /**
