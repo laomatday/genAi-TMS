@@ -1,49 +1,28 @@
 import { exportExcel, type ExcelColumn } from '@/core/utils/excel';
 import type { Employee } from '@/shared/types';
 import { formatClock, formatExceptions, formatStatus, scheduledMinutes } from './formatters';
+import { buildAttendanceExportRows, type AttendanceExportRow } from './attendanceCalendar';
 import type { AttendancePolicy, Timesheet } from './types';
 
-interface AttendanceExportRow {
-  timesheet: Timesheet;
-  employee?: Employee;
-  targetMinutes: number;
-  overtimeMinutes: number;
-}
-
 const ATTENDANCE_COLUMNS: ExcelColumn<AttendanceExportRow>[] = [
-  { header: 'Mã nhân viên', width: 16, value: (row) => row.timesheet.employee_id },
+  { header: 'Mã nhân viên', width: 16, value: (row) => row.employeeId },
   { header: 'Họ tên', width: 24, value: (row) => row.employee?.name || '' },
   { header: 'Phòng ban', width: 20, value: (row) => row.employee?.department || '' },
   { header: 'Chi nhánh', width: 16, value: (row) => row.employee?.center_id || '' },
-  { header: 'Ngày công', width: 16, format: 'yyyy-mm-dd', value: (row) => new Date(`${row.timesheet.work_date}T00:00:00`) },
-  { header: 'Giờ dự kiến', width: 18, value: (row) => `${formatClock(row.timesheet.expected_start)}–${formatClock(row.timesheet.expected_end)}` },
-  { header: 'Check-in', width: 15, value: (row) => formatClock(row.timesheet.actual_checkin) },
-  { header: 'Check-out', width: 15, value: (row) => formatClock(row.timesheet.actual_checkout) },
-  { header: 'Giờ công', width: 14, format: '0.00', value: (row) => row.timesheet.work_minutes / 60 },
-  { header: 'Giờ chuẩn', width: 14, format: '0.00', value: (row) => row.targetMinutes / 60 },
-  { header: 'Đi trễ (phút)', width: 17, value: (row) => row.timesheet.late_minutes },
-  { header: 'Về sớm (phút)', width: 17, value: (row) => row.timesheet.early_minutes },
-  { header: 'Tăng ca (phút)', width: 17, value: (row) => row.overtimeMinutes },
-  { header: 'Địa điểm', width: 18, value: (row) => row.timesheet.location_id || '' },
-  { header: 'Ngoại lệ', width: 28, value: (row) => formatExceptions(row.timesheet.exception_codes) },
-  { header: 'Trạng thái', width: 18, value: (row) => formatStatus(row.timesheet.status) },
-  { header: 'Nguồn dữ liệu', width: 17, value: (row) => row.timesheet.source },
+  { header: 'Ngày công', width: 16, format: 'yyyy-mm-dd', value: (row) => new Date(`${row.workDate}T00:00:00`) },
+  { header: 'Giờ dự kiến', width: 18, value: (row) => row.timesheet ? `${formatClock(row.timesheet.expected_start)}–${formatClock(row.timesheet.expected_end)}` : '' },
+  { header: 'Check-in', width: 15, value: (row) => row.timesheet ? formatClock(row.timesheet.actual_checkin) : '' },
+  { header: 'Check-out', width: 15, value: (row) => row.timesheet ? formatClock(row.timesheet.actual_checkout) : '' },
+  { header: 'Giờ công', width: 14, format: '0.00', value: (row) => row.timesheet ? (row.timesheet.work_minutes || 0) / 60 : null },
+  { header: 'Giờ chuẩn', width: 14, format: '0.00', value: (row) => row.timesheet ? (row.targetMinutes || 0) / 60 : null },
+  { header: 'Đi trễ (phút)', width: 17, value: (row) => row.timesheet ? row.timesheet.late_minutes : null },
+  { header: 'Về sớm (phút)', width: 17, value: (row) => row.timesheet ? row.timesheet.early_minutes : null },
+  { header: 'Tăng ca (phút)', width: 17, value: (row) => row.timesheet ? row.overtimeMinutes : null },
+  { header: 'Địa điểm', width: 18, value: (row) => row.timesheet?.location_id || '' },
+  { header: 'Ngoại lệ', width: 28, value: (row) => row.timesheet ? formatExceptions(row.timesheet.exception_codes) : '' },
+  { header: 'Trạng thái', width: 24, value: (row) => row.timesheet ? formatStatus(row.timesheet.status) : row.missingStatus || 'Chưa có dữ liệu' },
+  { header: 'Nguồn dữ liệu', width: 17, value: (row) => row.timesheet?.source || '' },
 ];
-
-function attendanceRows(input: { timesheets: Timesheet[]; employees: Employee[]; policies: AttendancePolicy[] }) {
-  const employees = new Map(input.employees.map((employee) => [employee.employee_id, employee]));
-  const policies = new Map(input.policies.map((policy) => [policy.id, policy]));
-  return input.timesheets.map((timesheet) => {
-    const policy = timesheet.policy_id ? policies.get(timesheet.policy_id) : undefined;
-    const targetMinutes = scheduledMinutes(timesheet, policy?.unpaid_break_minutes ?? 0);
-    return {
-      timesheet,
-      employee: employees.get(timesheet.employee_id),
-      targetMinutes,
-      overtimeMinutes: Math.max(0, timesheet.work_minutes - targetMinutes),
-    };
-  });
-}
 
 export function exportAttendanceExcel(input: {
   month: string;
@@ -55,7 +34,7 @@ export function exportAttendanceExcel(input: {
     filename: `bang-cong-${input.month}.xlsx`,
     sheetName: 'Bảng công',
     columns: ATTENDANCE_COLUMNS,
-    rows: attendanceRows(input),
+    rows: buildAttendanceExportRows(input),
   });
 }
 
