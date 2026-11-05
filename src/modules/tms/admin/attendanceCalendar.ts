@@ -15,11 +15,21 @@ export interface AttendanceExportRow {
   dayCredit?: number | null;
 }
 
+export interface MonthlyDayCredit {
+  employee_id: string;
+  work_date: string;
+  /** Canonical day amount from public.timesheets.work_credit. */
+  work_credit: number | null;
+  status?: string;
+}
+
 interface AttendanceCalendarInput {
   month: string;
   timesheets: Timesheet[];
   employees: Employee[];
   policies: AttendancePolicy[];
+  /** Supplied on export by the guarded backend RPC, includes no-session leave/holiday. */
+  dayCredits?: MonthlyDayCredit[];
 }
 
 function vietnamToday() {
@@ -53,6 +63,9 @@ export function buildAttendanceExportRows(input: AttendanceCalendarInput, today 
     .filter((employee) => employee.role !== 'Kiosk')
     .map((employee) => [employee.employee_id, employee]));
   const policies = new Map(input.policies.map((policy) => [policy.id, policy]));
+  const dailyCredits = new Map((input.dayCredits || [])
+    .filter((credit) => credit.work_date >= range.from && credit.work_date <= range.to)
+    .map((credit) => [`${credit.employee_id}:${credit.work_date}`, credit]));
   const sessionsByDay = new Map<string, Timesheet[]>();
 
   for (const timesheet of input.timesheets) {
@@ -66,15 +79,30 @@ export function buildAttendanceExportRows(input: AttendanceCalendarInput, today 
   // Include session owners not present in the current directory snapshot too.
   const employeeIds = new Set([...people.keys(), ...input.timesheets
     .filter((row) => row.work_date >= range.from && row.work_date <= range.to)
-    .map((row) => row.employee_id)]);
+    .map((row) => row.employee_id), ...[...dailyCredits.values()].map((row) => row.employee_id)]);
   const rows: AttendanceExportRow[] = [];
   for (const employeeId of [...employeeIds].sort((a, b) => a.localeCompare(b))) {
     const employee = people.get(employeeId);
     for (let day = 1; day <= daysInMonth; day += 1) {
       const workDate = `${input.month}-${String(day).padStart(2, '0')}`;
-      const sessions = sessionsByDay.get(`${employeeId}:${workDate}`) || [];
+      const key = `${employeeId}:${workDate}`;
+      const sessions = sessionsByDay.get(key) || [];
+      const canonical = dailyCredits.get(key);
+      const rawCanonical = canonical?.work_credit;
+      const canonicalDayCredit = canonical && rawCanonical != null && Number.isFinite(Number(rawCanonical)) && Number(rawCanonical) >= 0
+        ? Number(rawCanonical)
+        : null;
       if (!sessions.length) {
-        rows.push({ employeeId, workDate, employee, missingStatus: missingDayStatus(employee, workDate, today) });
+        if (canonical) {
+          rows.push({
+            employeeId, workDate, employee, dayCredit: canonicalDayCredit,
+            missingStatus: canonicalDayCredit === null
+              ? 'Thiếu số công bảng ngày'
+              : canonicalDayCredit > 0 ? 'Có công, không có ca (nghỉ/lễ theo hệ thống)' : 'Có bảng công ngày, không có ca',
+          });
+        } else {
+          rows.push({ employeeId, workDate, employee, missingStatus: missingDayStatus(employee, workDate, today) });
+        }
         continue;
       }
       for (const [index, timesheet] of sessions.entries()) {
@@ -87,7 +115,7 @@ export function buildAttendanceExportRows(input: AttendanceCalendarInput, today 
         rows.push({
           employeeId, workDate, employee, timesheet, targetMinutes,
           overtimeMinutes: Math.max(0, (timesheet.work_minutes || 0) - targetMinutes),
-          dayCredit: index === 0 ? dayCredit : undefined,
+          dayCredit: index === 0 ? (canonical ? canonicalDayCredit : dayCredit) : undefined,
         });
       }
     }
@@ -156,9 +184,18 @@ export function summarizeAttendanceMonth(
       totals.set(row.employeeId, summary);
     }
     if (!row.timesheet) {
-      if (row.missingStatus === 'Chưa có dữ liệu') summary.missingDays += 1;
-      if (row.missingStatus === 'Chưa đến ngày') summary.futureDays += 1;
-      if (row.missingStatus === 'Ngoài thời gian làm việc') summary.outsideEmploymentDays += 1;
+      const index = Number(row.workDate.slice(-2)) - 1;
+      if (row.dayCredit === null) {
+        summary.unknownCreditDays += 1;
+        summary.dailyCredits[index] = '?';
+      } else if (typeof row.dayCredit === 'number') {
+        summary.workDays += row.dayCredit;
+        summary.dailyCredits[index] = row.dayCredit;
+      } else {
+        if (row.missingStatus === 'Chưa có dữ liệu') summary.missingDays += 1;
+        if (row.missingStatus === 'Chưa đến ngày') summary.futureDays += 1;
+        if (row.missingStatus === 'Ngoài thời gian làm việc') summary.outsideEmploymentDays += 1;
+      }
       continue;
     }
     const session = row.timesheet;
