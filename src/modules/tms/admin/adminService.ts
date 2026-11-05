@@ -23,6 +23,7 @@ import {
   clearWorkforceResourceCache,
   queryWorkforce,
   queryWorkforceRows,
+  ResourcePaginationLimitError,
   type WorkforceResource,
 } from '@/modules/tms/services/workforceApi';
 
@@ -143,6 +144,33 @@ function attachWorkDates(requests: AttendanceRequest[], timesheets: Timesheet[])
 }
 
 /**
+ * Load the complete date range. If more than the maximum 20 pages exist,
+ * split the period and fetch each half; never silently export partial data.
+ */
+async function loadCompleteAdminSessions(range: AttendanceRange, scope: string): Promise<WorkforceResource[]> {
+  try {
+    return await queryWorkforceRows('admin.sessions', { from: range.from, to: range.to }, {
+      scope,
+      maxPages: TMS_LIMITS.RESOURCE_MAX_PAGES,
+      requireComplete: true,
+    });
+  } catch (error) {
+    if (!(error instanceof ResourcePaginationLimitError) || range.from >= range.to) throw error;
+    const dayMs = 86_400_000;
+    const start = Date.parse(`${range.from}T00:00:00Z`);
+    const end = Date.parse(`${range.to}T00:00:00Z`);
+    const midpoint = start + Math.floor((end - start) / (2 * dayMs)) * dayMs;
+    const leftTo = new Date(midpoint).toISOString().slice(0, 10);
+    const rightFrom = new Date(midpoint + dayMs).toISOString().slice(0, 10);
+    const [left, right] = await Promise.all([
+      loadCompleteAdminSessions({ from: range.from, to: leftTo }, scope),
+      loadCompleteAdminSessions({ from: rightFrom, to: range.to }, scope),
+    ]);
+    return [...left, ...right];
+  }
+}
+
+/**
  * Identity and capabilities are taken from the caller rather than re-fetched.
  * Both come from `bootstrap`, which sign-in has already called and the Control
  * Center route has already resolved; fetching it a third time here cost a full
@@ -156,8 +184,8 @@ export async function getAdminData(
   const scope = `${viewer.user.organization_id || 'unassigned'}:${viewer.user.employee_id || 'admin'}`;
   const [config, employeeRows, sessionRows, pendingRows, monthlyRows, deviceRows, auditRows, assignmentRows] = await Promise.all([
     queryWorkforce('admin.config', {}, { scope, ttlSeconds: TMS_LIMITS.RESOURCE_CACHE_MAX_SECONDS }),
-    queryWorkforceRows('admin.people', {}, { scope }),
-    queryWorkforceRows('admin.sessions', { from: range.from, to: range.to }, { scope }),
+    queryWorkforceRows('admin.people', {}, { scope, maxPages: TMS_LIMITS.RESOURCE_MAX_PAGES, requireComplete: true }),
+    loadCompleteAdminSessions(range, scope),
     queryWorkforceRows('admin.requests', { state: 'pending' }, { scope }),
     queryWorkforceRows('admin.requests', { from: range.from, to: range.to }, { scope }),
     queryWorkforceRows('admin.devices', {}, { scope }),
