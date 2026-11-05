@@ -105,18 +105,26 @@ function excelCell(value: ExcelValue, column: ExcelColumn<unknown>): Cell {
   return { ...shared, value: String(value), type: String } as CellObject;
 }
 
-export async function exportExcel<Row>({
-  filename,
+/** Sheet definition ready for the multi-tab Excel writer. */
+export interface ExcelSheet {
+  data: SheetData;
+  sheet: string;
+  columns: Array<{ width: number }>;
+  stickyRowsCount: number;
+  showGridLines: boolean;
+  zoomScale: number;
+}
+
+/** Build once so single-sheet and multi-sheet files use identical brand styling. */
+export function createExcelSheet<Row>({
   sheetName,
   columns,
   rows,
 }: {
-  filename: string;
   sheetName: string;
   columns: ExcelColumn<Row>[];
   rows: Row[];
-}) {
-  const { default: writeXlsxFile } = await import('write-excel-file/browser');
+}): ExcelSheet {
   const header: Cell[] = columns.map((column) => ({
     value: column.header,
     type: String,
@@ -131,13 +139,45 @@ export async function exportExcel<Row>({
     header,
     ...rows.map((row) => columns.map((column) => excelCell(column.value(row), column as ExcelColumn<unknown>))),
   ];
-  await writeXlsxFile(data, {
+  return {
+    data,
     sheet: sheetName.slice(0, 31),
     columns: columns.map((column) => ({ width: column.width || 16 })),
     stickyRowsCount: 1,
     showGridLines: false,
     zoomScale: 90,
-  }).toFile(filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`);
+  };
+}
+
+/** Generate one Excel workbook with multiple independently formatted report tabs. */
+export async function exportExcelWorkbook({
+  filename,
+  sheets,
+}: {
+  filename: string;
+  sheets: ExcelSheet[];
+}) {
+  if (sheets.length === 0) throw new Error('Phải có ít nhất một sheet để xuất Excel.');
+  const names = sheets.map((sheet) => sheet.sheet);
+  if (new Set(names).size !== names.length) throw new Error('Tên các sheet Excel bị trùng.');
+  const { default: writeXlsxFile } = await import('write-excel-file/browser');
+  await writeXlsxFile(sheets).toFile(filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`);
+}
+
+export async function exportExcel<Row>({
+  filename,
+  sheetName,
+  columns,
+  rows,
+}: {
+  filename: string;
+  sheetName: string;
+  columns: ExcelColumn<Row>[];
+  rows: Row[];
+}) {
+  const { default: writeXlsxFile } = await import('write-excel-file/browser');
+  const { data, ...options } = createExcelSheet({ sheetName, columns, rows });
+  await writeXlsxFile(data, options).toFile(filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`);
 }
 
 export async function readExcelRows(file: File): Promise<ImportedExcelRow[]> {
