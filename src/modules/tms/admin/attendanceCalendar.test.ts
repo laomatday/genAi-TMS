@@ -163,3 +163,41 @@ describe('monthly employee work-day report', () => {
     expect(summary.missingDays).toBe(2); // 3rd and 6th.
   });
 });
+
+describe('canonical timesheet ledger including non-session days', () => {
+  it('counts approved paid leave/holiday placeholders without check-in sessions', () => {
+    const rows = buildAttendanceExportRows({
+      month: '2026-11',
+      employees: [employee('E1')],
+      timesheets: [session('E1', '2026-11-05')],
+      policies: [],
+      dayCredits: [
+        { employee_id: 'E1', work_date: '2026-11-03', work_credit: 1, status: 'SCHEDULED' },
+        { employee_id: 'E1', work_date: '2026-11-04', work_credit: 1, status: 'SCHEDULED' },
+        { employee_id: 'E1', work_date: '2026-11-05', work_credit: 0.5, status: 'COMPLETE' },
+        { employee_id: 'E1', work_date: '2026-11-06', work_credit: 0, status: 'SCHEDULED' },
+      ],
+    }, '2026-12-01');
+    const summary = summarizeAttendanceMonth('2026-11', rows)[0]!;
+    expect(summary.workDays).toBe(2.5);
+    expect(summary.recordedDays).toBe(1);
+    expect(summary.missingDays).toBe(26);
+    expect(summary.dailyCredits.slice(2, 6)).toEqual([1, 1, 0.5, 0]);
+    expect(rows.find((row) => row.workDate === '2026-11-03')?.missingStatus)
+      .toContain('Có công, không có ca');
+    expect(rows.find((row) => row.workDate === '2026-11-05')?.dayCredit).toBe(0.5);
+  });
+
+  it('does not count canonical daily credit twice when several shifts share the date', () => {
+    const rows = buildAttendanceExportRows({
+      month: '2026-11',
+      employees: [employee('E1')],
+      timesheets: [session('E1', '2026-11-05', 'am'), session('E1', '2026-11-05', 'pm')],
+      policies: [],
+      dayCredits: [{ employee_id: 'E1', work_date: '2026-11-05', work_credit: 1 }],
+    }, '2026-12-01');
+    expect(summarizeAttendanceMonth('2026-11', rows)[0]!.workDays).toBe(1);
+    expect(rows.filter((row) => row.workDate === '2026-11-05').map((row) => row.dayCredit))
+      .toEqual([1, undefined]);
+  });
+});
