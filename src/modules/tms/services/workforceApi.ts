@@ -193,11 +193,19 @@ export async function queryWorkforce<T extends WorkforceResource = WorkforceReso
   }
 }
 
+/** Signals that the requested collection was not fully read, so callers can split a date range. */
+export class ResourcePaginationLimitError extends Error {
+  constructor(resource: string, maxPages: number) {
+    super(`Không thể tải đủ dữ liệu ${resource} trong giới hạn ${maxPages} trang.`);
+    this.name = 'ResourcePaginationLimitError';
+  }
+}
+
 /** Load a bounded keyset collection without ever falling back to offsets. */
 export async function queryWorkforceRows<T extends WorkforceResource = WorkforceResource>(
   resource: string,
   args: Record<string, unknown> = {},
-  options: QueryOptions & { maxPages?: number } = {},
+  options: QueryOptions & { maxPages?: number; requireComplete?: boolean } = {},
 ): Promise<T[]> {
   const rows: T[] = [];
   let cursor: Record<string, unknown> | null = null;
@@ -215,12 +223,17 @@ export async function queryWorkforceRows<T extends WorkforceResource = Workforce
     );
     if (!Array.isArray(response.rows)) throw new Error(`Resource ${resource} không có danh sách hợp lệ.`);
     rows.push(...response.rows);
-    if (!response.has_more || !response.next_cursor) break;
+    if (!response.has_more) return rows;
+    if (!response.next_cursor) {
+      if (options.requireComplete) throw new Error(`Resource ${resource} còn dữ liệu nhưng thiếu next_cursor.`);
+      break;
+    }
     const serializedCursor = JSON.stringify(stableValue(response.next_cursor));
     if (seenCursors.has(serializedCursor)) throw new Error(`Cursor ${resource} không tiến về phía trước.`);
     seenCursors.add(serializedCursor);
     cursor = response.next_cursor;
   }
+  if (options.requireComplete && cursor) throw new ResourcePaginationLimitError(resource, maxPages);
   return rows;
 }
 
