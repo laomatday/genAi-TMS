@@ -46,7 +46,7 @@ describe('monthly attendance Excel calendar', () => {
     }, '2027-01-01');
     expect(rows).toHaveLength(days);
     expect(rows[0]?.workDate).toBe(`${month}-01`);
-    expect(rows.at(-1)?.workDate).toBe(`${month}-${String(days).padStart(2, '0')}`);
+    expect(rows[rows.length - 1]?.workDate).toBe(`${month}-${String(days).padStart(2, '0')}`);
     expect(rows.every((row) => !row.timesheet && row.missingStatus === 'Chưa có dữ liệu')).toBe(true);
   });
 
@@ -97,6 +97,6 @@ describe('monthly attendance Excel calendar', () => {
     }, '2026-12-01');
     expect(rows).toHaveLength(30);
     expect(rows.every((row) => row.employeeId === 'LEGACY')).toBe(true);
-    expect(rows.at(-1)?.timesheet?.work_date).toBe('2026-11-30');
+    expect(rows[rows.length - 1]?.timesheet?.work_date).toBe('2026-11-30');
   });
 });
