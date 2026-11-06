@@ -64,11 +64,13 @@ export default function AccountsSection({
   data,
   currentEmployeeId,
   busy,
+  devicesLoading,
   onRun,
 }: {
   data: AdminData;
   currentEmployeeId: string;
   busy: boolean;
+  devicesLoading: boolean;
   onRun: AdminActionRunner;
 }) {
   const [query, setQuery] = useState('');
@@ -335,7 +337,7 @@ export default function AccountsSection({
                       return <span className="admin-cell-stack"><strong>{branch.center_name}</strong>{branch.city ? <small>{branch.city}</small> : null}</span>;
                     })()}
                   </span>
-                  <span data-label="Thiết bị"><i className={`admin-dot ${device ? 'online' : ''}`} aria-hidden="true" />{device ? 'Đã kích hoạt' : 'Chưa có'}</span>
+                  <span data-label="Thiết bị"><i className={`admin-dot ${device ? 'online' : ''}`} aria-hidden="true" />{devicesLoading ? 'Đang tải…' : device ? 'Đã kích hoạt' : 'Chưa có'}</span>
                   <span data-label="Trạng thái"><b className={`admin-status account-${item.status.toLowerCase()}`}>{item.status === 'Active' ? 'Hoạt động' : item.auth_user_id || item.uid ? 'Tạm khóa' : 'Đã xóa đăng nhập'}</b></span>
                 </button>
               );
@@ -439,7 +441,7 @@ export default function AccountsSection({
 
           {mode === 'update' && employee.role !== 'Admin' ? (
             <section className="admin-device-card">
-              <div><span className="material-symbols-rounded">devices</span><span><strong>Thiết bị tin cậy</strong><small>{activeDevice ? `${activeDevice.device_label || 'Thiết bị'} · gần nhất ${formatDateTime(activeDevice.last_seen_at)}` : 'Chưa có thiết bị đang hoạt động'}</small></span></div>
+              <div><span className="material-symbols-rounded">devices</span><span><strong>Thiết bị tin cậy</strong><small>{devicesLoading ? 'Đang tải…' : activeDevice ? `${activeDevice.device_label || 'Thiết bị'} · gần nhất ${formatDateTime(activeDevice.last_seen_at)}` : 'Chưa có thiết bị đang hoạt động'}</small></span></div>
               {activeDevice ? <button type="button" onClick={() => setResetReason('')}>Thu hồi thiết bị</button> : null}
             </section>
           ) : null}
